@@ -9,14 +9,14 @@ podman run --rm \
   -v "$APP_DIR":/app:Z \
   -w /app \
   docker.io/library/node:20-alpine \
-  npm install --production --no-audit --no-fund
+  npm install --no-audit --no-fund
 
 echo "=== 2. Generate Prisma Client ==="
 podman run --rm \
   -v "$APP_DIR":/app:Z \
   -w /app \
   docker.io/library/node:20-alpine \
-  npx prisma generate
+  npx prisma generate --schema=prisma/schema
 
 echo "=== 3. Restart Service daimi-api ==="
 systemctl --user restart daimi-api.service
