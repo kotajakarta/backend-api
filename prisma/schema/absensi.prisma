@@ -1,0 +1,17 @@
+model TipeKegiatan {
+  id   String @id @default(uuid())
+  name String
+
+  @@map("tipe_kegiatan")
+  @@schema("absensi")
+}
+
+model LogKehadiran {
+  id        String   @id @default(uuid())
+  studentId String   @map("student_id")
+  student   Student  @relation(fields: [studentId], references: [id])
+  timestamp DateTime @default(now())
+
+  @@map("log_kehadiran")
+  @@schema("absensi")
+}

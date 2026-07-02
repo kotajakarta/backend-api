@@ -1,0 +1,22 @@
+[Unit]
+Description=Backend API Edaimi
+After=global_net.network
+
+[Container]
+Image=docker.io/myrepo/backend-api:latest
+ContainerName=edaimi-api
+
+# Menghubungkan ke PostgreSQL Eksternal Anda
+Environment=DB_URL=postgresql://aithendi:Hendi_2026%3F%3F@0.tcp.ap.ngrok.io:10946/edaimi
+
+# Membuka port backend agar bisa diakses oleh Frontend/Public
+PublishPort=8080:8080
+
+# Menggunakan jaringan yang sudah ada
+Network=global_net
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

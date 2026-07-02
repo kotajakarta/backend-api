@@ -1,0 +1,158 @@
+enum UserScope {
+  GLOBAL
+  WILAYAH
+  CABANG
+
+  @@schema("core")
+}
+
+enum UserDivisi {
+  FORMAL
+  PESANTREN
+  ALL
+
+  @@schema("core")
+}
+
+enum StatusPool {
+  TERSEDIA
+  AKTIF_CABANG
+  LULUS
+  MUTASI
+  DROP_OUT
+
+  @@schema("core")
+}
+
+model Wilayah {
+  id       String    @id @default(uuid())
+  name     String
+  cabangs  Cabang[]
+  users    User[]
+  students Student[]
+  staff    Staff[]
+  kelasDaimi KelasDaimi[]
+
+  @@map("wilayah")
+  @@schema("core")
+}
+
+model Cabang {
+  id                String              @id @default(uuid())
+  name              String
+  wilayahId         String?             @map("wilayah_id")
+  wilayah           Wilayah?            @relation(fields: [wilayahId], references: [id], onDelete: SetNull)
+  users             User[]
+  students          Student[]
+  staff             Staff[]
+  kelas             Kelas[]
+  riwayatPendidikan RiwayatPendidikan[]
+  kelasDaimi        KelasDaimi[]
+
+  @@map("cabang")
+  @@schema("core")
+}
+
+model User {
+  id        String     @id @default(uuid())
+  username  String     @unique
+  password  String
+  scope     UserScope
+  divisi    UserDivisi
+  wilayahId String?    @map("wilayah_id")
+  wilayah   Wilayah?   @relation(fields: [wilayahId], references: [id], onDelete: SetNull)
+  cabangId  String?    @map("cabang_id")
+  cabang    Cabang?    @relation(fields: [cabangId], references: [id], onDelete: SetNull)
+
+  @@map("users")
+  @@schema("core")
+}
+
+model Biodata {
+  id                    String    @id @default(uuid())
+  nik                   String?   @unique
+  nisLokal              String?   @map("nis_lokal")
+  noGlodemy             String?   @map("no_glodemy")
+  fullName              String    @map("full_name")
+  tempatLahir           String?   @map("tempat_lahir")
+  tanggalLahir          DateTime? @map("tanggal_lahir")
+  jenisKelamin          String?   @map("jenis_kelamin")
+  kewarganegaraan       String?   @map("kewarganegaraan")
+  
+  namaAyah              String?   @map("nama_ayah")
+  statusHidupAyah       String?   @map("status_hidup_ayah")
+  pekerjaanAyah         String?   @map("pekerjaan_ayah")
+  pendidikanAyah        String?   @map("pendidikan_ayah")
+
+  namaIbu               String?   @map("nama_ibu")
+  statusHidupIbu        String?   @map("status_hidup_ibu")
+  pekerjaanIbu          String?   @map("pekerjaan_ibu")
+  pendidikanIbu         String?   @map("pendidikan_ibu")
+  
+  address               String?
+  phone                 String?
+
+  kontakDaruratNama     String?   @map("kontak_darurat_nama")
+  kontakDaruratTelp     String?   @map("kontak_darurat_telp")
+  kontakDaruratHubungan String?   @map("kontak_darurat_hubungan")
+
+  fotoBase64            String?   @map("foto_base64")
+  ijazahBase64          String?   @map("ijazah_base64")
+  kkBase64              String?   @map("kk_base64")
+
+  student               Student?
+
+  @@map("biodata")
+  @@schema("core")
+}
+
+model Student {
+  id                String              @id @default(uuid())
+  biodataId         String              @unique @map("biodata_id")
+  biodata           Biodata             @relation(fields: [biodataId], references: [id])
+  wilayahId         String?             @map("wilayah_id")
+  wilayah           Wilayah?            @relation(fields: [wilayahId], references: [id], onDelete: SetNull)
+  cabangId          String?             @map("cabang_id")
+  cabang            Cabang?             @relation(fields: [cabangId], references: [id], onDelete: SetNull)
+  statusPool        StatusPool          @default(TERSEDIA) @map("status_pool")
+  logKehadiran      LogKehadiran[]
+  riwayatPendidikan RiwayatPendidikan[]
+  siswaFormal       SiswaFormal?
+  dataDaimi         DataDaimi?
+
+  @@map("students")
+  @@schema("core")
+}
+
+model RiwayatPendidikan {
+  id            String    @id @default(uuid())
+  studentId     String    @map("student_id")
+  student       Student   @relation(fields: [studentId], references: [id])
+  cabangId      String?   @map("cabang_id")
+  cabang        Cabang?   @relation(fields: [cabangId], references: [id], onDelete: SetNull)
+  tanggalMasuk  DateTime  @map("tanggal_masuk")
+  tanggalKeluar DateTime? @map("tanggal_keluar")
+  statusAkhir   String?   @map("status_akhir")
+  catatan       String?
+
+  @@map("riwayat_pendidikan")
+  @@schema("core")
+}
+
+model Staff {
+  id         String     @id @default(uuid())
+  name       String
+  position   String
+  wilayahId  String?    @map("wilayah_id")
+  wilayah    Wilayah?   @relation(fields: [wilayahId], references: [id], onDelete: SetNull)
+  cabangId   String?    @map("cabang_id")
+  cabang     Cabang?    @relation(fields: [cabangId], references: [id], onDelete: SetNull)
+  grupDaimiId String?   @map("grup_daimi_id")
+  grupDaimi   GrupDaimi? @relation(fields: [grupDaimiId], references: [id])
+  ifadahUrl  String?    @map("ifadah_url")
+  ktpUrl     String?    @map("ktp_url")
+  statusPool StatusPool @default(TERSEDIA) @map("status_pool")
+
+  @@map("staff")
+  @@schema("core")
+}
