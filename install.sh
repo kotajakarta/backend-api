@@ -18,10 +18,18 @@ podman run --rm \
   docker.io/library/node:20-alpine \
   npx prisma generate --schema=prisma/schema
 
-echo "=== 3. Restart Service daimi-api ==="
+echo "=== 3. Membangun Kode Produksi (Build JS) ==="
+podman run --rm \
+  -v "$APP_DIR":/app:Z \
+  -w /app \
+  docker.io/library/node:20-alpine \
+  npm run build
+
+echo "=== 4. Restart Service daimi-api ==="
+systemctl --user daemon-reload
 systemctl --user restart daimi-api.service
 
-echo "=== 4. Status Service ==="
+echo "=== 5. Status Service ==="
 systemctl --user status daimi-api.service
 
 echo "Setup & Instalasi Selesai!"
