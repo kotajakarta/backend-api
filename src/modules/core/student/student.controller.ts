@@ -13,6 +13,12 @@ export class StudentController {
     return this.studentService.getStudents(req.user);
   }
 
+  @Get('export/detail')
+  @UseGuards(AccessControlGuard)
+  exportStudentDetail(@Request() req: any) {
+    return this.studentService.exportStudentDetail(req.user);
+  }
+
   @Post()
   @UseGuards(AccessControlGuard)
   createStudent(@Request() req: any, @Body() data: any) {

@@ -430,6 +430,38 @@ export class StudentService {
     });
   }
 
+  async exportStudentDetail(user: any) {
+    const { scope, wilayahId, cabangId } = user;
+    
+    let whereClause = {};
+
+    if (scope === 'WILAYAH' && wilayahId) {
+      whereClause = { wilayahId };
+    } else if (scope === 'CABANG' && cabangId) {
+      whereClause = { cabangId };
+    }
+
+    return this.prisma.student.findMany({
+      where: whereClause,
+      include: {
+        biodata: true,
+        wilayah: true,
+        cabang: true,
+        siswaFormal: {
+          include: {
+            kelas: true,
+          }
+        },
+        dataDaimi: {
+          include: {
+            kelas: true,
+            grup: true,
+          }
+        }
+      },
+    });
+  }
+
   async getPoolStudents(user: any) {
     const { scope, wilayahId } = user;
     
