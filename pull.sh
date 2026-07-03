@@ -6,9 +6,9 @@ echo "=== 1. Menarik Kode Terbaru dari GitHub ==="
 git pull origin main
 
 echo "=== 2. Regenerasi Prisma Client Lokal ==="
-npx prisma generate --schema=prisma/schema
+npx prisma generate
 
 echo "=== 3. Menjalankan Migrasi Database Lokal ==="
-npx prisma migrate dev --schema=prisma/schema
+npx prisma migrate dev
 
 echo "Sinkronisasi Selesai! Aplikasi Anda siap digunakan."

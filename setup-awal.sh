@@ -16,7 +16,7 @@ podman run --rm \
   -v "$APP_DIR":/app:Z \
   -w /app \
   docker.io/library/node:20-alpine \
-  npx prisma generate --schema=prisma/schema
+  npx prisma generate
 
 echo "=== 3. Membangun Kode Produksi (Build JS) ==="
 podman run --rm \
