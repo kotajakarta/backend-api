@@ -3,7 +3,20 @@ import { Reflector } from '@nestjs/core';
 import jwt from 'jsonwebtoken';
 import { PrismaService } from '../prisma/prisma.service.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-pusdatin-key';
+/**
+ * Enterprise Access Control Guard.
+ * - Validates JWT token with issuer/audience verification.
+ * - Checks user existence in database (session validity).
+ * - Enforces role-based access control (Scope + Divisi).
+ * - No fallback secret — fails safely if JWT_SECRET is missing.
+ */
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
+}
+
+const JWT_ISSUER = 'edaimi-backend-api';
+const JWT_AUDIENCE = 'edaimi-clients';
 
 @Injectable()
 export class AccessControlGuard implements CanActivate {
@@ -23,7 +36,10 @@ export class AccessControlGuard implements CanActivate {
     const token = authHeader.split(' ')[1];
 
     try {
-      const payload = jwt.verify(token, JWT_SECRET) as any;
+      const payload = jwt.verify(token, JWT_SECRET as string, {
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }) as any;
       
       const user = await this.prisma.user.findUnique({ where: { id: payload.id } });
       if (!user) {
@@ -52,10 +68,17 @@ export class AccessControlGuard implements CanActivate {
 
       return true;
     } catch (error: any) {
-      console.error('AccessControlGuard error:', error.message || error);
+      // Log the error internally with request ID for tracing
+      console.error(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'AUTH_ERROR',
+        requestId: req.requestId || 'N/A',
+        ip: req.ip || req.socket?.remoteAddress || 'unknown',
+        error: error.message || 'Unknown auth error',
+      }));
+
       if (error instanceof ForbiddenException || error instanceof UnauthorizedException) throw error;
-      throw new UnauthorizedException('Invalid token');
+      throw new UnauthorizedException('Invalid or expired token');
     }
   }
 }
-
