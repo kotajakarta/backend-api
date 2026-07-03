@@ -99,12 +99,16 @@ async function bootstrap() {
   );
 
   // ════════════════════════════════════════════════════════════════
-  //  Swagger Documentation (Development Only)
-  //  In production, docs endpoint returns 404 to prevent API enumeration.
+  //  Swagger Documentation
+  //  Can be explicitly enabled/disabled via ENABLE_SWAGGER in .env
+  //  Defaults to enabled in development, disabled in production.
   // ════════════════════════════════════════════════════════════════
   const isProduction = process.env.NODE_ENV === 'production';
+  const enableSwagger = process.env.ENABLE_SWAGGER 
+    ? process.env.ENABLE_SWAGGER === 'true'
+    : !isProduction;
 
-  if (!isProduction) {
+  if (enableSwagger) {
     const config = new DocumentBuilder()
       .setTitle('Edaimi Backend API')
       .setDescription(
@@ -124,7 +128,7 @@ async function bootstrap() {
 
   console.log(`🚀 Backend API Gateway is running on http://0.0.0.0:${port}`);
   console.log(`🛡️  Security: Helmet, Rate Limiting, CORS, Audit Logging — ACTIVE`);
-  if (!isProduction) {
+  if (enableSwagger) {
     console.log(`📖 Swagger Docs: http://localhost:${port}/${apiPrefix}/docs`);
   }
   console.log(`❤️  Health Check: http://localhost:${port}/${apiPrefix}/health`);
