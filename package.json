@@ -8,9 +8,6 @@
     "build": "tsc",
     "start": "node dist/main.js"
   },
-  "prisma": {
-    "schema": "prisma/schema"
-  },
   "dependencies": {
     "@nestjs/common": "^11.1.27",
     "@nestjs/core": "^11.1.27",

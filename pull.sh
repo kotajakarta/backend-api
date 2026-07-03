@@ -9,6 +9,6 @@ echo "=== 2. Regenerasi Prisma Client Lokal ==="
 npx prisma generate --schema=prisma/schema
 
 echo "=== 3. Menjalankan Migrasi Database Lokal ==="
-npx prisma migrate dev
+npx prisma migrate dev --schema=prisma/schema
 
 echo "Sinkronisasi Selesai! Aplikasi Anda siap digunakan."
