@@ -1,7 +1,6 @@
 // Base configuration
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["multiSchema", "prismaSchemaFolder"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
