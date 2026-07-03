@@ -52,13 +52,20 @@ CORS_ORIGINS="https://daimi-sekolah.yts.sch.id,https://daimi-pesantren.yts.sch.i
 
 ## 3. Alur Kerja Perubahan Skema Database (Pesantren)
 
-Tabel-tabel pesantren Anda diisolasi secara aman di dalam skema `pesantren` PostgreSQL.
+Tabel-tabel pesantren Anda diisolasi secara aman di dalam skema `pesantren` PostgreSQL. Karena `backend-api` merupakan repositori bersama, Anda **wajib** mengikuti alur kerja berikut untuk mencegah kerusakan skema atau konflik.
 
-1. **Menambah Tabel/Kolom**:
-   Edit hanya file skema milik Anda di `backend-api`:
-   `backend-api/prisma/schema/pesantren.prisma`
-2. **Deklarasikan Skema**:
-   Pastikan setiap model baru yang Anda buat memiliki anotasi skema `pesantren`:
+### A. Jika Anda INGIN Mengubah/Menambah Skema
+1. **Perbarui Repositori Lokal Terlebih Dahulu**:
+   Sebelum mengubah apapun, pastikan kode lokal Anda *up-to-date*.
+   ```bash
+   cd backend-api
+   git pull origin main
+   npm install
+   npx prisma generate
+   ```
+2. **Ubah File Skema**:
+   Edit **hanya** file skema milik Anda: `prisma/schema/pesantren.prisma`.
+   Setiap tabel baru **wajib** menggunakan tag `@@schema("pesantren")`.
    ```prisma
    model DataHafalan {
      id       String @id @default(uuid())
@@ -67,11 +74,33 @@ Tabel-tabel pesantren Anda diisolasi secara aman di dalam skema `pesantren` Post
      @@schema("pesantren")
    }
    ```
-3. **Migrasi**:
-   Jalankan migrasi di folder `backend-api` untuk memperbarui database:
+3. **Buat Migrasi Lokal**:
+   Jalankan perintah ini untuk membuat file migrasi dan memperbarui database lokal:
    ```bash
-   npx prisma migrate dev --name nama_migrasi
+   npx prisma migrate dev --name deskripsi_singkat_perubahan
    ```
-4. **Git Push**:
-   Commit dan push perubahan skema Anda ke repositori bersama.
-   *Tip: Jika tim sekolah melakukan perubahan skema, Anda cukup melakukan `git pull` lalu jalankan `npx prisma generate` dan `npx prisma migrate dev` untuk menyinkronkan database lokal Anda.*
+4. **Push ke GitHub**:
+   Kirimkan hasil migrasi Anda agar tim lain (seperti tim Sekolah) bisa mendapatkan perubahannya.
+   ```bash
+   ./push.sh
+   ```
+
+### B. Jika Tim Lain (Sekolah) Telah Mengubah Skema
+Saat tim lain menambahkan tabel/kolom, aplikasi Anda mungkin akan tertinggal. Lakukan langkah sinkronisasi ini:
+1. **Tarik Perubahan Terbaru**:
+   ```bash
+   cd backend-api
+   git pull origin main
+   ```
+2. **Sinkronkan Dependensi & Prisma**:
+   Sangat penting menjalankan perintah berikut agar `Prisma Client` mengenali kolom/tabel baru dari tim lain.
+   ```bash
+   npm install
+   npx prisma generate
+   ```
+3. **Terapkan Migrasi ke Database Lokal Anda**:
+   ```bash
+   npx prisma migrate dev
+   ```
+4. **Restart Backend**:
+   Jalankan ulang `./runlocal.sh` untuk menerapkan perubahan skema.
