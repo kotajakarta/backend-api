@@ -14,7 +14,8 @@ export class StudentService {
       address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
       fotoBase64, ijazahBase64, kkBase64,
-      wilayahId, cabangId, tanggalMasuk 
+      wilayahId, cabangId, tanggalMasuk,
+      jenisSiswa, grupDaimi
     } = data;
     
     // determine initial pool status
@@ -23,7 +24,7 @@ export class StudentService {
     return this.prisma.$transaction(async (tx) => {
       const biodata = await tx.biodata.create({
         data: {
-          nik, nisLokal, noGlodemy, fullName, tempatLahir,
+          nik, nisn, nisLokal, noGlodemy, fullName, tempatLahir,
           tanggalLahir: tanggalLahir ? new Date(tanggalLahir) : null,
           jenisKelamin, kewarganegaraan,
           namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
@@ -40,6 +41,8 @@ export class StudentService {
           wilayahId,
           cabangId,
           statusPool: initialStatus,
+          jenisSiswa: jenisSiswa || null,
+          grupDaimi: grupDaimi || null,
         }
       });
 
@@ -248,12 +251,11 @@ export class StudentService {
                   fullName,
                   tanggalLahir: tanggalLahir || existingBiodata.tanggalLahir,
                   jenisKelamin: jenisKelamin || existingBiodata.jenisKelamin,
-                  nik: nik || existingBiodata.nik,
-                  nisLokal: nisLokal || existingBiodata.nisLokal,
                   tempatLahir: tempatLahir || existingBiodata.tempatLahir,
                   address: alamat || existingBiodata.address,
                   phone: noHp || existingBiodata.phone,
-                  namaIbu: namaIbu || existingBiodata.namaIbu
+                  namaIbu: namaIbu || existingBiodata.namaIbu,
+                  nisn: nisn || existingBiodata.nisn,
                 }
               });
               
@@ -274,7 +276,7 @@ export class StudentService {
                      biodataId: biodata.id,
                      wilayahId,
                      cabangId,
-                     statusPool: StatusPool.TERSEDIA,
+                     statusPool: cabangId ? StatusPool.AKTIF_CABANG : StatusPool.TERSEDIA,
                    }
                  });
                  chunkRes.push(student);
@@ -284,17 +286,17 @@ export class StudentService {
               // Create new
               const biodata = await tx.biodata.create({
                 data: {
-                  noGlodemy: noGlodemy || null,
-                  fullName: fullName,
-                  tanggalLahir: tanggalLahir,
-                  jenisKelamin: jenisKelamin,
-                  kewarganegaraan: 'WNI',
+                  noGlodemy,
                   nik,
+                  nisn,
                   nisLokal,
+                  fullName,
+                  tanggalLahir,
+                  jenisKelamin,
                   tempatLahir,
                   address: alamat,
                   phone: noHp,
-                  namaIbu
+                  namaIbu,
                 }
               });
               
@@ -307,7 +309,7 @@ export class StudentService {
                   biodataId: biodata.id,
                   wilayahId,
                   cabangId,
-                  statusPool: StatusPool.TERSEDIA,
+                  statusPool: cabangId ? StatusPool.AKTIF_CABANG : StatusPool.TERSEDIA,
                 }
               });
               chunkRes.push(student);
@@ -334,30 +336,43 @@ export class StudentService {
       nisn, nik, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
       namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
       namaIbu, statusHidupIbu, pekerjaanIbu, pendidikanIbu,
-      address, phone,
+      address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
-      fotoBase64, ijazahBase64, kkBase64
+      fotoBase64, ijazahBase64, kkBase64,
+      wilayahId, cabangId, isActive
     } = data;
-    
-    const student = await this.prisma.student.findUnique({
-      where: { id },
-      include: { biodata: true }
-    });
 
+    const student = await this.prisma.student.findUnique({ where: { id }, include: { biodata: true } });
     if (!student) throw new BadRequestException('Student not found');
 
-    return this.prisma.biodata.update({
-      where: { id: student.biodataId },
-      data: {
-        nik, nisLokal, noGlodemy, fullName, tempatLahir,
-        tanggalLahir: tanggalLahir ? new Date(tanggalLahir) : null,
-        jenisKelamin, kewarganegaraan,
-        namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
-        namaIbu, statusHidupIbu, pekerjaanIbu, pendidikanIbu,
-        address, phone,
-        kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
-        fotoBase64, ijazahBase64, kkBase64
-      }
+    return this.prisma.$transaction(async (tx) => {
+      const biodata = await tx.biodata.update({
+        where: { id: student.biodataId },
+        data: {
+          nisn, nik, nisLokal, noGlodemy, fullName, tempatLahir,
+          tanggalLahir: tanggalLahir ? new Date(tanggalLahir) : null,
+          jenisKelamin, kewarganegaraan,
+          namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
+          namaIbu, statusHidupIbu, pekerjaanIbu, pendidikanIbu,
+          address, phone,
+          kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
+          ...(fotoBase64 && { fotoBase64 }),
+          ...(ijazahBase64 && { ijazahBase64 }),
+          ...(kkBase64 && { kkBase64 }),
+        }
+      });
+
+      const updatedStudent = await tx.student.update({
+        where: { id },
+        data: {
+          wilayahId,
+          cabangId,
+          jenisSiswa: data.jenisSiswa || null,
+          grupDaimi: data.grupDaimi || null,
+          isActive: data.isActive !== undefined ? data.isActive : student.isActive
+        }
+      });
+      return updatedStudent;
     });
   }
 
@@ -408,12 +423,14 @@ export class StudentService {
   async getStudents(user: any) {
     const { scope, wilayahId, cabangId } = user;
     
-    let whereClause = {};
+    let whereClause: any = {
+      statusPool: { not: 'TERSEDIA' }
+    };
 
     if (scope === 'WILAYAH' && wilayahId) {
-      whereClause = { wilayahId };
+      whereClause.wilayahId = wilayahId;
     } else if (scope === 'CABANG' && cabangId) {
-      whereClause = { cabangId };
+      whereClause.cabangId = cabangId;
     }
 
     return this.prisma.student.findMany({
@@ -433,12 +450,14 @@ export class StudentService {
   async exportStudentDetail(user: any) {
     const { scope, wilayahId, cabangId } = user;
     
-    let whereClause = {};
+    let whereClause: any = {
+      statusPool: { not: 'TERSEDIA' }
+    };
 
     if (scope === 'WILAYAH' && wilayahId) {
-      whereClause = { wilayahId };
+      whereClause.wilayahId = wilayahId;
     } else if (scope === 'CABANG' && cabangId) {
-      whereClause = { cabangId };
+      whereClause.cabangId = cabangId;
     }
 
     return this.prisma.student.findMany({
@@ -457,20 +476,34 @@ export class StudentService {
             kelas: true,
             grup: true,
           }
-        }
+        },
+        riwayatPendidikan: {
+          include: { cabang: true },
+          orderBy: { tanggalMasuk: 'desc' },
+        },
       },
     });
   }
 
   async getPoolStudents(user: any) {
-    const { scope, wilayahId } = user;
-    
-    let whereClause: any = { statusPool: StatusPool.TERSEDIA };
-
-    // Limit pool students to their wilayah if applicable
-    if (wilayahId) {
-      whereClause.wilayahId = wilayahId;
-    }
+    const { scope, wilayahId, cabangId } = user;
+    // For Cabang users, they can pull from TERSEDIA and AKTIF_CABANG from other branches
+    let whereClause: any = {
+      OR: [
+        { statusPool: StatusPool.TERSEDIA },
+        ...(scope === 'CABANG' && cabangId ? [{
+          statusPool: StatusPool.AKTIF_CABANG,
+          cabangId: { not: cabangId }
+        }] : []),
+        ...(scope === 'WILAYAH' && wilayahId ? [{
+          statusPool: StatusPool.AKTIF_CABANG,
+          wilayahId: { not: wilayahId }
+        }] : []),
+        ...(scope === 'GLOBAL' ? [{
+          statusPool: StatusPool.AKTIF_CABANG
+        }] : [])
+      ]
+    };
 
     return this.prisma.student.findMany({
       where: whereClause,
@@ -520,27 +553,160 @@ export class StudentService {
       if (!student) {
         throw new BadRequestException('Siswa tidak ditemukan');
       }
-      if (student.statusPool !== StatusPool.TERSEDIA) {
-        throw new BadRequestException('Siswa tidak tersedia di pool');
+      
+      // If student is available in pool, pull immediately
+      if (student.statusPool === StatusPool.TERSEDIA) {
+        const updatedStudent = await tx.student.update({
+          where: { id: studentId },
+          data: {
+            statusPool: StatusPool.AKTIF_CABANG,
+            cabangId: cabangId,
+            wilayahId: student.wilayahId, // Optionally update to cabang's wilayah
+          },
+        });
+
+        await tx.riwayatPendidikan.create({
+          data: {
+            studentId: studentId,
+            cabangId: cabangId,
+            tanggalMasuk: new Date(),
+          },
+        });
+
+        return updatedStudent;
       }
       
-      const updatedStudent = await tx.student.update({
-        where: { id: studentId },
-        data: {
-          statusPool: StatusPool.AKTIF_CABANG,
-          cabangId: cabangId,
+      // If student is in another branch, create a request to the center
+      if (student.statusPool === StatusPool.AKTIF_CABANG && student.cabangId !== cabangId) {
+        const existingRequest = await tx.permintaanTarikData.findFirst({
+          where: {
+            studentId,
+            requestingCabangId: cabangId,
+            status: 'PENDING'
+          }
+        });
+        
+        if (existingRequest) {
+          throw new BadRequestException('Permintaan penarikan untuk siswa ini sedang diproses (PENDING)');
+        }
+        
+        await tx.permintaanTarikData.create({
+          data: {
+            studentId,
+            requestingCabangId: cabangId,
+            targetCabangId: student.cabangId,
+            status: 'PENDING'
+          }
+        });
+        
+        return { message: 'Permintaan penarikan data lintas cabang berhasil dikirim ke Pusat', isPendingRequest: true };
+      }
+      
+      throw new BadRequestException('Siswa tidak tersedia untuk ditarik');
+    });
+  }
+
+  async getPermintaanTarik(user: any) {
+    const { scope, cabangId } = user;
+    
+    let whereClause: any = {};
+    if (scope === 'CABANG' && cabangId) {
+      whereClause = {
+        OR: [
+          { requestingCabangId: cabangId },
+          { targetCabangId: cabangId }
+        ]
+      };
+    }
+    
+    return this.prisma.permintaanTarikData.findMany({
+      where: whereClause,
+      include: {
+        student: {
+          include: {
+            biodata: true
+          }
         },
+        requestingCabang: true,
+        targetCabang: true,
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+  }
+
+  async approvePermintaanTarik(id: string, user: any) {
+    if (user.scope !== 'GLOBAL') {
+      throw new BadRequestException('Hanya admin pusat yang dapat menyetujui permintaan tarik data');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.permintaanTarikData.findUnique({
+        where: { id },
+        include: { student: true }
+      });
+      
+      if (!request) {
+        throw new BadRequestException('Permintaan tidak ditemukan');
+      }
+      
+      if (request.status !== 'PENDING') {
+        throw new BadRequestException('Permintaan sudah diproses sebelumnya');
+      }
+
+      const targetCabang = await tx.cabang.findUnique({
+        where: { id: request.requestingCabangId },
       });
 
+      if (!targetCabang) {
+        throw new BadRequestException('Cabang tujuan tidak ditemukan');
+      }
+
+      // Update student
+      await tx.student.update({
+        where: { id: request.studentId },
+        data: {
+          cabangId: request.requestingCabangId,
+          wilayahId: targetCabang.wilayahId,
+          statusPool: StatusPool.AKTIF_CABANG
+        }
+      });
+      
+      // Add riwayat
       await tx.riwayatPendidikan.create({
         data: {
-          studentId: studentId,
-          cabangId: cabangId,
+          studentId: request.studentId,
+          cabangId: request.requestingCabangId,
           tanggalMasuk: new Date(),
-        },
+          catatan: `Ditarik lintas cabang dari persetujuan pusat`
+        }
       });
+      
+      // Update request status
+      return tx.permintaanTarikData.update({
+        where: { id },
+        data: { status: 'APPROVED' }
+      });
+    });
+  }
 
-      return updatedStudent;
+  async rejectPermintaanTarik(id: string, user: any) {
+    if (user.scope !== 'GLOBAL') {
+      throw new BadRequestException('Hanya admin pusat yang dapat menolak permintaan tarik data');
+    }
+
+    const request = await this.prisma.permintaanTarikData.findUnique({ where: { id } });
+    if (!request) {
+      throw new BadRequestException('Permintaan tidak ditemukan');
+    }
+    if (request.status !== 'PENDING') {
+      throw new BadRequestException('Permintaan sudah diproses sebelumnya');
+    }
+
+    return this.prisma.permintaanTarikData.update({
+      where: { id },
+      data: { status: 'REJECTED' }
     });
   }
 
@@ -554,42 +720,97 @@ export class StudentService {
         throw new BadRequestException('Beberapa siswa tidak ditemukan');
       }
 
-      for (const student of students) {
-        if (student.statusPool !== StatusPool.TERSEDIA) {
-          throw new BadRequestException(`Siswa dengan ID ${student.id} tidak tersedia di pool`);
+      const availableStudents = students.filter(s => s.statusPool === StatusPool.TERSEDIA);
+      const activeStudents = students.filter(s => s.statusPool === StatusPool.AKTIF_CABANG && s.cabangId !== cabangId);
+
+      const targetCabang = await tx.cabang.findUnique({
+        where: { id: cabangId },
+      });
+
+      if (!targetCabang) {
+        throw new BadRequestException('Cabang tujuan tidak ditemukan');
+      }
+
+      let pulledCount = 0;
+      let requestedCount = 0;
+
+      // 1. Process TERSEDIA students (immediate pull)
+      if (availableStudents.length > 0) {
+        const availableIds = availableStudents.map(s => s.id);
+        await tx.student.updateMany({
+          where: { id: { in: availableIds } },
+          data: {
+            statusPool: StatusPool.AKTIF_CABANG,
+            cabangId: cabangId,
+            wilayahId: targetCabang.wilayahId,
+          },
+        });
+
+        const riwayatData = availableIds.map(id => ({
+          studentId: id,
+          cabangId: cabangId,
+          tanggalMasuk: new Date(),
+        }));
+
+        await tx.riwayatPendidikan.createMany({
+          data: riwayatData,
+        });
+        pulledCount = availableIds.length;
+      }
+
+      // 2. Process AKTIF_CABANG students (create request)
+      if (activeStudents.length > 0) {
+        // Find existing pending requests to avoid duplicates
+        const activeIds = activeStudents.map(s => s.id);
+        const existingRequests = await tx.permintaanTarikData.findMany({
+          where: {
+            studentId: { in: activeIds },
+            requestingCabangId: cabangId,
+            status: 'PENDING'
+          }
+        });
+        
+        const existingStudentIds = new Set(existingRequests.map(r => r.studentId));
+        const newRequests = activeStudents
+          .filter(s => !existingStudentIds.has(s.id))
+          .map(s => ({
+            studentId: s.id,
+            requestingCabangId: cabangId,
+            targetCabangId: s.cabangId,
+            status: 'PENDING' as const
+          }));
+          
+        if (newRequests.length > 0) {
+          await tx.permintaanTarikData.createMany({
+            data: newRequests
+          });
+          requestedCount = newRequests.length;
         }
       }
-      
-      const updatedStudents = await tx.student.updateMany({
-        where: { id: { in: studentIds } },
-        data: {
-          statusPool: StatusPool.AKTIF_CABANG,
-          cabangId: cabangId,
-        },
-      });
 
-      const riwayatData = studentIds.map(id => ({
-        studentId: id,
-        cabangId: cabangId,
-        tanggalMasuk: new Date(),
-      }));
-
-      await tx.riwayatPendidikan.createMany({
-        data: riwayatData,
-      });
-
-      return updatedStudents;
+      return { 
+        message: 'Proses penarikan siswa selesai',
+        pulledCount, 
+        requestedCount,
+        success: true
+      };
     });
   }
 
-  async lepasSiswa(studentId: string, dto: { statusAkhir: StatusPool, catatan?: string }) {
+  async getPendingPermintaanCount() {
+    return this.prisma.permintaanTarikData.count({
+      where: { status: 'PENDING' }
+    });
+  }
+  async lepasSiswa(studentId: string, dto: { statusAkhir: StatusPool, catatan?: string }, user: any) {
     return this.prisma.$transaction(async (tx) => {
       const student = await tx.student.findUnique({ where: { id: studentId } });
       if (!student) {
         throw new BadRequestException('Siswa tidak ditemukan');
       }
-      if (student.statusPool !== StatusPool.AKTIF_CABANG) {
-        throw new BadRequestException('Siswa tidak sedang aktif di cabang');
+      
+      if (user.scope !== 'GLOBAL' && student.cabangId !== user.cabangId) {
+        throw new BadRequestException('Tidak memiliki akses');
       }
 
       // Update current riwayat
@@ -614,11 +835,18 @@ export class StudentService {
         });
       }
 
+      let isActive = true;
+      if (dto.statusAkhir === StatusPool.MUTASI || dto.statusAkhir === StatusPool.DROP_OUT) {
+        isActive = false;
+      }
+
       const updatedStudent = await tx.student.update({
         where: { id: studentId },
         data: {
           statusPool: dto.statusAkhir,
-          cabangId: null,
+          cabangId: (dto.statusAkhir === StatusPool.TERSEDIA) ? null : student.cabangId,
+          wilayahId: (dto.statusAkhir === StatusPool.TERSEDIA) ? null : student.wilayahId,
+          isActive,
         },
       });
 

@@ -1,23 +1,23 @@
 model SiswaFormal {
-  id        String   @id @default(uuid())
-  studentId String   @unique @map("student_id")
-  student   Student  @relation(fields: [studentId], references: [id])
-  kelasId   String?  @map("kelas_id")
-  kelas     Kelas?   @relation(fields: [kelasId], references: [id])
-  nis       String?  @map("nis")
-  nisn      String?  @unique
+  id        String  @id @default(uuid())
+  studentId String  @unique @map("student_id")
+  student   Student @relation(fields: [studentId], references: [id])
+  kelasId   String? @map("kelas_id")
+  kelas     Kelas?  @relation(fields: [kelasId], references: [id])
+  nis       String? @map("nis")
+  nisn      String? @unique
 
   @@map("siswa_formal")
   @@schema("formal")
 }
 
 model Kelas {
-  id       String  @id @default(uuid())
-  name     String
-  tingkat  String?
-  isActive Boolean @default(true) @map("is_active")
-  cabangId String? @map("cabang_id")
-  cabang   Cabang? @relation(fields: [cabangId], references: [id], onDelete: SetNull)
+  id          String        @id @default(uuid())
+  name        String
+  tingkat     String?
+  isActive    Boolean       @default(true) @map("is_active")
+  cabangId    String?       @map("cabang_id")
+  cabang      Cabang?       @relation(fields: [cabangId], references: [id], onDelete: SetNull)
   siswaFormal SiswaFormal[]
 
   @@map("kelas")
@@ -25,10 +25,28 @@ model Kelas {
 }
 
 model MataPelajaran {
-  id   String @id @default(uuid())
-  name String
+  id        String  @id @default(uuid())
+  kodeMapel String  @unique @map("kode_mapel")
+  name      String
+  grupMapel String  @map("grup_mapel") // Agama Islam, Umum, Muatan Lokal
+  isActive  Boolean @default(true) @map("is_active")
+
+  keaktifanGrup KeaktifanMapelGrup[]
 
   @@map("mata_pelajaran")
+  @@schema("formal")
+}
+
+model KeaktifanMapelGrup {
+  id              String        @id @default(uuid())
+  mataPelajaranId String        @map("mata_pelajaran_id")
+  mataPelajaran   MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  grupDaimiId     String        @map("grup_daimi_id")
+  grupDaimi       GrupDaimi     @relation(fields: [grupDaimiId], references: [id], onDelete: Cascade)
+  isActive        Boolean       @default(false) @map("is_active")
+
+  @@unique([mataPelajaranId, grupDaimiId])
+  @@map("keaktifan_mapel_grup")
   @@schema("formal")
 }
 

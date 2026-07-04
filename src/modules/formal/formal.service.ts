@@ -187,7 +187,10 @@ export class FormalService {
   }
 
   async getSiswaFormal(user: any) {
-    let whereClause: any = { statusPool: 'AKTIF_CABANG' };
+    let whereClause: any = { 
+      statusPool: 'AKTIF_CABANG',
+      jenisSiswa: 'MUADALAH' 
+    };
     
     if (user.scope === 'CABANG' && user.cabangId) {
       whereClause.cabangId = user.cabangId;
@@ -233,5 +236,63 @@ export class FormalService {
         }
       });
     }
+  }
+
+  // --- MATA PELAJARAN ---
+
+  async getMapel() {
+    return this.prisma.mataPelajaran.findMany({
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async createMapel(data: { kodeMapel: string, name: string, grupMapel: string, isActive?: boolean }) {
+    return this.prisma.mataPelajaran.create({
+      data,
+    });
+  }
+
+  async updateMapel(id: string, data: { kodeMapel?: string, name?: string, grupMapel?: string, isActive?: boolean }) {
+    return this.prisma.mataPelajaran.update({
+      where: { id },
+      data,
+    });
+  }
+
+  async deleteMapel(id: string) {
+    return this.prisma.mataPelajaran.delete({
+      where: { id },
+    });
+  }
+
+  // --- KEAKTIFAN MAPEL GRUP ---
+
+  async getKeaktifanMapelGrup() {
+    return this.prisma.keaktifanMapelGrup.findMany({
+      include: {
+        mataPelajaran: true,
+        // Since we are in multi-schema and defined the relation to grupDaimi, we can include it:
+        grupDaimi: true,
+      }
+    });
+  }
+
+  async toggleKeaktifanMapelGrup(data: { mataPelajaranId: string, grupDaimiId: string, isActive: boolean }) {
+    return this.prisma.keaktifanMapelGrup.upsert({
+      where: {
+        mataPelajaranId_grupDaimiId: {
+          mataPelajaranId: data.mataPelajaranId,
+          grupDaimiId: data.grupDaimiId,
+        }
+      },
+      update: {
+        isActive: data.isActive,
+      },
+      create: {
+        mataPelajaranId: data.mataPelajaranId,
+        grupDaimiId: data.grupDaimiId,
+        isActive: data.isActive,
+      }
+    });
   }
 }

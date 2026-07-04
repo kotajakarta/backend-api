@@ -55,6 +55,30 @@ export class StudentController {
     return this.studentService.getPoolStudents(req.user);
   }
 
+  @Get('permintaan-tarik/pending-count')
+  @UseGuards(AccessControlGuard)
+  getPendingPermintaanCount() {
+    return this.studentService.getPendingPermintaanCount();
+  }
+
+  @Get('permintaan-tarik')
+  @UseGuards(AccessControlGuard)
+  getPermintaanTarik(@Request() req: any) {
+    return this.studentService.getPermintaanTarik(req.user);
+  }
+
+  @Post('permintaan-tarik/:id/approve')
+  @UseGuards(AccessControlGuard)
+  approvePermintaanTarik(@Param('id') id: string, @Request() req: any) {
+    return this.studentService.approvePermintaanTarik(id, req.user);
+  }
+
+  @Post('permintaan-tarik/:id/reject')
+  @UseGuards(AccessControlGuard)
+  rejectPermintaanTarik(@Param('id') id: string, @Request() req: any) {
+    return this.studentService.rejectPermintaanTarik(id, req.user);
+  }
+
   @Post('import')
   @UseGuards(AccessControlGuard)
   importStudents(@Request() req: any, @Body() data: any[]) {
@@ -77,8 +101,9 @@ export class StudentController {
   @UseGuards(AccessControlGuard)
   lepasSiswa(
     @Param('id') id: string,
-    @Body() dto: { statusAkhir: StatusPool; catatan?: string }
+    @Body() dto: { statusAkhir: StatusPool; catatan?: string },
+    @Request() req: any
   ) {
-    return this.studentService.lepasSiswa(id, dto);
+    return this.studentService.lepasSiswa(id, dto, req.user);
   }
 }

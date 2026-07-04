@@ -9,6 +9,7 @@ import { AdminModule } from './modules/admin/admin.module.js';
 import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { PesantrenModule } from './modules/pesantren/pesantren.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { PengaturanModule } from './modules/core/pengaturan/pengaturan.module.js';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { HealthModule } from './modules/health/health.module.js';
     AuthModule,
     StudentModule,
     MasterDataModule,
+    PengaturanModule,
     AbsensiModule,
     FormalModule,
     AdminModule,

@@ -89,4 +89,44 @@ export class FormalController {
   updateSiswaFormal(@Param('id') id: string, @Body() data: { nis?: string, nisn?: string, kelasId?: string }) {
     return this.formalService.updateSiswaFormal(id, data);
   }
+
+  // --- MATA PELAJARAN ---
+
+  @Get('mapel')
+  @UseGuards(AccessControlGuard)
+  getMapel() {
+    return this.formalService.getMapel();
+  }
+
+  @Post('mapel')
+  @UseGuards(AccessControlGuard)
+  createMapel(@Body() data: { kodeMapel: string, name: string, grupMapel: string, isActive?: boolean }) {
+    return this.formalService.createMapel(data);
+  }
+
+  @Put('mapel/:id')
+  @UseGuards(AccessControlGuard)
+  updateMapel(@Param('id') id: string, @Body() data: { kodeMapel?: string, name?: string, grupMapel?: string, isActive?: boolean }) {
+    return this.formalService.updateMapel(id, data);
+  }
+
+  @Delete('mapel/:id')
+  @UseGuards(AccessControlGuard)
+  deleteMapel(@Param('id') id: string) {
+    return this.formalService.deleteMapel(id);
+  }
+
+  // --- KEAKTIFAN MAPEL GRUP ---
+  
+  @Get('mapel-grup')
+  @UseGuards(AccessControlGuard)
+  getKeaktifanMapelGrup() {
+    return this.formalService.getKeaktifanMapelGrup();
+  }
+
+  @Post('mapel-grup/toggle')
+  @UseGuards(AccessControlGuard)
+  toggleKeaktifanMapelGrup(@Body() data: { mataPelajaranId: string, grupDaimiId: string, isActive: boolean }) {
+    return this.formalService.toggleKeaktifanMapelGrup(data);
+  }
 }

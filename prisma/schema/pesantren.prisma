@@ -7,11 +7,12 @@ model Kamar {
 }
 
 model GrupDaimi {
-  id        String       @id @default(uuid())
-  name      String
-  dataDaimi DataDaimi[]
-  staff     Staff[]
-  kelasDaimi KelasDaimi[]
+  id                 String               @id @default(uuid())
+  name               String
+  dataDaimi          DataDaimi[]
+  staff              Staff[]
+  kelasDaimi         KelasDaimi[]
+  keaktifanMapelGrup KeaktifanMapelGrup[]
 
   @@map("grup_daimi")
   @@schema("pesantren")
@@ -33,14 +34,14 @@ model KelasDaimi {
 }
 
 model DataDaimi {
-  id        String    @id @default(uuid())
-  studentId String    @unique @map("student_id")
-  student   Student   @relation(fields: [studentId], references: [id])
-  grupId    String?   @map("grup_id")
-  grup      GrupDaimi? @relation(fields: [grupId], references: [id])
+  id        String      @id @default(uuid())
+  studentId String      @unique @map("student_id")
+  student   Student     @relation(fields: [studentId], references: [id])
+  grupId    String?     @map("grup_id")
+  grup      GrupDaimi?  @relation(fields: [grupId], references: [id])
   kelasId   String?     @map("kelas_id")
   kelas     KelasDaimi? @relation(fields: [kelasId], references: [id])
-  nis       String?   @map("nis")
+  nis       String?     @map("nis")
 
   @@map("data_daimi")
   @@schema("pesantren")
