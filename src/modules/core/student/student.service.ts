@@ -1,10 +1,14 @@
 import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import { StatusPool } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
+import { AuditLogService } from '../../audit-log/audit-log.service.js';
 
 @Injectable()
 export class StudentService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AuditLogService) private readonly auditLogService: AuditLogService
+  ) {}
 
   async createStudent(user: any, data: any) {
     const { 
@@ -15,7 +19,8 @@ export class StudentService {
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
       fotoBase64, ijazahBase64, kkBase64,
       wilayahId, cabangId, tanggalMasuk,
-      jenisSiswa, grupDaimi
+      jenisSiswa, grupDaimi,
+      alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
     } = data;
     
     // determine initial pool status
@@ -24,14 +29,19 @@ export class StudentService {
     return this.prisma.$transaction(async (tx) => {
       const biodata = await tx.biodata.create({
         data: {
-          nik, nisn, nisLokal, noGlodemy, fullName, tempatLahir,
+          nik: nik?.trim() ? nik.trim() : null,
+          nisn: nisn?.trim() ? nisn.trim() : null,
+          nisLokal: nisLokal?.trim() ? nisLokal.trim() : null,
+          noGlodemy: noGlodemy?.trim() ? noGlodemy.trim() : null,
+          fullName, tempatLahir,
           tanggalLahir: tanggalLahir ? new Date(tanggalLahir) : null,
           jenisKelamin, kewarganegaraan,
           namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
           namaIbu, statusHidupIbu, pekerjaanIbu, pendidikanIbu,
           address, phone,
           kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
-          fotoBase64, ijazahBase64, kkBase64
+          fotoBase64, ijazahBase64, kkBase64,
+          alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
         }
       });
 
@@ -56,6 +66,9 @@ export class StudentService {
         });
       }
 
+      if (user) {
+        await this.auditLogService.log('CREATE', 'STUDENT', student.id, fullName || 'Siswa Baru', user, `Menambahkan siswa baru "${fullName}"`);
+      }
       return student;
     });
   }
@@ -331,7 +344,7 @@ export class StudentService {
     }
   }
 
-  async updateStudent(id: string, data: any) {
+  async updateStudent(id: string, data: any, user?: any) {
     const { 
       nisn, nik, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
       namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
@@ -339,7 +352,8 @@ export class StudentService {
       address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
       fotoBase64, ijazahBase64, kkBase64,
-      wilayahId, cabangId, isActive
+      wilayahId, cabangId, isActive,
+      alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
     } = data;
 
     const student = await this.prisma.student.findUnique({ where: { id }, include: { biodata: true } });
@@ -349,7 +363,11 @@ export class StudentService {
       const biodata = await tx.biodata.update({
         where: { id: student.biodataId },
         data: {
-          nisn, nik, nisLokal, noGlodemy, fullName, tempatLahir,
+          nik: nik?.trim() ? nik.trim() : null,
+          nisn: nisn?.trim() ? nisn.trim() : null,
+          nisLokal: nisLokal?.trim() ? nisLokal.trim() : null,
+          noGlodemy: noGlodemy?.trim() ? noGlodemy.trim() : null,
+          fullName, tempatLahir,
           tanggalLahir: tanggalLahir ? new Date(tanggalLahir) : null,
           jenisKelamin, kewarganegaraan,
           namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
@@ -359,6 +377,7 @@ export class StudentService {
           ...(fotoBase64 && { fotoBase64 }),
           ...(ijazahBase64 && { ijazahBase64 }),
           ...(kkBase64 && { kkBase64 }),
+          alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
         }
       });
 
@@ -372,6 +391,46 @@ export class StudentService {
           isActive: data.isActive !== undefined ? data.isActive : student.isActive
         }
       });
+      if (user) {
+        const fieldLabels: Record<string, string> = {
+          fullName: 'Nama Lengkap',
+          nik: 'NIK',
+          nisn: 'NISN',
+          nisLokal: 'NIS Lokal',
+          noGlodemy: 'No Glodemy',
+          tempatLahir: 'Tempat Lahir',
+          tanggalLahir: 'Tanggal Lahir',
+          jenisKelamin: 'Jenis Kelamin',
+          kewarganegaraan: 'Kewarganegaraan',
+          namaAyah: 'Nama Ayah',
+          namaIbu: 'Nama Ibu',
+          alamatJalan: 'Alamat Jalan',
+          jenisSiswa: 'Jenis Siswa',
+          grupDaimi: 'Grup Daimi',
+          isActive: 'Status Aktif'
+        };
+
+        const changes: string[] = [];
+        for (const key of Object.keys(fieldLabels)) {
+          let oldVal = (student.biodata as any)[key] !== undefined ? (student.biodata as any)[key] : (student as any)[key];
+          let newVal = (data as any)[key];
+
+          if (key === 'tanggalLahir') {
+            if (oldVal instanceof Date) oldVal = oldVal.toISOString().split('T')[0];
+            if (newVal) newVal = new Date(newVal).toISOString().split('T')[0];
+          }
+
+          const normalizedOld = oldVal === null || oldVal === undefined ? '' : String(oldVal).trim();
+          const normalizedNew = newVal === null || newVal === undefined ? '' : String(newVal).trim();
+
+          if (normalizedOld !== normalizedNew) {
+            changes.push(`${fieldLabels[key]}: "${normalizedOld || '-'}" ➔ "${normalizedNew || '-'}"`);
+          }
+        }
+
+        const changesStr = changes.length > 0 ? ` (${changes.join(', ')})` : '';
+        await this.auditLogService.log('UPDATE', 'STUDENT', id, fullName || 'Siswa', user, `Memperbarui biodata siswa "${fullName}"${changesStr}`);
+      }
       return updatedStudent;
     });
   }
@@ -389,7 +448,7 @@ export class StudentService {
 
       if (studentIds.length > 0) {
         await tx.riwayatPendidikan.deleteMany({ where: { studentId: { in: studentIds } } });
-        await tx.logKehadiran.deleteMany({ where: { studentId: { in: studentIds } } });
+        await tx.kehadiran.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.siswaFormal.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.dataDaimi.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.student.deleteMany({ where: { id: { in: studentIds } } });
@@ -400,7 +459,7 @@ export class StudentService {
     });
   }
 
-  async deleteStudent(id: string) {
+  async deleteStudent(id: string, user?: any) {
     return this.prisma.$transaction(async (tx) => {
       const student = await tx.student.findUnique({ where: { id } });
       if (!student) throw new BadRequestException('Student not found');
@@ -409,13 +468,16 @@ export class StudentService {
       // But typically we should just delete riwayat, log, etc if needed.
       // Assuming cascade is not on, let's delete riwayat first
       await tx.riwayatPendidikan.deleteMany({ where: { studentId: id } });
-      await tx.logKehadiran.deleteMany({ where: { studentId: id } });
+      await tx.kehadiran.deleteMany({ where: { studentId: id } });
       await tx.siswaFormal.deleteMany({ where: { studentId: id } });
       await tx.dataDaimi.deleteMany({ where: { studentId: id } });
 
       await tx.student.delete({ where: { id } });
       await tx.biodata.delete({ where: { id: student.biodataId } });
       
+      if (user) {
+        await this.auditLogService.log('DELETE', 'STUDENT', id, 'Siswa', user, `Menghapus siswa permanen`);
+      }
       return { success: true };
     });
   }
@@ -439,6 +501,9 @@ export class StudentService {
         biodata: true,
         wilayah: true,
         cabang: true,
+        siswaFormal: {
+          include: { kelas: true }
+        },
         riwayatPendidikan: {
           include: { cabang: true },
           orderBy: { tanggalMasuk: 'desc' },
@@ -536,7 +601,7 @@ export class StudentService {
 
       if (studentIds.length > 0) {
         await tx.riwayatPendidikan.deleteMany({ where: { studentId: { in: studentIds } } });
-        await tx.logKehadiran.deleteMany({ where: { studentId: { in: studentIds } } });
+        await tx.kehadiran.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.siswaFormal.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.dataDaimi.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.student.deleteMany({ where: { id: { in: studentIds } } });

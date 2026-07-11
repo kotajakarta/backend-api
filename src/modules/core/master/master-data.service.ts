@@ -1,9 +1,13 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
+import { AuditLogService } from '../../audit-log/audit-log.service.js';
 
 @Injectable()
 export class MasterDataService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AuditLogService) private readonly auditLogService: AuditLogService
+  ) {}
 
   async getGuru(user: any) {
     let whereClause: any = { statusPool: 'AKTIF_CABANG' };
@@ -261,32 +265,73 @@ export class MasterDataService {
     return results;
   }
 
-  async createGuru(data: { name: string, position: string, wilayahId?: string, grupDaimiId?: string, ifadahUrl?: string, ktpUrl?: string }) {
-    return this.prisma.staff.create({
+  async createGuru(data: { name: string, position: string, wilayahId?: string, grupDaimiId?: string, ifadahUrl?: string, ktpUrl?: string, phone?: string, cabangId?: string, mapelUmum?: string[], waliKelas?: string }, user?: any) {
+    const isCabangActive = data.cabangId && data.cabangId !== '';
+    const statusPool = isCabangActive ? 'AKTIF_CABANG' : 'TERSEDIA';
+    const result = await this.prisma.staff.create({
       data: {
         name: data.name,
         position: data.position,
         wilayahId: data.wilayahId || null,
+        cabangId: isCabangActive ? data.cabangId : null,
         grupDaimiId: data.grupDaimiId || null,
         ifadahUrl: data.ifadahUrl || null,
         ktpUrl: data.ktpUrl || null,
-        statusPool: 'TERSEDIA'
+        phone: data.phone || null,
+        statusPool: statusPool,
+        mapelUmum: data.mapelUmum || [],
+        waliKelas: data.waliKelas || null
       }
     });
+    if (user) {
+      await this.auditLogService.log('CREATE', 'TEACHER', result.id, result.name, user, `Menambahkan guru baru "${result.name}"`);
+    }
+    return result;
   }
 
-  async updateGuru(id: string, data: { name: string, position: string, wilayahId?: string, grupDaimiId?: string, ifadahUrl?: string, ktpUrl?: string }) {
-    return this.prisma.staff.update({
+  async updateGuru(id: string, data: { name: string, position: string, wilayahId?: string, grupDaimiId?: string, ifadahUrl?: string, ktpUrl?: string, phone?: string, cabangId?: string, mapelUmum?: string[], waliKelas?: string }, user?: any) {
+    const existing = await this.prisma.staff.findUnique({ where: { id } });
+    const isCabangActive = data.cabangId && data.cabangId !== '';
+    const statusPool = isCabangActive ? 'AKTIF_CABANG' : 'TERSEDIA';
+    const result = await this.prisma.staff.update({
       where: { id },
       data: {
         name: data.name,
         position: data.position,
         wilayahId: data.wilayahId || null,
+        cabangId: isCabangActive ? data.cabangId : null,
         grupDaimiId: data.grupDaimiId || null,
         ifadahUrl: data.ifadahUrl || null,
-        ktpUrl: data.ktpUrl || null
+        ktpUrl: data.ktpUrl || null,
+        phone: data.phone || null,
+        statusPool: statusPool,
+        mapelUmum: data.mapelUmum || [],
+        waliKelas: data.waliKelas || null
       }
     });
+    if (user) {
+      const fieldLabels: Record<string, string> = {
+        name: 'Nama',
+        position: 'Jabatan',
+        phone: 'No. Telepon',
+        waliKelas: 'Wali Kelas'
+      };
+      const changes: string[] = [];
+      if (existing) {
+        for (const key of Object.keys(fieldLabels)) {
+          const oldVal = (existing as any)[key];
+          const newVal = (data as any)[key];
+          const normalizedOld = oldVal === null || oldVal === undefined ? '' : String(oldVal).trim();
+          const normalizedNew = newVal === null || newVal === undefined ? '' : String(newVal).trim();
+          if (normalizedOld !== normalizedNew) {
+            changes.push(`${fieldLabels[key]}: "${normalizedOld || '-'}" ➔ "${normalizedNew || '-'}"`);
+          }
+        }
+      }
+      const changesStr = changes.length > 0 ? ` (${changes.join(', ')})` : '';
+      await this.auditLogService.log('UPDATE', 'TEACHER', result.id, result.name, user, `Memperbarui biodata guru "${result.name}"${changesStr}`);
+    }
+    return result;
   }
 
   async deleteAllGuru(user: any) {
@@ -305,8 +350,12 @@ export class MasterDataService {
     });
   }
 
-  async deleteGuru(id: string) {
-    return this.prisma.staff.delete({ where: { id } });
+  async deleteGuru(id: string, user?: any) {
+    const deleted = await this.prisma.staff.delete({ where: { id } });
+    if (user) {
+      await this.auditLogService.log('DELETE', 'TEACHER', id, deleted.name, user, `Menghapus guru "${deleted.name}"`);
+    }
+    return deleted;
   }
 
   async getPoolGuru(user: any) {
@@ -342,7 +391,7 @@ export class MasterDataService {
     });
   }
 
-  async tarikMassalGuru(staffIds: string[], cabangId: string) {
+  async tarikMassalGuru(staffIds: string[], cabangId: string, user?: any) {
     return this.prisma.$transaction(async (tx) => {
       const staff = await tx.staff.findMany({
         where: { id: { in: staffIds } }
@@ -357,7 +406,7 @@ export class MasterDataService {
         where: { id: cabangId }
       });
       
-      return tx.staff.updateMany({
+      const result = await tx.staff.updateMany({
         where: { id: { in: staffIds } },
         data: {
           statusPool: 'AKTIF_CABANG',
@@ -365,17 +414,30 @@ export class MasterDataService {
           wilayahId: cabang?.wilayahId || null
         }
       });
+
+      if (user) {
+        await this.auditLogService.log('TARIK', 'TEACHER', cabangId, cabang?.name || '', user, `Menarik ${staffIds.length} guru ke cabang "${cabang?.name}"`);
+      }
+      return result;
     });
   }
 
-  async lepasGuru(id: string) {
-    return this.prisma.staff.update({
+  async lepasGuru(id: string, user?: any) {
+    const staff = await this.prisma.staff.findUnique({ where: { id } });
+    if (!staff) throw new Error('Guru tidak ditemukan');
+
+    const result = await this.prisma.staff.update({
       where: { id },
       data: {
         statusPool: 'TERSEDIA',
         cabangId: null
       }
     });
+
+    if (user) {
+      await this.auditLogService.log('LEPAS', 'TEACHER', id, staff.name, user, `Melepas guru "${staff.name}" dari cabang`);
+    }
+    return result;
   }
 
   async getCabang(user: any) {
@@ -393,16 +455,77 @@ export class MasterDataService {
     });
   }
 
-  async createCabang(data: { name: string, wilayahId: string }) {
-    return this.prisma.cabang.create({ data });
+  async createCabang(data: any, user?: any) {
+    const result = await this.prisma.cabang.create({ 
+      data: {
+        name: data.name,
+        wilayahId: data.wilayahId || null,
+        nameGlodemy: data.nameGlodemy || null,
+        nameResmi: data.nameResmi || null,
+        kapasitasSantri: typeof data.kapasitasSantri === 'number' ? data.kapasitasSantri : parseInt(data.kapasitasSantri || 0, 10),
+        totalSantriManual: typeof data.totalSantriManual === 'number' ? data.totalSantriManual : parseInt(data.totalSantriManual || 0, 10),
+        ketuaCabangId: data.ketuaCabangId || null,
+        ketuaMuadalahId: data.ketuaMuadalahId || null,
+        ketuaIslerId: data.ketuaIslerId || null,
+        alamatProvId: data.alamatProvId || null,
+        alamatProvName: data.alamatProvName || null,
+        alamatKabId: data.alamatKabId || null,
+        alamatKabName: data.alamatKabName || null,
+        alamatKecId: data.alamatKecId || null,
+        alamatKecName: data.alamatKecName || null,
+        alamatKelId: data.alamatKelId || null,
+        alamatKelName: data.alamatKelName || null,
+        alamatJalan: data.alamatJalan || null,
+        alamatNegara: data.alamatNegara || null,
+        statusTanah: data.statusTanah || null,
+        statusBangunan: data.statusBangunan || null
+      } 
+    });
+    if (user) {
+      await this.auditLogService.log('CREATE', 'CABANG', result.id, result.name, user, `Menambahkan cabang baru "${result.name}"`);
+    }
+    return result;
   }
 
-  async updateCabang(id: string, data: { name: string, wilayahId: string }) {
-    return this.prisma.cabang.update({ where: { id }, data });
+  async updateCabang(id: string, data: any, user?: any) {
+    const result = await this.prisma.cabang.update({ 
+      where: { id }, 
+      data: {
+        name: data.name,
+        wilayahId: data.wilayahId || null,
+        nameGlodemy: data.nameGlodemy || null,
+        nameResmi: data.nameResmi || null,
+        kapasitasSantri: typeof data.kapasitasSantri === 'number' ? data.kapasitasSantri : parseInt(data.kapasitasSantri || 0, 10),
+        totalSantriManual: typeof data.totalSantriManual === 'number' ? data.totalSantriManual : parseInt(data.totalSantriManual || 0, 10),
+        ketuaCabangId: data.ketuaCabangId || null,
+        ketuaMuadalahId: data.ketuaMuadalahId || null,
+        ketuaIslerId: data.ketuaIslerId || null,
+        alamatProvId: data.alamatProvId || null,
+        alamatProvName: data.alamatProvName || null,
+        alamatKabId: data.alamatKabId || null,
+        alamatKabName: data.alamatKabName || null,
+        alamatKecId: data.alamatKecId || null,
+        alamatKecName: data.alamatKecName || null,
+        alamatKelId: data.alamatKelId || null,
+        alamatKelName: data.alamatKelName || null,
+        alamatJalan: data.alamatJalan || null,
+        alamatNegara: data.alamatNegara || null,
+        statusTanah: data.statusTanah || null,
+        statusBangunan: data.statusBangunan || null
+      } 
+    });
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'CABANG', result.id, result.name, user, `Memperbarui data cabang "${result.name}"`);
+    }
+    return result;
   }
 
-  async deleteCabang(id: string) {
-    return this.prisma.cabang.delete({ where: { id } });
+  async deleteCabang(id: string, user?: any) {
+    const result = await this.prisma.cabang.delete({ where: { id } });
+    if (user) {
+      await this.auditLogService.log('DELETE', 'CABANG', result.id, result.name, user, `Menghapus cabang "${result.name}"`);
+    }
+    return result;
   }
 
   async deleteAllCabang(user: any) {
@@ -433,16 +556,28 @@ export class MasterDataService {
     return this.prisma.wilayah.findMany();
   }
 
-  async createWilayah(data: { name: string }) {
-    return this.prisma.wilayah.create({ data });
+  async createWilayah(data: { name: string }, user?: any) {
+    const result = await this.prisma.wilayah.create({ data });
+    if (user) {
+      await this.auditLogService.log('CREATE', 'WILAYAH', result.id, result.name, user, `Menambahkan wilayah baru "${result.name}"`);
+    }
+    return result;
   }
 
-  async updateWilayah(id: string, data: { name: string }) {
-    return this.prisma.wilayah.update({ where: { id }, data });
+  async updateWilayah(id: string, data: { name: string }, user?: any) {
+    const result = await this.prisma.wilayah.update({ where: { id }, data });
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'WILAYAH', result.id, result.name, user, `Memperbarui data wilayah "${result.name}"`);
+    }
+    return result;
   }
 
-  async deleteWilayah(id: string) {
-    return this.prisma.wilayah.delete({ where: { id } });
+  async deleteWilayah(id: string, user?: any) {
+    const result = await this.prisma.wilayah.delete({ where: { id } });
+    if (user) {
+      await this.auditLogService.log('DELETE', 'WILAYAH', result.id, result.name, user, `Menghapus wilayah "${result.name}"`);
+    }
+    return result;
   }
 
   async deleteAllWilayah(user: any) {
@@ -465,5 +600,94 @@ export class MasterDataService {
 
       return tx.wilayah.deleteMany();
     });
+  }
+
+  async getCabangProfile(id: string) {
+    const cabang = await this.prisma.cabang.findUnique({
+      where: { id }
+    });
+    if (!cabang) throw new Error('Cabang tidak ditemukan');
+
+    // totalSantriOtomatis
+    const totalSantriOtomatis = await this.prisma.student.count({
+      where: { cabangId: id, isActive: true }
+    });
+
+    // nonMuadalahOtomatis
+    const nonMuadalahOtomatis = await this.prisma.student.count({
+      where: { cabangId: id, isActive: true, jenisSiswa: 'NON_MUADALAH' }
+    });
+
+    // grupDaimiOtomatis
+    const grupDaimiGroups = await this.prisma.student.groupBy({
+      by: ['grupDaimi'],
+      _count: { id: true },
+      where: { cabangId: id, isActive: true }
+    });
+    const grupDaimiOtomatis = grupDaimiGroups.map(g => ({
+      name: g.grupDaimi || 'Belum Ditentukan',
+      value: g._count.id
+    }));
+
+    // kelas7sd12
+    const siswaFormalList = await this.prisma.siswaFormal.findMany({
+      where: { student: { cabangId: id, isActive: true } },
+      include: { kelas: true }
+    });
+
+    let kelas7sd12 = 0;
+    siswaFormalList.forEach(sf => {
+      if (sf.kelas) {
+        const t = sf.kelas.tingkat || sf.kelas.name;
+        if (t && (t.includes('7') || t.includes('8') || t.includes('9') || t.includes('10') || t.includes('11') || t.includes('12') || t.includes('VII') || t.includes('VIII') || t.includes('IX') || t.includes('X') || t.includes('XI') || t.includes('XII'))) {
+          kelas7sd12++;
+        }
+      }
+    });
+
+    // Fetch teachers (Guru) for this branch
+    const staffList = await this.prisma.staff.findMany({
+      where: { cabangId: id }
+    });
+
+    return {
+      ...cabang,
+      totalSantriOtomatis,
+      nonMuadalahOtomatis,
+      grupDaimiOtomatis,
+      kelas7sd12,
+      staffList
+    };
+  }
+
+  async updateCabangProfile(id: string, data: any, user?: any) {
+    const result = await this.prisma.cabang.update({
+      where: { id },
+      data: {
+        nameGlodemy: data.nameGlodemy,
+        nameResmi: data.nameResmi,
+        kapasitasSantri: typeof data.kapasitasSantri === 'number' ? data.kapasitasSantri : parseInt(data.kapasitasSantri || 0, 10),
+        totalSantriManual: typeof data.totalSantriManual === 'number' ? data.totalSantriManual : parseInt(data.totalSantriManual || 0, 10),
+        ketuaCabangId: data.ketuaCabangId || null,
+        ketuaMuadalahId: data.ketuaMuadalahId || null,
+        ketuaIslerId: data.ketuaIslerId || null,
+        alamatProvId: data.alamatProvId || null,
+        alamatProvName: data.alamatProvName || null,
+        alamatKabId: data.alamatKabId || null,
+        alamatKabName: data.alamatKabName || null,
+        alamatKecId: data.alamatKecId || null,
+        alamatKecName: data.alamatKecName || null,
+        alamatKelId: data.alamatKelId || null,
+        alamatKelName: data.alamatKelName || null,
+        alamatJalan: data.alamatJalan || null,
+        alamatNegara: data.alamatNegara || null,
+        statusTanah: data.statusTanah || null,
+        statusBangunan: data.statusBangunan || null
+      }
+    });
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'CABANG', result.id, result.name, user, `Memperbarui profil cabang "${result.name}"`);
+    }
+    return result;
   }
 }

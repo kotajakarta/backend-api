@@ -27,8 +27,8 @@ export class StudentController {
 
   @Put(':id')
   @UseGuards(AccessControlGuard)
-  updateStudent(@Param('id') id: string, @Body() data: any) {
-    return this.studentService.updateStudent(id, data);
+  updateStudent(@Param('id') id: string, @Body() data: any, @Request() req: any) {
+    return this.studentService.updateStudent(id, data, req.user);
   }
 
   @Delete('all')
@@ -45,8 +45,8 @@ export class StudentController {
 
   @Delete(':id')
   @UseGuards(AccessControlGuard)
-  deleteStudent(@Param('id') id: string) {
-    return this.studentService.deleteStudent(id);
+  deleteStudent(@Param('id') id: string, @Request() req: any) {
+    return this.studentService.deleteStudent(id, req.user);
   }
 
   @Get('pool')

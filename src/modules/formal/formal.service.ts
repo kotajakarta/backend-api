@@ -1,9 +1,13 @@
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { AuditLogService } from '../audit-log/audit-log.service.js';
 
 @Injectable()
 export class FormalService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AuditLogService) private readonly auditLogService: AuditLogService
+  ) {}
 
   async getKelas(user: any) {
     let whereClause = {};
@@ -14,7 +18,7 @@ export class FormalService {
     }
     return this.prisma.kelas.findMany({
       where: whereClause,
-      include: { cabang: true }
+      include: { cabang: true, lembagaMuadalah: true }
     });
   }
 
@@ -120,41 +124,78 @@ export class FormalService {
     }, { maxWait: 60000, timeout: 300000 });
   }
 
-  async createKelas(data: { name: string, tingkat?: string, isActive?: boolean, cabangId?: string }) {
-    return this.prisma.kelas.create({
+  async createKelas(data: { name: string, tingkat?: string, isActive?: boolean, cabangId?: string, lembagaMuadalahId?: string }, user?: any) {
+    const result = await this.prisma.kelas.create({
       data: {
         name: data.name,
         tingkat: data.tingkat,
-        isActive: data.isActive ?? true,
-        cabangId: data.cabangId
+        isActive: data.isActive !== undefined ? data.isActive : true,
+        cabangId: data.cabangId,
+        lembagaMuadalahId: data.lembagaMuadalahId
       }
     });
+    if (user) {
+      await this.auditLogService.log('CREATE', 'KELAS', result.id, result.name, user, `Menambahkan kelas baru "${result.name}"`);
+    }
+    return result;
   }
 
-  async updateKelas(id: string, data: { name: string, tingkat?: string, cabangId?: string }) {
-    return this.prisma.kelas.update({
+  async updateKelas(id: string, data: { name: string, tingkat?: string, cabangId?: string, lembagaMuadalahId?: string }, user?: any) {
+    const existing = await this.prisma.kelas.findUnique({
+      where: { id },
+      include: { lembagaMuadalah: true }
+    });
+    const result = await this.prisma.kelas.update({
       where: { id },
       data: { 
         name: data.name,
         tingkat: data.tingkat,
-        cabangId: data.cabangId
-      }
+        cabangId: data.cabangId,
+        lembagaMuadalahId: data.lembagaMuadalahId
+      },
+      include: { lembagaMuadalah: true }
     });
+    if (user) {
+      const changes: string[] = [];
+      if (existing) {
+        if (existing.name !== data.name) changes.push(`Nama: "${existing.name}" ➔ "${data.name}"`);
+        if (existing.tingkat !== data.tingkat) changes.push(`Tingkat: "${existing.tingkat || '-'}" ➔ "${data.tingkat || '-'}"`);
+        if (existing.lembagaMuadalahId !== data.lembagaMuadalahId) {
+          const oldName = existing.lembagaMuadalah?.name || '-';
+          const newMuadalah = data.lembagaMuadalahId
+            ? await this.prisma.lembagaMuadalah.findUnique({ where: { id: data.lembagaMuadalahId } })
+            : null;
+          const newName = newMuadalah?.name || '-';
+          changes.push(`Lembaga Muadalah: "${oldName}" ➔ "${newName}"`);
+        }
+      }
+      const changesStr = changes.length > 0 ? ` (${changes.join(', ')})` : '';
+      await this.auditLogService.log('UPDATE', 'KELAS', result.id, result.name, user, `Memperbarui kelas "${result.name}"${changesStr}`);
+    }
+    return result;
   }
 
-  async toggleKelasStatus(id: string, isActive: boolean) {
+  async toggleKelasStatus(id: string, isActive: boolean, user?: any) {
     const kelas = await this.prisma.kelas.findUnique({ where: { id } });
     if (!kelas) {
       throw new NotFoundException('Kelas tidak ditemukan');
     }
-    return this.prisma.kelas.update({
+    const result = await this.prisma.kelas.update({
       where: { id },
       data: { isActive }
     });
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'KELAS', result.id, result.name, user, `Mengubah status kelas "${result.name}" menjadi ${isActive ? 'Aktif' : 'Nonaktif'}`);
+    }
+    return result;
   }
 
-  async deleteKelas(id: string) {
-    return this.prisma.kelas.delete({ where: { id } });
+  async deleteKelas(id: string, user?: any) {
+    const result = await this.prisma.kelas.delete({ where: { id } });
+    if (user) {
+      await this.auditLogService.log('DELETE', 'KELAS', result.id, result.name, user, `Menghapus kelas "${result.name}"`);
+    }
+    return result;
   }
 
   async deleteAllKelas(user: any) {
@@ -212,30 +253,56 @@ export class FormalService {
     });
   }
 
-  async updateSiswaFormal(studentId: string, data: { nis?: string, nisn?: string, kelasId?: string }) {
+  async updateSiswaFormal(studentId: string, data: { nis?: string, nisn?: string, kelasId?: string }, user?: any) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      select: { biodataId: true }
+    });
+
+    const nis = data.nis === '' ? null : data.nis;
+    const nisn = data.nisn === '' ? null : data.nisn;
+    const kelasId = data.kelasId === '' ? null : data.kelasId;
+
+    if (student?.biodataId) {
+      await this.prisma.biodata.update({
+        where: { id: student.biodataId },
+        data: {
+          nisn: nisn,
+          nisLokal: nis,
+        }
+      });
+    }
+
     const existing = await this.prisma.siswaFormal.findUnique({
       where: { studentId }
     });
 
+    let result;
     if (existing) {
-      return this.prisma.siswaFormal.update({
+      result = await this.prisma.siswaFormal.update({
         where: { studentId },
         data: {
-          nis: data.nis,
-          nisn: data.nisn,
-          kelasId: data.kelasId === '' ? null : data.kelasId,
+          nis,
+          nisn,
+          kelasId,
         }
       });
     } else {
-      return this.prisma.siswaFormal.create({
+      result = await this.prisma.siswaFormal.create({
         data: {
           studentId,
-          nis: data.nis,
-          nisn: data.nisn,
-          kelasId: data.kelasId === '' ? null : data.kelasId,
+          nis,
+          nisn,
+          kelasId,
         }
       });
     }
+
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'STUDENT_FORMAL', studentId, 'Data Siswa Formal', user, `Memperbarui data formal siswa (NIS: ${nis || '-'}, NISN: ${nisn || '-'})`);
+    }
+
+    return result;
   }
 
   // --- MATA PELAJARAN ---
@@ -243,26 +310,62 @@ export class FormalService {
   async getMapel() {
     return this.prisma.mataPelajaran.findMany({
       orderBy: { name: 'asc' },
+      include: {
+        keaktifanGrup: true
+      }
     });
   }
 
-  async createMapel(data: { kodeMapel: string, name: string, grupMapel: string, isActive?: boolean }) {
-    return this.prisma.mataPelajaran.create({
-      data,
+  async createMapel(data: { kodeMapel: string, name: string, grupMapel: string, isActive?: boolean, activeGrupIds?: string[] }, user?: any) {
+    const { activeGrupIds, ...mapelData } = data;
+    const result = await this.prisma.mataPelajaran.create({
+      data: {
+        ...mapelData,
+        keaktifanGrup: activeGrupIds ? {
+          create: activeGrupIds.map(id => ({ grupDaimiId: id, isActive: true }))
+        } : undefined
+      },
     });
+    if (user) {
+      await this.auditLogService.log('CREATE', 'MAPEL', result.id, result.name, user, `Menambahkan mata pelajaran "${result.name}"`);
+    }
+    return result;
   }
 
-  async updateMapel(id: string, data: { kodeMapel?: string, name?: string, grupMapel?: string, isActive?: boolean }) {
-    return this.prisma.mataPelajaran.update({
+  async updateMapel(id: string, data: { kodeMapel?: string, name?: string, grupMapel?: string, isActive?: boolean, activeGrupIds?: string[] }, user?: any) {
+    const existing = await this.prisma.mataPelajaran.findUnique({ where: { id } });
+    const { activeGrupIds, ...mapelData } = data;
+    const result = await this.prisma.mataPelajaran.update({
       where: { id },
-      data,
+      data: {
+        ...mapelData,
+        keaktifanGrup: activeGrupIds !== undefined ? {
+          deleteMany: {},
+          create: activeGrupIds.map(gid => ({ grupDaimiId: gid, isActive: true }))
+        } : undefined
+      },
     });
+    if (user) {
+      const changes: string[] = [];
+      if (existing) {
+        if (data.name !== undefined && existing.name !== data.name) changes.push(`Nama: "${existing.name}" ➔ "${data.name}"`);
+        if (data.kodeMapel !== undefined && existing.kodeMapel !== data.kodeMapel) changes.push(`Kode: "${existing.kodeMapel}" ➔ "${data.kodeMapel}"`);
+        if (data.grupMapel !== undefined && existing.grupMapel !== data.grupMapel) changes.push(`Grup: "${existing.grupMapel}" ➔ "${data.grupMapel}"`);
+      }
+      const changesStr = changes.length > 0 ? ` (${changes.join(', ')})` : '';
+      await this.auditLogService.log('UPDATE', 'MAPEL', result.id, result.name, user, `Memperbarui mata pelajaran "${result.name}"${changesStr}`);
+    }
+    return result;
   }
 
-  async deleteMapel(id: string) {
-    return this.prisma.mataPelajaran.delete({
+  async deleteMapel(id: string, user?: any) {
+    const result = await this.prisma.mataPelajaran.delete({
       where: { id },
     });
+    if (user) {
+      await this.auditLogService.log('DELETE', 'MAPEL', result.id, result.name, user, `Menghapus mata pelajaran "${result.name}"`);
+    }
+    return result;
   }
 
   // --- KEAKTIFAN MAPEL GRUP ---
@@ -277,8 +380,8 @@ export class FormalService {
     });
   }
 
-  async toggleKeaktifanMapelGrup(data: { mataPelajaranId: string, grupDaimiId: string, isActive: boolean }) {
-    return this.prisma.keaktifanMapelGrup.upsert({
+  async toggleKeaktifanMapelGrup(data: { mataPelajaranId: string, grupDaimiId: string, isActive: boolean }, user?: any) {
+    const result = await this.prisma.keaktifanMapelGrup.upsert({
       where: {
         mataPelajaranId_grupDaimiId: {
           mataPelajaranId: data.mataPelajaranId,
@@ -294,5 +397,430 @@ export class FormalService {
         isActive: data.isActive,
       }
     });
+
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'MAPEL_GRUP', `${data.mataPelajaranId}-${data.grupDaimiId}`, 'Keaktifan Mapel Grup', user, `Mengubah status mapel grup menjadi ${data.isActive ? 'Aktif' : 'Nonaktif'}`);
+    }
+
+    return result;
+  }
+
+  // --- RIWAYAT KELAS FORMAL ---
+
+  async getRiwayatKelasByStudent(studentId: string) {
+    return this.prisma.riwayatKelasFormal.findMany({
+      where: { studentId },
+      include: {
+        kelas: true,
+        waliKelas: true,
+      },
+      orderBy: [
+        { tahunAjaran: 'desc' },
+        { semester: 'desc' }
+      ]
+    });
+  }
+
+  async createRiwayatKelas(data: { studentId: string, kelasId: string, tahunAjaran: string, semester: string, statusAkhir?: string, waliKelasId?: string, catatan?: string }, user?: any) {
+    const existing = await this.prisma.riwayatKelasFormal.findUnique({
+      where: {
+        studentId_tahunAjaran_semester: {
+          studentId: data.studentId,
+          tahunAjaran: data.tahunAjaran,
+          semester: data.semester
+        }
+      }
+    });
+
+    if (existing) {
+      throw new Error(`Riwayat kelas untuk siswa di semester ${data.semester} ${data.tahunAjaran} sudah ada.`);
+    }
+
+    const result = await this.prisma.riwayatKelasFormal.create({ data });
+    if (user) {
+      await this.auditLogService.log('CREATE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${data.tahunAjaran}`, user, `Menambahkan riwayat kelas manual untuk siswa ID ${data.studentId}`);
+    }
+    return result;
+  }
+
+  async updateRiwayatKelas(id: string, data: { kelasId?: string, tahunAjaran?: string, semester?: string, statusAkhir?: string, waliKelasId?: string, catatan?: string }, user?: any) {
+    const result = await this.prisma.riwayatKelasFormal.update({
+      where: { id },
+      data
+    });
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${result.tahunAjaran}`, user, `Memperbarui riwayat kelas siswa ID ${result.studentId}`);
+    }
+    return result;
+  }
+
+  async deleteRiwayatKelas(id: string, user?: any) {
+    const result = await this.prisma.riwayatKelasFormal.delete({
+      where: { id }
+    });
+    if (user) {
+      await this.auditLogService.log('DELETE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${result.tahunAjaran}`, user, `Menghapus riwayat kelas siswa ID ${result.studentId}`);
+    }
+    return result;
+  }
+
+  async prosesKenaikanKelasMassal(payload: {
+    kelasAsalId: string;
+    tahunAjaranLama: string;
+    semesterLama: string;
+    tahunAjaranBaru: string;
+    semesterBaru: string;
+    students: {
+      studentId: string;
+      statusAkhir: string; // 'NAIK_KELAS' | 'TINGGAL_KELAS' | 'LULUS' | 'PINDAH'
+      kelasTujuanId?: string;
+    }[];
+  }, user: any) {
+    return this.prisma.$transaction(async (tx) => {
+      let successCount = 0;
+
+      for (const st of payload.students) {
+        // 1. Update Riwayat Lama (jika ada)
+        const oldRiwayat = await tx.riwayatKelasFormal.findUnique({
+          where: {
+            studentId_tahunAjaran_semester: {
+              studentId: st.studentId,
+              tahunAjaran: payload.tahunAjaranLama,
+              semester: payload.semesterLama
+            }
+          }
+        });
+
+        if (oldRiwayat) {
+          await tx.riwayatKelasFormal.update({
+            where: { id: oldRiwayat.id },
+            data: { statusAkhir: st.statusAkhir }
+          });
+        } else {
+          // Buat riwayat lama jika belum ada (jaga-jaga)
+          await tx.riwayatKelasFormal.create({
+            data: {
+              studentId: st.studentId,
+              kelasId: payload.kelasAsalId,
+              tahunAjaran: payload.tahunAjaranLama,
+              semester: payload.semesterLama,
+              statusAkhir: st.statusAkhir
+            }
+          });
+        }
+
+        // 2. Logic berdasarkan statusAkhir
+        if (st.statusAkhir === 'LULUS') {
+          // Lulus: Cabut dari kelas formal, ubah status pool jadi LULUS
+          await tx.siswaFormal.update({
+            where: { studentId: st.studentId },
+            data: { kelasId: null }
+          });
+          
+          await tx.student.update({
+            where: { id: st.studentId },
+            data: { statusPool: 'LULUS' }
+          });
+          
+          // Opsional: Tutup riwayat pendidikan cabang jika ada yang aktif
+          const activeRiwayatPendidikan = await tx.riwayatPendidikan.findFirst({
+            where: { studentId: st.studentId, tanggalKeluar: null },
+            orderBy: { tanggalMasuk: 'desc' }
+          });
+          
+          if (activeRiwayatPendidikan) {
+            await tx.riwayatPendidikan.update({
+              where: { id: activeRiwayatPendidikan.id },
+              data: { 
+                tanggalKeluar: new Date(),
+                statusAkhir: 'LULUS'
+              }
+            });
+          }
+        } else if (st.statusAkhir === 'PINDAH' || st.statusAkhir === 'DROP_OUT') {
+           // Sama seperti lulus, cabut dari kelas
+           await tx.siswaFormal.update({
+            where: { studentId: st.studentId },
+            data: { kelasId: null }
+          });
+          
+          await tx.student.update({
+            where: { id: st.studentId },
+            data: { statusPool: 'DROP_OUT' } // Atau bisa juga 'TERSEDIA' kalau hanya ditarik
+          });
+        } else if (st.statusAkhir === 'NAIK_KELAS' || st.statusAkhir === 'TINGGAL_KELAS') {
+          // Jika tidak lulus dan ada kelas tujuan
+          if (st.kelasTujuanId) {
+            // Update current kelasId di SiswaFormal
+            await tx.siswaFormal.update({
+              where: { studentId: st.studentId },
+              data: { kelasId: st.kelasTujuanId }
+            });
+
+            // Insert new RiwayatKelasFormal untuk semester depan
+            await tx.riwayatKelasFormal.upsert({
+              where: {
+                studentId_tahunAjaran_semester: {
+                  studentId: st.studentId,
+                  tahunAjaran: payload.tahunAjaranBaru,
+                  semester: payload.semesterBaru
+                }
+              },
+              create: {
+                studentId: st.studentId,
+                kelasId: st.kelasTujuanId,
+                tahunAjaran: payload.tahunAjaranBaru,
+                semester: payload.semesterBaru
+              },
+              update: {
+                kelasId: st.kelasTujuanId
+              }
+            });
+          }
+        }
+
+        successCount++;
+      }
+
+      await this.auditLogService.log(
+        'UPDATE', 
+        'KENAIKAN_KELAS', 
+        payload.kelasAsalId, 
+        `Kenaikan Massal ${payload.tahunAjaranLama} -> ${payload.tahunAjaranBaru}`, 
+        user, 
+        `Memproses ${successCount} siswa dari kelas asal ID ${payload.kelasAsalId}`
+      );
+
+      return { success: true, processed: successCount };
+    });
+  }
+
+  async getStudentsByKelas(kelasId: string) {
+    return this.prisma.student.findMany({
+      where: {
+        siswaFormal: {
+          kelasId: kelasId
+        },
+        statusPool: { not: 'TERSEDIA' }
+      },
+      include: {
+        biodata: true,
+        siswaFormal: {
+          include: { kelas: true }
+        }
+      },
+      orderBy: {
+        biodata: { fullName: 'asc' }
+      }
+    });
+  }
+
+  async getGuruMapelKelas(user: any) {
+    let whereClause: any = {};
+    if (user.scope === 'CABANG') {
+      whereClause = { kelas: { cabangId: user.cabangId } };
+    } else if (user.scope === 'WILAYAH') {
+      whereClause = { kelas: { cabang: { wilayahId: user.wilayahId } } };
+    }
+
+    return this.prisma.guruMapelKelas.findMany({
+      where: whereClause,
+      include: {
+        staff: true,
+        mataPelajaran: true,
+        kelas: {
+          include: {
+            cabang: {
+              include: { wilayah: true }
+            }
+          }
+        }
+      },
+      orderBy: [
+        { kelas: { name: 'asc' } },
+        { staff: { name: 'asc' } }
+      ]
+    });
+  }
+
+  async createGuruMapelKelas(user: any, data: any) {
+    const { staffId, mataPelajaranId, kelasId } = data;
+
+    // Check if the kelas exists and matches user scope
+    const targetKelas = await this.prisma.kelas.findUnique({
+      where: { id: kelasId },
+      include: { cabang: true }
+    });
+    if (!targetKelas) throw new NotFoundException('Kelas tidak ditemukan');
+
+    if (user.scope === 'CABANG' && targetKelas.cabangId !== user.cabangId) {
+      throw new NotFoundException('Kelas tidak ditemukan di cabang Anda');
+    }
+    if (user.scope === 'WILAYAH' && targetKelas.cabang?.wilayahId !== user.wilayahId) {
+      throw new NotFoundException('Kelas tidak ditemukan di wilayah Anda');
+    }
+
+    // Check if the staff exists and matches user scope
+    const targetStaff = await this.prisma.staff.findUnique({
+      where: { id: staffId }
+    });
+    if (!targetStaff) throw new NotFoundException('Guru tidak ditemukan');
+
+    if (user.scope === 'CABANG' && targetStaff.cabangId !== user.cabangId) {
+      throw new BadRequestException('Guru tidak terdaftar di cabang Anda');
+    }
+    if (user.scope === 'WILAYAH' && targetStaff.wilayahId !== user.wilayahId) {
+      throw new BadRequestException('Guru tidak terdaftar di wilayah Anda');
+    }
+
+    // Check if duplicate assignment exists
+    const existing = await this.prisma.guruMapelKelas.findUnique({
+      where: {
+        staffId_mataPelajaranId_kelasId: {
+          staffId,
+          mataPelajaranId,
+          kelasId
+        }
+      }
+    });
+    if (existing) {
+      throw new BadRequestException('Guru sudah ditugaskan untuk mata pelajaran ini di kelas tersebut');
+    }
+
+    return this.prisma.guruMapelKelas.create({
+      data: {
+        staffId,
+        mataPelajaranId,
+        kelasId
+      }
+    });
+  }
+
+  async deleteGuruMapelKelas(user: any, id: string) {
+    const existing = await this.prisma.guruMapelKelas.findUnique({
+      where: { id },
+      include: {
+        kelas: {
+          include: { cabang: true }
+        }
+      }
+    });
+    if (!existing) throw new NotFoundException('Penugasan tidak ditemukan');
+
+    if (user.scope === 'CABANG' && existing.kelas.cabangId !== user.cabangId) {
+      throw new NotFoundException('Penugasan tidak ditemukan di cabang Anda');
+    }
+    if (user.scope === 'WILAYAH' && existing.kelas.cabang?.wilayahId !== user.wilayahId) {
+      throw new NotFoundException('Penugasan tidak ditemukan di wilayah Anda');
+    }
+
+    return this.prisma.guruMapelKelas.delete({
+      where: { id }
+    });
+  }
+
+  async getLembagaMuadalah() {
+    return this.prisma.lembagaMuadalah.findMany({
+      orderBy: { name: 'asc' },
+      include: {
+        kelas: {
+          include: {
+            cabang: {
+              include: {
+                wilayah: true
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  async createLembagaMuadalah(data: { name: string; code: string; npsn?: string; nspp?: string; namaKetua?: string; ttdKetua?: string; skSpm?: string; isActive?: boolean }, user?: any) {
+    const existing = await this.prisma.lembagaMuadalah.findUnique({
+      where: { code: data.code }
+    });
+    if (existing) {
+      throw new BadRequestException('Kode Lembaga Muadalah sudah terdaftar');
+    }
+    const result = await this.prisma.lembagaMuadalah.create({
+      data: {
+        name: data.name,
+        code: data.code,
+        npsn: data.npsn || null,
+        nspp: data.nspp || null,
+        namaKetua: data.namaKetua || null,
+        ttdKetua: data.ttdKetua || null,
+        skSpm: data.skSpm || null,
+        isActive: data.isActive !== undefined ? data.isActive : true
+      }
+    });
+    if (user) {
+      await this.auditLogService.log('CREATE', 'LEMBAGA_MUADALAH', result.id, result.name, user, `Menambahkan lembaga muadalah baru "${result.name}"`);
+    }
+    return result;
+  }
+
+  async updateLembagaMuadalah(id: string, data: { name: string; code: string; npsn?: string; nspp?: string; namaKetua?: string; ttdKetua?: string; skSpm?: string }, user?: any) {
+    const existingCode = await this.prisma.lembagaMuadalah.findFirst({
+      where: {
+        code: data.code,
+        id: { not: id }
+      }
+    });
+    if (existingCode) {
+      throw new BadRequestException('Kode Lembaga Muadalah sudah terdaftar');
+    }
+    const existing = await this.prisma.lembagaMuadalah.findUnique({ where: { id } });
+    const result = await this.prisma.lembagaMuadalah.update({
+      where: { id },
+      data: {
+        name: data.name,
+        code: data.code,
+        npsn: data.npsn || null,
+        nspp: data.nspp || null,
+        namaKetua: data.namaKetua || null,
+        ttdKetua: data.ttdKetua || null,
+        skSpm: data.skSpm || null
+      }
+    });
+    if (user) {
+      const changes: string[] = [];
+      if (existing) {
+        if (existing.name !== data.name) changes.push(`Nama: "${existing.name}" ➔ "${data.name}"`);
+        if (existing.code !== data.code) changes.push(`Kode: "${existing.code}" ➔ "${data.code}"`);
+        if (existing.npsn !== data.npsn) changes.push(`NPSN: "${existing.npsn || '-'}" ➔ "${data.npsn || '-'}"`);
+        if (existing.nspp !== data.nspp) changes.push(`NSPP: "${existing.nspp || '-'}" ➔ "${data.nspp || '-'}"`);
+        if (existing.namaKetua !== data.namaKetua) changes.push(`Ketua: "${existing.namaKetua || '-'}" ➔ "${data.namaKetua || '-'}"`);
+        if (existing.ttdKetua !== data.ttdKetua) changes.push(`TTD Ketua diperbarui`);
+        if (existing.skSpm !== data.skSpm) changes.push(`SK SPM diperbarui`);
+      }
+      const changesStr = changes.length > 0 ? ` (${changes.join(', ')})` : '';
+      await this.auditLogService.log('UPDATE', 'LEMBAGA_MUADALAH', result.id, result.name, user, `Memperbarui lembaga muadalah "${result.name}"${changesStr}`);
+    }
+    return result;
+  }
+
+  async toggleLembagaMuadalahStatus(id: string, isActive: boolean, user?: any) {
+    const existing = await this.prisma.lembagaMuadalah.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Lembaga Muadalah tidak ditemukan');
+    const result = await this.prisma.lembagaMuadalah.update({
+      where: { id },
+      data: { isActive }
+    });
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'LEMBAGA_MUADALAH', result.id, result.name, user, `Mengubah status lembaga muadalah "${result.name}" menjadi ${isActive ? 'Aktif' : 'Nonaktif'}`);
+    }
+    return result;
+  }
+
+  async deleteLembagaMuadalah(id: string, user?: any) {
+    const existing = await this.prisma.lembagaMuadalah.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Lembaga Muadalah tidak ditemukan');
+    const result = await this.prisma.lembagaMuadalah.delete({ where: { id } });
+    if (user) {
+      await this.auditLogService.log('DELETE', 'LEMBAGA_MUADALAH', result.id, result.name, user, `Menghapus lembaga muadalah "${result.name}"`);
+    }
+    return result;
   }
 }

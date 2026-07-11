@@ -32,13 +32,13 @@ export class PengaturanController {
 
   @Post('pengumuman')
   @UseGuards(AccessControlGuard)
-  createPengumuman(@Body() data: { title: string, content: string, links?: any[], isActive?: boolean }) {
+  createPengumuman(@Body() data: { title: string, content: string, links?: any[], isActive?: boolean, showPopup?: boolean }) {
     return this.pengaturanService.createPengumuman(data);
   }
 
   @Put('pengumuman/:id')
   @UseGuards(AccessControlGuard)
-  updatePengumuman(@Param('id') id: string, @Body() data: { title?: string, content?: string, links?: any[], isActive?: boolean }) {
+  updatePengumuman(@Param('id') id: string, @Body() data: { title?: string, content?: string, links?: any[], isActive?: boolean, showPopup?: boolean }) {
     return this.pengaturanService.updatePengumuman(id, data);
   }
 

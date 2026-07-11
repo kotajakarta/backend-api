@@ -11,4 +11,10 @@ export class DashboardController {
   getStats(@Request() req: any) {
     return this.dashboardService.getStats(req.user);
   }
+
+  @Get('ketersediaan-guru')
+  @UseGuards(AccessControlGuard)
+  getKetersediaanGuruDetail(@Request() req: any) {
+    return this.dashboardService.getKetersediaanGuruDetail(req.user);
+  }
 }

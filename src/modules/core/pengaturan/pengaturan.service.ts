@@ -38,18 +38,19 @@ export class PengaturanService {
     });
   }
 
-  async createPengumuman(data: { title: string, content: string, links?: any[], isActive?: boolean }) {
+  async createPengumuman(data: { title: string, content: string, links?: any[], isActive?: boolean, showPopup?: boolean }) {
     return this.prisma.pengumuman.create({
       data: {
         title: data.title,
         content: data.content,
         links: data.links || [],
         isActive: data.isActive ?? true,
+        showPopup: data.showPopup ?? false,
       }
     });
   }
 
-  async updatePengumuman(id: string, data: { title?: string, content?: string, links?: any[], isActive?: boolean }) {
+  async updatePengumuman(id: string, data: { title?: string, content?: string, links?: any[], isActive?: boolean, showPopup?: boolean }) {
     return this.prisma.pengumuman.update({
       where: { id },
       data

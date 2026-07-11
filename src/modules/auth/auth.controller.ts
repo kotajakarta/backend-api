@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Inject } from '@nestjs/common';
+import { Controller, Post, Body, Get, Put, UseGuards, Request, Inject } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireDivisi } from '../../common/decorators/access-control.decorator.js';
@@ -11,6 +11,12 @@ export class AuthController {
   @Post('login')
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto.username, dto.password);
+  }
+
+  @Put('profile')
+  @UseGuards(AccessControlGuard)
+  async updateProfile(@Request() req: any, @Body() body: any) {
+    return this.authService.updateProfile(req.user.id, body, req.user.scope === 'GLOBAL');
   }
 
   @Get('protected-formal')

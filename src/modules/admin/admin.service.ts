@@ -23,6 +23,7 @@ export class AdminService {
         password: hashedPassword,
         scope: data.scope,
         divisi: data.divisi,
+        operatorName: data.operatorName || null,
         wilayahId: data.wilayahId || null,
         cabangId: data.cabangId || null
       }
@@ -34,6 +35,7 @@ export class AdminService {
       username: data.username,
       scope: data.scope,
       divisi: data.divisi,
+      operatorName: data.operatorName || null,
       wilayahId: data.wilayahId || null,
       cabangId: data.cabangId || null
     };

@@ -1,37 +1,59 @@
 model SiswaFormal {
   id        String  @id @default(uuid())
   studentId String  @unique @map("student_id")
-  student   Student @relation(fields: [studentId], references: [id])
   kelasId   String? @map("kelas_id")
-  kelas     Kelas?  @relation(fields: [kelasId], references: [id])
   nis       String? @map("nis")
   nisn      String? @unique
+  kelas     Kelas?  @relation(fields: [kelasId], references: [id])
+  student   Student @relation(fields: [studentId], references: [id])
 
   @@map("siswa_formal")
   @@schema("formal")
 }
 
 model Kelas {
-  id          String        @id @default(uuid())
-  name        String
-  tingkat     String?
-  isActive    Boolean       @default(true) @map("is_active")
-  cabangId    String?       @map("cabang_id")
-  cabang      Cabang?       @relation(fields: [cabangId], references: [id], onDelete: SetNull)
-  siswaFormal SiswaFormal[]
+  id                 String               @id @default(uuid())
+  name               String
+  tingkat            String?
+  isActive           Boolean              @default(true) @map("is_active")
+  cabangId           String?              @map("cabang_id")
+  lembagaMuadalahId  String?              @map("lembaga_muadalah_id")
+  guruMapelKelas     GuruMapelKelas[]
+  cabang             Cabang?              @relation(fields: [cabangId], references: [id])
+  lembagaMuadalah    LembagaMuadalah?     @relation(fields: [lembagaMuadalahId], references: [id])
+  riwayatKelasFormal RiwayatKelasFormal[]
+  siswaFormal        SiswaFormal[]
 
   @@map("kelas")
   @@schema("formal")
 }
 
-model MataPelajaran {
-  id        String  @id @default(uuid())
-  kodeMapel String  @unique @map("kode_mapel")
+model LembagaMuadalah {
+  id        String   @id @default(uuid())
   name      String
-  grupMapel String  @map("grup_mapel") // Agama Islam, Umum, Muatan Lokal
-  isActive  Boolean @default(true) @map("is_active")
+  code      String   @unique
+  npsn      String?
+  nspp      String?
+  namaKetua String?  @map("nama_ketua")
+  ttdKetua  String?  @map("ttd_ketua")
+  skSpm     String?  @map("sk_spm")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  kelas     Kelas[]
 
-  keaktifanGrup KeaktifanMapelGrup[]
+  @@map("lembaga_muadalah")
+  @@schema("formal")
+}
+
+model MataPelajaran {
+  id             String               @id @default(uuid())
+  name           String
+  grupMapel      String               @map("grup_mapel")
+  isActive       Boolean              @default(true) @map("is_active")
+  kodeMapel      String               @unique @map("kode_mapel")
+  guruMapelKelas GuruMapelKelas[]
+  keaktifanGrup  KeaktifanMapelGrup[]
 
   @@map("mata_pelajaran")
   @@schema("formal")
@@ -40,10 +62,10 @@ model MataPelajaran {
 model KeaktifanMapelGrup {
   id              String        @id @default(uuid())
   mataPelajaranId String        @map("mata_pelajaran_id")
-  mataPelajaran   MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
   grupDaimiId     String        @map("grup_daimi_id")
-  grupDaimi       GrupDaimi     @relation(fields: [grupDaimiId], references: [id], onDelete: Cascade)
   isActive        Boolean       @default(false) @map("is_active")
+  grupDaimi       GrupDaimi     @relation(fields: [grupDaimiId], references: [id], onDelete: Cascade)
+  mataPelajaran   MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
 
   @@unique([mataPelajaranId, grupDaimiId])
   @@map("keaktifan_mapel_grup")
@@ -57,5 +79,39 @@ model NilaiFormal {
   score       Float
 
   @@map("nilai_formal")
+  @@schema("formal")
+}
+
+model RiwayatKelasFormal {
+  id          String   @id @default(uuid())
+  studentId   String   @map("student_id")
+  kelasId     String   @map("kelas_id")
+  tahunAjaran String   @map("tahun_ajaran")
+  semester    String
+  statusAkhir String?  @map("status_akhir")
+  waliKelasId String?  @map("wali_kelas_id")
+  catatan     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  kelas       Kelas    @relation(fields: [kelasId], references: [id])
+  student     Student  @relation(fields: [studentId], references: [id])
+  waliKelas   Staff?   @relation(fields: [waliKelasId], references: [id])
+
+  @@unique([studentId, tahunAjaran, semester])
+  @@map("riwayat_kelas_formal")
+  @@schema("formal")
+}
+
+model GuruMapelKelas {
+  id              String        @id @default(uuid())
+  staffId         String        @map("staff_id")
+  mataPelajaranId String        @map("mata_pelajaran_id")
+  kelasId         String        @map("kelas_id")
+  kelas           Kelas         @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  mataPelajaran   MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  staff           Staff         @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, mataPelajaranId, kelasId])
+  @@map("guru_mapel_kelas")
   @@schema("formal")
 }

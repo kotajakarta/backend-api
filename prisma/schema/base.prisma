@@ -1,9 +1,8 @@
-// Base configuration
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["core", "formal", "pesantren", "absensi"]
+  schemas  = ["absensi", "core", "formal", "pesantren"]
 }

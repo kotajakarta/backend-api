@@ -33,13 +33,13 @@ export class MasterDataController {
   @Post('guru')
   @UseGuards(AccessControlGuard)
   createGuru(@Request() req: any) {
-    return this.masterDataService.createGuru(req.body);
+    return this.masterDataService.createGuru(req.body, req.user);
   }
 
   @Put('guru/:id')
   @UseGuards(AccessControlGuard)
   updateGuru(@Request() req: any) {
-    return this.masterDataService.updateGuru(req.params.id, req.body);
+    return this.masterDataService.updateGuru(req.params.id, req.body, req.user);
   }
 
   @Delete('guru/all')
@@ -51,7 +51,7 @@ export class MasterDataController {
   @Delete('guru/:id')
   @UseGuards(AccessControlGuard)
   deleteGuru(@Request() req: any) {
-    return this.masterDataService.deleteGuru(req.params.id);
+    return this.masterDataService.deleteGuru(req.params.id, req.user);
   }
 
   @Get('pool-guru')
@@ -69,13 +69,13 @@ export class MasterDataController {
   @Post('pool-guru/tarik-massal')
   @UseGuards(AccessControlGuard)
   tarikMassalGuru(@Request() req: any) {
-    return this.masterDataService.tarikMassalGuru(req.body.staffIds, req.body.cabangId);
+    return this.masterDataService.tarikMassalGuru(req.body.staffIds, req.body.cabangId, req.user);
   }
 
   @Post('pool-guru/:id/lepas')
   @UseGuards(AccessControlGuard)
   lepasGuru(@Request() req: any) {
-    return this.masterDataService.lepasGuru(req.params.id);
+    return this.masterDataService.lepasGuru(req.params.id, req.user);
   }
 
   @Get('cabang')
@@ -87,13 +87,25 @@ export class MasterDataController {
   @Post('cabang')
   @UseGuards(AccessControlGuard)
   createCabang(@Request() req: any) {
-    return this.masterDataService.createCabang(req.body);
+    return this.masterDataService.createCabang(req.body, req.user);
   }
 
   @Put('cabang/:id')
   @UseGuards(AccessControlGuard)
   updateCabang(@Request() req: any) {
-    return this.masterDataService.updateCabang(req.params.id, req.body);
+    return this.masterDataService.updateCabang(req.params.id, req.body, req.user);
+  }
+
+  @Get('cabang/:id/profile')
+  @UseGuards(AccessControlGuard)
+  getCabangProfile(@Request() req: any) {
+    return this.masterDataService.getCabangProfile(req.params.id);
+  }
+
+  @Put('cabang/:id/profile')
+  @UseGuards(AccessControlGuard)
+  updateCabangProfile(@Request() req: any) {
+    return this.masterDataService.updateCabangProfile(req.params.id, req.body, req.user);
   }
 
   @Delete('cabang/all')
@@ -105,7 +117,7 @@ export class MasterDataController {
   @Delete('cabang/:id')
   @UseGuards(AccessControlGuard)
   deleteCabang(@Request() req: any) {
-    return this.masterDataService.deleteCabang(req.params.id);
+    return this.masterDataService.deleteCabang(req.params.id, req.user);
   }
 
   @Get('wilayah')
@@ -117,13 +129,13 @@ export class MasterDataController {
   @Post('wilayah')
   @UseGuards(AccessControlGuard)
   createWilayah(@Request() req: any) {
-    return this.masterDataService.createWilayah(req.body);
+    return this.masterDataService.createWilayah(req.body, req.user);
   }
 
   @Put('wilayah/:id')
   @UseGuards(AccessControlGuard)
   updateWilayah(@Request() req: any) {
-    return this.masterDataService.updateWilayah(req.params.id, req.body);
+    return this.masterDataService.updateWilayah(req.params.id, req.body, req.user);
   }
 
   @Delete('wilayah/all')
@@ -135,6 +147,6 @@ export class MasterDataController {
   @Delete('wilayah/:id')
   @UseGuards(AccessControlGuard)
   deleteWilayah(@Request() req: any) {
-    return this.masterDataService.deleteWilayah(req.params.id);
+    return this.masterDataService.deleteWilayah(req.params.id, req.user);
   }
 }

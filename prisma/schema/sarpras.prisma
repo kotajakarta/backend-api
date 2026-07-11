@@ -1,0 +1,36 @@
+model Ruang {
+  id         String      @id @default(uuid())
+  nama       String
+  kode       String?
+  tipe       String      // e.g., KELAS, ASRAMA, KANTOR, LAB, AULA, PERPUSTAKAAN, LAINNYA
+  kapasitas  Int?
+  luas       Float?
+  kondisi    String      // e.g., BAIK, RUSAK_RINGAN, RUSAK_BERAT
+  keterangan String?
+  cabangId   String      @map("cabang_id")
+  cabang     Cabang      @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+  fasilitas  Fasilitas[]
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  @@map("ruang")
+  @@schema("core")
+}
+
+model Fasilitas {
+  id         String   @id @default(uuid())
+  nama       String
+  kode       String?
+  jumlah     Int
+  kondisi    String   // e.g., BAIK, RUSAK_RINGAN, RUSAK_BERAT
+  keterangan String?
+  cabangId   String   @map("cabang_id")
+  cabang     Cabang   @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+  ruangId    String?  @map("ruang_id")
+  ruang      Ruang?   @relation(fields: [ruangId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("fasilitas")
+  @@schema("core")
+}
