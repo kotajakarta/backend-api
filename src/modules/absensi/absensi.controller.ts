@@ -61,6 +61,27 @@ export class AbsensiController {
     return this.absensiService.getKehadiran(programId, kelasId, cabangId);
   }
 
+  @Get('rekap')
+  @UseGuards(AccessControlGuard)
+  getKehadiranRecap(
+    @Query('kelasId') kelasId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('semester') semester?: string,
+    @Query('tahunAjaran') tahunAjaran?: string,
+    @Request() req?: any
+  ) {
+    const cabangId = req.query.cabangId || req.user.cabangId;
+    return this.absensiService.getKehadiranRecap({
+      kelasId,
+      cabangId,
+      startDate,
+      endDate,
+      semester,
+      tahunAjaran,
+    });
+  }
+
   @Post('kehadiran/bulk')
   @UseGuards(AccessControlGuard)
   saveKehadiranBulk(@Body() body: { programId: string; cabangId?: string; logs: any[] }, @Request() req: any) {

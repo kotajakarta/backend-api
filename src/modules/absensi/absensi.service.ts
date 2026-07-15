@@ -208,4 +208,121 @@ export class AbsensiService {
       )
     );
   }
+
+  async getKehadiranRecap(filters: {
+    kelasId: string;
+    cabangId: string;
+    startDate?: string;
+    endDate?: string;
+    semester?: string;
+    tahunAjaran?: string;
+  }) {
+    const { kelasId, cabangId, startDate, endDate, semester, tahunAjaran } = filters;
+    if (!kelasId) throw new BadRequestException('Kelas ID is required');
+    if (!cabangId) throw new BadRequestException('Cabang ID is required');
+
+    let dateFilter: any = {};
+    if (startDate && endDate) {
+      dateFilter = {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      };
+    } else if (semester && tahunAjaran) {
+      const [startYearStr, endYearStr] = tahunAjaran.split('/');
+      const startYear = parseInt(startYearStr);
+      const endYear = parseInt(endYearStr || startYearStr) || (startYear + 1);
+
+      if (semester.toUpperCase() === 'GANJIL') {
+        dateFilter = {
+          gte: new Date(`${startYear}-07-01`),
+          lte: new Date(`${startYear}-12-31T23:59:59`),
+        };
+      } else {
+        dateFilter = {
+          gte: new Date(`${endYear}-01-01`),
+          lte: new Date(`${endYear}-06-30T23:59:59`),
+        };
+      }
+    }
+
+    const programs = await this.prisma.programAbsensi.findMany({
+      where: {
+        isActive: true,
+        ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {}),
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    const programIds = programs.map(p => p.id);
+
+    const students = await this.prisma.student.findMany({
+      where: {
+        cabangId,
+        isActive: true,
+        siswaFormal: {
+          kelasId,
+        },
+      },
+      include: {
+        biodata: {
+          select: {
+            fullName: true,
+            nisLokal: true,
+          },
+        },
+      },
+      orderBy: {
+        biodata: {
+          fullName: 'asc',
+        },
+      },
+    });
+
+    const attendanceLogs = await this.prisma.kehadiran.findMany({
+      where: {
+        programId: { in: programIds },
+        studentId: { in: students.map(s => s.id) },
+        cabangId,
+      },
+    });
+
+    const studentRecap = students.map(student => {
+      const studentLogs = attendanceLogs.filter(log => log.studentId === student.id);
+      
+      const counts = { HADIR: 0, SAKIT: 0, IZIN: 0, ALPA: 0 };
+      const details: Record<string, string> = {};
+
+      programs.forEach(program => {
+        const log = studentLogs.find(l => l.programId === program.id);
+        const status = log?.status || '-';
+        details[program.id] = status;
+        if (status in counts) {
+          counts[status as keyof typeof counts]++;
+        }
+      });
+
+      const totalPrograms = programs.length;
+      const totalAttended = counts.HADIR;
+      const pct = totalPrograms > 0 ? Math.round((totalAttended / totalPrograms) * 100) : 0;
+
+      return {
+        studentId: student.id,
+        fullName: student.biodata.fullName,
+        nisLokal: student.biodata.nisLokal,
+        attendanceDetails: details,
+        summary: {
+          hadir: counts.HADIR,
+          sakit: counts.SAKIT,
+          izin: counts.IZIN,
+          alpa: counts.ALPA,
+          percentage: pct,
+        },
+      };
+    });
+
+    return {
+      programs: programs.map(p => ({ id: p.id, name: p.name, date: p.date })),
+      recap: studentRecap,
+    };
+  }
 }

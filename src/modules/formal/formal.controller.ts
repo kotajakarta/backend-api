@@ -90,7 +90,7 @@ export class FormalController {
 
   @Put('siswa/:id')
   @UseGuards(AccessControlGuard)
-  updateSiswaFormal(@Request() req: any, @Param('id') id: string, @Body() data: { nis?: string, nisn?: string, kelasId?: string }) {
+  updateSiswaFormal(@Request() req: any, @Param('id') id: string, @Body() data: { nis?: string, nisn?: string, kelasId?: string, isVerval?: boolean }) {
     return this.formalService.updateSiswaFormal(id, data, req.user);
   }
 

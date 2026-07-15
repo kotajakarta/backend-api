@@ -21,6 +21,13 @@ export class AdminController {
     return this.adminService.createUser(req.body);
   }
 
+  @Post('users/import')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  importUsers(@Request() req: any) {
+    return this.adminService.importUsers(req.body);
+  }
+
   @Put('users/:id')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')

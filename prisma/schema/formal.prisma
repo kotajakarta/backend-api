@@ -4,6 +4,7 @@ model SiswaFormal {
   kelasId   String? @map("kelas_id")
   nis       String? @map("nis")
   nisn      String? @unique
+  isVerval  Boolean @default(false) @map("is_verval")
   kelas     Kelas?  @relation(fields: [kelasId], references: [id])
   student   Student @relation(fields: [studentId], references: [id])
 

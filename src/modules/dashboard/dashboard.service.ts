@@ -1,6 +1,15 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 
+const matchSubject = (subjectName: string | undefined | null, subKey: string) => {
+  if (!subjectName) return false;
+  const nameLower = subjectName.toLowerCase().trim();
+  if (nameLower === subKey) return true;
+  if (nameLower.includes(subKey)) return true;
+  if (subKey === 'pkn' && (nameLower.includes('pancasila') || nameLower.includes('kewarganegaraan'))) return true;
+  return false;
+};
+
 @Injectable()
 export class DashboardService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
@@ -126,7 +135,7 @@ export class DashboardService {
           let hasTeacherInAllClasses = true;
           for (const k of cabang.kelas) {
             const hasTeacher = k.guruMapelKelas.some(
-              gmk => gmk.mataPelajaran?.name?.toLowerCase() === sub
+              gmk => matchSubject(gmk.mataPelajaran?.name, sub)
             );
             if (!hasTeacher) {
               hasTeacherInAllClasses = false;
@@ -218,7 +227,7 @@ export class DashboardService {
       for (const kelas of cabang.kelas) {
         const subjectCoverage = requiredSubjects.map(sub => {
           const assignment = kelas.guruMapelKelas.find(
-            gmk => gmk.mataPelajaran?.name?.toLowerCase() === sub
+            gmk => matchSubject(gmk.mataPelajaran?.name, sub)
           );
           return {
             mapel: sub,

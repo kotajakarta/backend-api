@@ -66,6 +66,15 @@ export class StudentService {
         });
       }
 
+      if (data.isVerval !== undefined) {
+        await tx.siswaFormal.create({
+          data: {
+            studentId: student.id,
+            isVerval: data.isVerval
+          }
+        });
+      }
+
       if (user) {
         await this.auditLogService.log('CREATE', 'STUDENT', student.id, fullName || 'Siswa Baru', user, `Menambahkan siswa baru "${fullName}"`);
       }
@@ -391,6 +400,23 @@ export class StudentService {
           isActive: data.isActive !== undefined ? data.isActive : student.isActive
         }
       });
+
+      if (data.isVerval !== undefined) {
+        const existingFormal = await tx.siswaFormal.findUnique({ where: { studentId: id } });
+        if (existingFormal) {
+          await tx.siswaFormal.update({
+            where: { studentId: id },
+            data: { isVerval: data.isVerval }
+          });
+        } else {
+          await tx.siswaFormal.create({
+            data: {
+              studentId: id,
+              isVerval: data.isVerval
+            }
+          });
+        }
+      }
       if (user) {
         const fieldLabels: Record<string, string> = {
           fullName: 'Nama Lengkap',

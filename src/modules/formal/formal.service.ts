@@ -246,14 +246,18 @@ export class FormalService {
         cabang: true,
         siswaFormal: {
           include: {
-            kelas: true
+            kelas: {
+              include: {
+                lembagaMuadalah: true
+              }
+            }
           }
         }
       }
     });
   }
 
-  async updateSiswaFormal(studentId: string, data: { nis?: string, nisn?: string, kelasId?: string }, user?: any) {
+  async updateSiswaFormal(studentId: string, data: { nis?: string, nisn?: string, kelasId?: string, isVerval?: boolean }, user?: any) {
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
       select: { biodataId: true }
@@ -285,6 +289,7 @@ export class FormalService {
           nis,
           nisn,
           kelasId,
+          ...(data.isVerval !== undefined && { isVerval: data.isVerval }),
         }
       });
     } else {
@@ -294,6 +299,7 @@ export class FormalService {
           nis,
           nisn,
           kelasId,
+          isVerval: data.isVerval || false,
         }
       });
     }
