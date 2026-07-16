@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script untuk deploy Backend API menggunakan podman-compose
+# Script untuk deploy Backend API menggunakan Podman Quadlet
 set -e
 
 APP_DIR="/data/podman-hosting/apps/backend-api"
@@ -12,25 +12,27 @@ git fetch origin main
 git reset --hard origin/main
 git clean -fd
 
-echo "=== 2. Mematikan Service Lama (Jika Ada) ==="
-# Mematikan service lama yang dibuat via systemd/quadlet agar port 8087 tidak bentrok
-systemctl --user stop edaimi-api.service 2>/dev/null || true
-systemctl --user stop daimi-api.service 2>/dev/null || true
-
-# Hapus container lama secara paksa jika masih ada
-podman rm -f edaimi-api 2>/dev/null || true
-
-# Turunkan service compose jika sebelumnya sudah jalan
+echo "=== 2. Hapus versi Compose (jika sebelumnya dipakai) ==="
 podman-compose down 2>/dev/null || true
+podman rm -f edaimi-api 2>/dev/null || true
+podman rm -f daimi-api 2>/dev/null || true
 
-echo "=== 3. Build Image & Jalankan Container ==="
-# Menjalankan build dari Dockerfile dan me-restart container di background
-podman-compose up -d --build
+echo "=== 3. Build Aplikasi ==="
+# Build menggunakan container sementara (ephemeral) untuk memastikan kompatibilitas
+podman run --rm -v "$APP_DIR":/app:Z -w /app docker.io/library/node:20-alpine sh -c "npm install && npx prisma generate && npm run build"
 
-echo "=== 4. Prisma Migrate Deploy ==="
+echo "=== 4. Setup Quadlet Container ==="
+mkdir -p ~/.config/containers/systemd
+cp daimi-api.container ~/.config/containers/systemd/
+
+echo "=== 5. Reload & Restart Systemd ==="
+systemctl --user daemon-reload
+systemctl --user restart daimi-api.service
+systemctl --user enable daimi-api.service
+
+echo "=== 6. Prisma Migrate Deploy ==="
 # Menjalankan migrasi database di dalam container yang sudah berjalan
-# (Catatan: flag -it dihilangkan karena script ini biasanya dijalankan otomatis non-interaktif)
-podman exec edaimi-api npx prisma migrate deploy
+podman exec daimi-api npx prisma migrate deploy
 
 echo "=== Deployment Selesai! ==="
-podman ps | grep edaimi-api
+systemctl --user status daimi-api.service --no-pager
