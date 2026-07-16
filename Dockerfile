@@ -5,8 +5,10 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
+COPY tsconfig.json ./
 
-# Install dependencies (termasuk devDependencies untuk build)
+# Install dependencies (termasuk devDependencies untuk build & prisma)
 RUN npm install
 
 # Generate Prisma client
@@ -26,15 +28,13 @@ WORKDIR /app
 # Set NODE_ENV ke production
 ENV NODE_ENV=production
 
-# Copy package files
+# Copy configurations
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 
-# Install hanya dependencies production
-RUN npm install --omit=dev
-
-# Generate Prisma client lagi khusus environment production
-RUN npx prisma generate
+# Copy node_modules beserta prisma generated client dari builder
+COPY --from=builder /app/node_modules ./node_modules
 
 # Copy hasil build dari stage builder
 COPY --from=builder /app/dist ./dist
