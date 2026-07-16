@@ -13,9 +13,15 @@ git reset --hard origin/main
 git clean -fd
 
 echo "=== 2. Mematikan Service Lama (Jika Ada) ==="
-# Mematikan service lama yang dibuat via systemd/quadlet agar port 8080 tidak bentrok
+# Mematikan service lama yang dibuat via systemd/quadlet agar port 8087 tidak bentrok
 systemctl --user stop edaimi-api.service 2>/dev/null || true
 systemctl --user stop daimi-api.service 2>/dev/null || true
+
+# Hapus container lama secara paksa jika masih ada
+podman rm -f edaimi-api 2>/dev/null || true
+
+# Turunkan service compose jika sebelumnya sudah jalan
+podman-compose down 2>/dev/null || true
 
 echo "=== 3. Build Image & Jalankan Container ==="
 # Menjalankan build dari Dockerfile dan me-restart container di background
