@@ -7,10 +7,10 @@ APP_DIR="/data/podman-hosting/apps/backend-api"
 # Pastikan berada di direktori aplikasi
 cd "$APP_DIR" || exit 1
 
-echo "=== 1. Menarik Update Terbaru (git pull) ==="
-git fetch origin main
-git reset --hard origin/main
-git clean -fd
+echo "=== 1. Menyiapkan Direktori ==="
+# Pastikan Anda sudah mengunggah file terbaru (via SCP/SFTP) ke folder ini.
+# git fetch origin main (dinonaktifkan karena tidak ada git di server)
+
 
 echo "=== 2. Hapus versi Compose (jika sebelumnya dipakai) ==="
 podman-compose down 2>/dev/null || true
@@ -28,7 +28,7 @@ cp daimi-api.container ~/.config/containers/systemd/
 echo "=== 5. Reload & Restart Systemd ==="
 systemctl --user daemon-reload
 systemctl --user restart daimi-api.service
-systemctl --user enable daimi-api.service
+
 
 echo "=== 6. Prisma Migrate Deploy ==="
 # Menjalankan migrasi database di dalam container yang sudah berjalan
