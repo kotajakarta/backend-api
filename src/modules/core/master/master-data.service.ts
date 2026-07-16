@@ -21,7 +21,14 @@ export class MasterDataService {
       include: {
         wilayah: true,
         cabang: true,
-        grupDaimi: true
+        grupDaimi: true,
+        guruMapelKelas: {
+          include: {
+            kelas: {
+              include: { lembagaMuadalah: true }
+            }
+          }
+        }
       }
     });
   }
@@ -359,7 +366,7 @@ export class MasterDataService {
   }
 
   async getPoolGuru(user: any) {
-    let whereClause: any = { statusPool: 'TERSEDIA' };
+    let whereClause: any = {};
     if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause.wilayahId = user.wilayahId;
     }
@@ -451,6 +458,9 @@ export class MasterDataService {
       where: whereClause,
       include: {
         wilayah: true,
+        _count: {
+          select: { students: true }
+        }
       }
     });
   }

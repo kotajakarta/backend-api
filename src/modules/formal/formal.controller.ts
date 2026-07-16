@@ -24,7 +24,19 @@ export class FormalController {
 
   @Post('kelas')
   @UseGuards(AccessControlGuard)
-  createKelas(@Request() req: any, @Body() data: { name: string, tingkat?: string, isActive?: boolean, cabangId?: string }) {
+  createKelas(@Request() req: any, @Body() data: { 
+    name: string, 
+    tingkat?: string, 
+    isActive?: boolean, 
+    cabangId?: string,
+    tahunAjaran?: string,
+    waliKelasId?: string,
+    ruangId?: string,
+    kurikulum?: string,
+    jurusan?: string,
+    jenisRombel?: string,
+    kapasitas?: number
+  }) {
     if (req.user.scope === 'CABANG') {
       data.cabangId = req.user.cabangId;
     }
@@ -33,7 +45,18 @@ export class FormalController {
 
   @Put('kelas/:id')
   @UseGuards(AccessControlGuard)
-  updateKelas(@Request() req: any, @Param('id') id: string, @Body() data: { name: string, tingkat?: string, cabangId?: string }) {
+  updateKelas(@Request() req: any, @Param('id') id: string, @Body() data: { 
+    name: string, 
+    tingkat?: string, 
+    cabangId?: string,
+    tahunAjaran?: string,
+    waliKelasId?: string,
+    ruangId?: string,
+    kurikulum?: string,
+    jurusan?: string,
+    jenisRombel?: string,
+    kapasitas?: number
+  }) {
     if (req.user.scope === 'CABANG') {
       data.cabangId = req.user.cabangId;
     }
@@ -50,6 +73,24 @@ export class FormalController {
   @UseGuards(AccessControlGuard)
   deleteAllKelas(@Request() req: any) {
     return this.formalService.deleteAllKelas(req.user);
+  }
+
+  @Get('kelas/:id')
+  @UseGuards(AccessControlGuard)
+  getKelasById(@Param('id') id: string) {
+    return this.formalService.getKelasById(id);
+  }
+
+  @Post('kelas/:id/students')
+  @UseGuards(AccessControlGuard)
+  addStudentToKelas(@Param('id') id: string, @Body() body: { studentId: string }) {
+    return this.formalService.addStudentToKelas(id, body.studentId);
+  }
+
+  @Delete('kelas/:id/students/:studentId')
+  @UseGuards(AccessControlGuard)
+  removeStudentFromKelas(@Param('id') id: string, @Param('studentId') studentId: string) {
+    return this.formalService.removeStudentFromKelas(id, studentId);
   }
 
   @Delete('kelas/:id')
@@ -164,6 +205,12 @@ export class FormalController {
   @UseGuards(AccessControlGuard)
   prosesKenaikanKelasMassal(@Request() req: any, @Body() data: any) {
     return this.formalService.prosesKenaikanKelasMassal(data, req.user);
+  }
+
+  @Post('kelas/naik-kelas-bulk')
+  @UseGuards(AccessControlGuard)
+  prosesKenaikanBulk(@Request() req: any, @Body() data: any) {
+    return this.formalService.prosesKenaikanBulk(data, req.user);
   }
 
   @Get('kelas/:id/students')

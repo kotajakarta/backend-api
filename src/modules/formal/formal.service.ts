@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../audit-log/audit-log.service.js';
 
@@ -18,7 +18,15 @@ export class FormalService {
     }
     return this.prisma.kelas.findMany({
       where: whereClause,
-      include: { cabang: true, lembagaMuadalah: true }
+      include: {
+        cabang: { include: { wilayah: true } },
+        lembagaMuadalah: true,
+        waliKelas: true,
+        ruang: true,
+        _count: {
+          select: { siswaFormal: true }
+        }
+      }
     });
   }
 
@@ -124,14 +132,49 @@ export class FormalService {
     }, { maxWait: 60000, timeout: 300000 });
   }
 
-  async createKelas(data: { name: string, tingkat?: string, isActive?: boolean, cabangId?: string, lembagaMuadalahId?: string }, user?: any) {
+  async createKelas(data: { 
+    name: string, 
+    tingkat?: string, 
+    isActive?: boolean, 
+    cabangId?: string, 
+    lembagaMuadalahId?: string,
+    tahunAjaran?: string,
+    waliKelasId?: string,
+    ruangId?: string,
+    kurikulum?: string,
+    jurusan?: string,
+    jenisRombel?: string,
+    kapasitas?: number
+  }, user?: any) {
+    if (user && user.scope === 'WILAYAH') {
+      // Find the target branch to ensure it belongs to the user's wilayah
+      const targetCabang = data.cabangId
+        ? await this.prisma.cabang.findUnique({ where: { id: data.cabangId } })
+        : null;
+      if (!targetCabang || targetCabang.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Anda hanya dapat menambahkan kelas pada cabang di wilayah Anda');
+      }
+    }
+    if (user && user.scope === 'CABANG') {
+      if (data.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Anda hanya dapat menambahkan kelas pada cabang Anda sendiri');
+      }
+    }
+
     const result = await this.prisma.kelas.create({
       data: {
         name: data.name,
         tingkat: data.tingkat,
         isActive: data.isActive !== undefined ? data.isActive : true,
         cabangId: data.cabangId,
-        lembagaMuadalahId: data.lembagaMuadalahId
+        lembagaMuadalahId: data.lembagaMuadalahId || null,
+        tahunAjaran: data.tahunAjaran || null,
+        waliKelasId: data.waliKelasId || null,
+        ruangId: data.ruangId || null,
+        kurikulum: data.kurikulum || null,
+        jurusan: data.jurusan || null,
+        jenisRombel: data.jenisRombel || null,
+        kapasitas: data.kapasitas !== undefined ? Number(data.kapasitas) : 80
       }
     });
     if (user) {
@@ -140,18 +183,63 @@ export class FormalService {
     return result;
   }
 
-  async updateKelas(id: string, data: { name: string, tingkat?: string, cabangId?: string, lembagaMuadalahId?: string }, user?: any) {
+  async updateKelas(id: string, data: { 
+    name: string, 
+    tingkat?: string, 
+    cabangId?: string, 
+    lembagaMuadalahId?: string,
+    tahunAjaran?: string,
+    waliKelasId?: string,
+    ruangId?: string,
+    kurikulum?: string,
+    jurusan?: string,
+    jenisRombel?: string,
+    kapasitas?: number
+  }, user?: any) {
     const existing = await this.prisma.kelas.findUnique({
       where: { id },
-      include: { lembagaMuadalah: true }
+      include: { cabang: true, lembagaMuadalah: true }
     });
+    if (!existing) {
+      throw new NotFoundException('Kelas tidak ditemukan');
+    }
+
+    if (user && user.scope === 'WILAYAH') {
+      if (!existing.cabang || existing.cabang.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Anda hanya dapat memperbarui kelas di wilayah Anda');
+      }
+      if (data.cabangId && data.cabangId !== existing.cabangId) {
+        const targetCabang = await this.prisma.cabang.findUnique({
+          where: { id: data.cabangId }
+        });
+        if (!targetCabang || targetCabang.wilayahId !== user.wilayahId) {
+          throw new ForbiddenException('Anda hanya dapat memindahkan kelas ke cabang di wilayah Anda');
+        }
+      }
+    }
+    if (user && user.scope === 'CABANG') {
+      if (existing.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Anda hanya dapat memperbarui kelas di cabang Anda');
+      }
+      if (data.cabangId && data.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Anda tidak dapat memindahkan kelas ke cabang lain');
+      }
+    }
+
     const result = await this.prisma.kelas.update({
       where: { id },
       data: { 
         name: data.name,
         tingkat: data.tingkat,
         cabangId: data.cabangId,
-        lembagaMuadalahId: data.lembagaMuadalahId
+        lembagaMuadalahId: data.lembagaMuadalahId || null,
+        tahunAjaran: data.tahunAjaran || null,
+        waliKelasId: data.waliKelasId || null,
+        ruangId: data.ruangId || null,
+        kurikulum: data.kurikulum || null,
+        jurusan: data.jurusan || null,
+        jenisRombel: data.jenisRombel || null,
+        kapasitas: data.kapasitas !== undefined ? Number(data.kapasitas) : 80
       },
       include: { lembagaMuadalah: true }
     });
@@ -176,10 +264,25 @@ export class FormalService {
   }
 
   async toggleKelasStatus(id: string, isActive: boolean, user?: any) {
-    const kelas = await this.prisma.kelas.findUnique({ where: { id } });
+    const kelas = await this.prisma.kelas.findUnique({
+      where: { id },
+      include: { cabang: true }
+    });
     if (!kelas) {
       throw new NotFoundException('Kelas tidak ditemukan');
     }
+
+    if (user && user.scope === 'WILAYAH') {
+      if (!kelas.cabang || kelas.cabang.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Anda hanya dapat mengubah status kelas di wilayah Anda');
+      }
+    }
+    if (user && user.scope === 'CABANG') {
+      if (kelas.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Anda hanya dapat mengubah status kelas di cabang Anda');
+      }
+    }
+
     const result = await this.prisma.kelas.update({
       where: { id },
       data: { isActive }
@@ -191,6 +294,25 @@ export class FormalService {
   }
 
   async deleteKelas(id: string, user?: any) {
+    const existing = await this.prisma.kelas.findUnique({
+      where: { id },
+      include: { cabang: true }
+    });
+    if (!existing) {
+      throw new NotFoundException('Kelas tidak ditemukan');
+    }
+
+    if (user && user.scope === 'WILAYAH') {
+      if (!existing.cabang || existing.cabang.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Anda hanya dapat menghapus kelas di wilayah Anda');
+      }
+    }
+    if (user && user.scope === 'CABANG') {
+      if (existing.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Anda hanya dapat menghapus kelas di cabang Anda');
+      }
+    }
+
     const result = await this.prisma.kelas.delete({ where: { id } });
     if (user) {
       await this.auditLogService.log('DELETE', 'KELAS', result.id, result.name, user, `Menghapus kelas "${result.name}"`);
@@ -411,13 +533,35 @@ export class FormalService {
     return result;
   }
 
+  async checkStudentScope(studentId: string, user: any) {
+    if (!user || user.scope === 'GLOBAL') return;
+    const student = await this.prisma.student.findUnique({ where: { id: studentId } });
+    if (!student) {
+      throw new NotFoundException('Siswa tidak ditemukan');
+    }
+    if (user.scope === 'WILAYAH') {
+      if (student.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Anda tidak memiliki akses untuk mengedit aktivitas belajar siswa di luar wilayah Anda');
+      }
+    }
+    if (user.scope === 'CABANG') {
+      if (student.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Anda tidak memiliki akses untuk mengedit aktivitas belajar siswa di luar cabang Anda');
+      }
+    }
+  }
+
   // --- RIWAYAT KELAS FORMAL ---
 
   async getRiwayatKelasByStudent(studentId: string) {
     return this.prisma.riwayatKelasFormal.findMany({
       where: { studentId },
       include: {
-        kelas: true,
+        kelas: {
+          include: {
+            lembagaMuadalah: true
+          }
+        },
         waliKelas: true,
       },
       orderBy: [
@@ -428,6 +572,10 @@ export class FormalService {
   }
 
   async createRiwayatKelas(data: { studentId: string, kelasId: string, tahunAjaran: string, semester: string, statusAkhir?: string, waliKelasId?: string, catatan?: string }, user?: any) {
+    if (user) {
+      await this.checkStudentScope(data.studentId, user);
+    }
+
     const existing = await this.prisma.riwayatKelasFormal.findUnique({
       where: {
         studentId_tahunAjaran_semester: {
@@ -450,6 +598,14 @@ export class FormalService {
   }
 
   async updateRiwayatKelas(id: string, data: { kelasId?: string, tahunAjaran?: string, semester?: string, statusAkhir?: string, waliKelasId?: string, catatan?: string }, user?: any) {
+    const existing = await this.prisma.riwayatKelasFormal.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Riwayat kelas tidak ditemukan');
+    }
+    if (user) {
+      await this.checkStudentScope(existing.studentId, user);
+    }
+
     const result = await this.prisma.riwayatKelasFormal.update({
       where: { id },
       data
@@ -461,6 +617,14 @@ export class FormalService {
   }
 
   async deleteRiwayatKelas(id: string, user?: any) {
+    const existing = await this.prisma.riwayatKelasFormal.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Riwayat kelas tidak ditemukan');
+    }
+    if (user) {
+      await this.checkStudentScope(existing.studentId, user);
+    }
+
     const result = await this.prisma.riwayatKelasFormal.delete({
       where: { id }
     });
@@ -478,12 +642,12 @@ export class FormalService {
     semesterBaru: string;
     students: {
       studentId: string;
-      statusAkhir: string; // 'NAIK_KELAS' | 'TINGGAL_KELAS' | 'LULUS' | 'PINDAH'
-      kelasTujuanId?: string;
+      statusAkhir: string;
     }[];
   }, user: any) {
     return this.prisma.$transaction(async (tx) => {
       let successCount = 0;
+      const kelasAsal = await tx.kelas.findUnique({ where: { id: payload.kelasAsalId } });
 
       for (const st of payload.students) {
         // 1. Update Riwayat Lama (jika ada)
@@ -515,12 +679,32 @@ export class FormalService {
           });
         }
 
-        // 2. Logic berdasarkan statusAkhir
-        if (st.statusAkhir === 'LULUS') {
+        // 2. Fetch current SiswaFormal to get tingkat
+        const siswaFormal = await tx.siswaFormal.findUnique({
+          where: { studentId: st.studentId }
+        });
+
+        const currentTingkat = siswaFormal?.tingkat || kelasAsal?.tingkat || '7';
+        const currentTingkatNum = parseInt(currentTingkat, 10);
+        let nextTingkat = currentTingkat;
+        let isLulus = st.statusAkhir === 'LULUS';
+
+        if (st.statusAkhir === 'NAIK_KELAS' || st.statusAkhir === 'NAIK_TINGKAT') {
+          if (!isNaN(currentTingkatNum)) {
+             if (currentTingkatNum >= 12) {
+                isLulus = true;
+             } else {
+                nextTingkat = (currentTingkatNum + 1).toString();
+             }
+          }
+        }
+
+        // 3. Logic berdasarkan statusAkhir
+        if (isLulus) {
           // Lulus: Cabut dari kelas formal, ubah status pool jadi LULUS
           await tx.siswaFormal.update({
             where: { studentId: st.studentId },
-            data: { kelasId: null }
+            data: { kelasId: null, tingkat: 'LULUS' }
           });
           
           await tx.student.update({
@@ -552,37 +736,14 @@ export class FormalService {
           
           await tx.student.update({
             where: { id: st.studentId },
-            data: { statusPool: 'DROP_OUT' } // Atau bisa juga 'TERSEDIA' kalau hanya ditarik
+            data: { statusPool: 'DROP_OUT' }
           });
-        } else if (st.statusAkhir === 'NAIK_KELAS' || st.statusAkhir === 'TINGGAL_KELAS') {
-          // Jika tidak lulus dan ada kelas tujuan
-          if (st.kelasTujuanId) {
-            // Update current kelasId di SiswaFormal
-            await tx.siswaFormal.update({
-              where: { studentId: st.studentId },
-              data: { kelasId: st.kelasTujuanId }
-            });
-
-            // Insert new RiwayatKelasFormal untuk semester depan
-            await tx.riwayatKelasFormal.upsert({
-              where: {
-                studentId_tahunAjaran_semester: {
-                  studentId: st.studentId,
-                  tahunAjaran: payload.tahunAjaranBaru,
-                  semester: payload.semesterBaru
-                }
-              },
-              create: {
-                studentId: st.studentId,
-                kelasId: st.kelasTujuanId,
-                tahunAjaran: payload.tahunAjaranBaru,
-                semester: payload.semesterBaru
-              },
-              update: {
-                kelasId: st.kelasTujuanId
-              }
-            });
-          }
+        } else if (st.statusAkhir === 'NAIK_KELAS' || st.statusAkhir === 'NAIK_TINGKAT' || st.statusAkhir === 'TINGGAL_KELAS' || st.statusAkhir === 'TINGGAL_TINGKAT') {
+          // Jika naik tingkat / tinggal tingkat, unassign dari kelas dan update tingkat
+          await tx.siswaFormal.update({
+             where: { studentId: st.studentId },
+             data: { kelasId: null, tingkat: nextTingkat }
+          });
         }
 
         successCount++;
@@ -599,6 +760,34 @@ export class FormalService {
 
       return { success: true, processed: successCount };
     });
+  }
+
+  async prosesKenaikanBulk(payload: {
+    kelasAsalIds: string[];
+    tahunAjaranLama: string;
+    semesterLama: string;
+    tahunAjaranBaru: string;
+    semesterBaru: string;
+  }, user: any) {
+    let totalProcessed = 0;
+    for (const kelasId of payload.kelasAsalIds) {
+      const students = await this.prisma.siswaFormal.findMany({ where: { kelasId } });
+      if (students.length > 0) {
+        const result = await this.prosesKenaikanKelasMassal({
+          kelasAsalId: kelasId,
+          tahunAjaranLama: payload.tahunAjaranLama,
+          semesterLama: payload.semesterLama,
+          tahunAjaranBaru: payload.tahunAjaranBaru,
+          semesterBaru: payload.semesterBaru,
+          students: students.map(s => ({
+            studentId: s.studentId,
+            statusAkhir: 'NAIK_TINGKAT'
+          }))
+        }, user);
+        totalProcessed += result.processed;
+      }
+    }
+    return { success: true, processed: totalProcessed };
   }
 
   async getStudentsByKelas(kelasId: string) {
@@ -828,5 +1017,71 @@ export class FormalService {
       await this.auditLogService.log('DELETE', 'LEMBAGA_MUADALAH', result.id, result.name, user, `Menghapus lembaga muadalah "${result.name}"`);
     }
     return result;
+  }
+
+  async getKelasById(id: string) {
+    return this.prisma.kelas.findUnique({
+      where: { id },
+      include: {
+        cabang: { include: { wilayah: true } },
+        lembagaMuadalah: true,
+        waliKelas: true,
+        ruang: true
+      }
+    });
+  }
+
+  async addStudentToKelas(kelasId: string, studentId: string) {
+    const kelas = await this.prisma.kelas.findUnique({ where: { id: kelasId } });
+    if (!kelas) throw new NotFoundException('Kelas tidak ditemukan');
+
+    const existing = await this.prisma.siswaFormal.findUnique({
+      where: { studentId }
+    });
+
+    if (existing && existing.tingkat && kelas.tingkat && existing.tingkat !== kelas.tingkat) {
+      throw new BadRequestException(`Siswa memiliki tingkat ${existing.tingkat}, tidak dapat dimasukkan ke rombel tingkat ${kelas.tingkat}`);
+    }
+
+    // Automatically set student's jenisSiswa to 'MUADALAH' when they enter a rombel
+    await this.prisma.student.update({
+      where: { id: studentId },
+      data: { jenisSiswa: 'MUADALAH' }
+    });
+
+    if (existing) {
+      return this.prisma.siswaFormal.update({
+        where: { studentId },
+        data: { kelasId, tingkat: kelas.tingkat }
+      });
+    } else {
+      // Find the student's NISN and NIK to populate on create if possible
+      const student = await this.prisma.student.findUnique({
+        where: { id: studentId },
+        include: { biodata: true }
+      });
+      return this.prisma.siswaFormal.create({
+        data: {
+          studentId,
+          kelasId,
+          tingkat: kelas.tingkat,
+          nisn: student?.biodata?.nisn || null,
+          nis: student?.biodata?.nisLokal || null
+        }
+      });
+    }
+  }
+
+  async removeStudentFromKelas(kelasId: string, studentId: string) {
+    const existing = await this.prisma.siswaFormal.findUnique({
+      where: { studentId }
+    });
+    if (existing && existing.kelasId === kelasId) {
+      return this.prisma.siswaFormal.update({
+        where: { studentId },
+        data: { kelasId: null }
+      });
+    }
+    return { success: true };
   }
 }

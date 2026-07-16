@@ -87,14 +87,24 @@ model Biodata {
   tanggalLahir          DateTime? @map("tanggal_lahir")
   jenisKelamin          String?   @map("jenis_kelamin")
   kewarganegaraan       String?   @map("kewarganegaraan")
+  jumlahSaudara         Int?      @map("jumlah_saudara")
+  anakKe                Int?      @map("anak_ke")
   namaAyah              String?   @map("nama_ayah")
   statusHidupAyah       String?   @map("status_hidup_ayah")
+  nikAyah               String?   @map("nik_ayah")
+  tempatLahirAyah       String?   @map("tempat_lahir_ayah")
+  tanggalLahirAyah      DateTime? @map("tanggal_lahir_ayah")
   pekerjaanAyah         String?   @map("pekerjaan_ayah")
   pendidikanAyah        String?   @map("pendidikan_ayah")
+  penghasilanAyah       String?   @map("penghasilan_ayah")
   namaIbu               String?   @map("nama_ibu")
   statusHidupIbu        String?   @map("status_hidup_ibu")
+  nikIbu                String?   @map("nik_ibu")
+  tempatLahirIbu        String?   @map("tempat_lahir_ibu")
+  tanggalLahirIbu       DateTime? @map("tanggal_lahir_ibu")
   pekerjaanIbu          String?   @map("pekerjaan_ibu")
   pendidikanIbu         String?   @map("pendidikan_ibu")
+  penghasilanIbu        String?   @map("penghasilan_ibu")
   address               String?
   phone                 String?
   kontakDaruratNama     String?   @map("kontak_darurat_nama")
@@ -175,6 +185,7 @@ model Staff {
   wilayah          Wilayah?             @relation(fields: [wilayahId], references: [id])
   guruMapelKelas   GuruMapelKelas[]
   riwayatWaliKelas RiwayatKelasFormal[]
+  kelasWali        Kelas[]              @relation("KelasWali")
 
   @@map("staff")
   @@schema("core")

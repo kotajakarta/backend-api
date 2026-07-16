@@ -13,8 +13,9 @@ export class StudentService {
   async createStudent(user: any, data: any) {
     const { 
       nisn, nik, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
-      namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
-      namaIbu, statusHidupIbu, pekerjaanIbu, pendidikanIbu,
+      jumlahSaudara, anakKe,
+      namaAyah, statusHidupAyah, nikAyah, tempatLahirAyah, tanggalLahirAyah, pekerjaanAyah, pendidikanAyah, penghasilanAyah,
+      namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu, tanggalLahirIbu, pekerjaanIbu, pendidikanIbu, penghasilanIbu,
       address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
       fotoBase64, ijazahBase64, kkBase64,
@@ -36,8 +37,14 @@ export class StudentService {
           fullName, tempatLahir,
           tanggalLahir: tanggalLahir ? new Date(tanggalLahir) : null,
           jenisKelamin, kewarganegaraan,
-          namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
-          namaIbu, statusHidupIbu, pekerjaanIbu, pendidikanIbu,
+          jumlahSaudara: jumlahSaudara !== undefined && jumlahSaudara !== '' ? Number(jumlahSaudara) : null,
+          anakKe: anakKe !== undefined && anakKe !== '' ? Number(anakKe) : null,
+          namaAyah, statusHidupAyah, nikAyah, tempatLahirAyah,
+          tanggalLahirAyah: tanggalLahirAyah ? new Date(tanggalLahirAyah) : null,
+          pekerjaanAyah, pendidikanAyah, penghasilanAyah,
+          namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu,
+          tanggalLahirIbu: tanggalLahirIbu ? new Date(tanggalLahirIbu) : null,
+          pekerjaanIbu, pendidikanIbu, penghasilanIbu,
           address, phone,
           kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
           fotoBase64, ijazahBase64, kkBase64,
@@ -198,8 +205,9 @@ export class StudentService {
             const nisLokal = String(getValue(['nis_lokal', 'nisLokal', 'NIS Lokal', 'NISLokal'], ['nislokal'])).trim() || null;
             const tempatLahir = String(getValue(['tempat_lahir', 'tempatLahir', 'Tempat Lahir'], ['tempatlahir'])).trim() || null;
             const alamat = String(getValue(['alamat', 'address', 'Alamat', 'Address'])).trim() || null;
-            const noHp = String(getValue(['no_hp', 'noHp', 'No HP', 'Phone', 'Telepon'], ['nohp', 'telepon', 'phone'])).trim() || null;
+            const noHp = String(getValue(['no_hp', 'noHp', 'No HP', 'Phone', 'Telepon', 'no_telp', 'noTelp', 'No Telp'], ['nohp', 'telepon', 'phone', 'notelp', 'telp', 'hp'])).trim() || null;
             const namaIbu = String(getValue(['nama_ibu', 'namaIbu', 'Nama Ibu'], ['namaibu'])).trim() || null;
+            const namaAyah = String(getValue(['nama_ayah', 'namaAyah', 'Nama Ayah'], ['namaayah'])).trim() || null;
             const asalSekolah = String(getValue(['asal_sekolah', 'asalSekolah', 'Asal Sekolah'], ['asalsekolah', 'sekolah'])).trim() || null;
 
             let fullNameRaw = getValue(
@@ -217,7 +225,18 @@ export class StudentService {
               }
             }
             
-            const jenisKelamin = String(getValue(['jenis_kelamin', 'jenisKelamin', 'Jenis Kelamin'])).trim();
+            const jenisKelaminRaw = String(getValue(['jenis_kelamin', 'jenisKelamin', 'Jenis Kelamin'], ['jeniskelamin', 'jk', 'gender', 'sex'])).trim();
+            let jenisKelamin = null;
+            if (jenisKelaminRaw) {
+              const jkLower = jenisKelaminRaw.toLowerCase();
+              if (jkLower.startsWith('l') || jkLower.includes('laki') || jkLower === 'male' || jkLower === 'm') {
+                jenisKelamin = 'L';
+              } else if (jkLower.startsWith('p') || jkLower.includes('perempuan') || jkLower === 'female' || jkLower === 'f') {
+                jenisKelamin = 'P';
+              } else {
+                jenisKelamin = jenisKelaminRaw;
+              }
+            }
             
             let wilayahId = user.scope === 'WILAYAH' ? user.wilayahId : null;
             const rawWilayah = getValue(['wilayah', 'Wilayah']);
@@ -277,6 +296,7 @@ export class StudentService {
                   address: alamat || existingBiodata.address,
                   phone: noHp || existingBiodata.phone,
                   namaIbu: namaIbu || existingBiodata.namaIbu,
+                  namaAyah: namaAyah || existingBiodata.namaAyah,
                   nisn: nisn || existingBiodata.nisn,
                 }
               });
@@ -319,6 +339,7 @@ export class StudentService {
                   address: alamat,
                   phone: noHp,
                   namaIbu,
+                  namaAyah,
                 }
               });
               
@@ -356,8 +377,9 @@ export class StudentService {
   async updateStudent(id: string, data: any, user?: any) {
     const { 
       nisn, nik, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
-      namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
-      namaIbu, statusHidupIbu, pekerjaanIbu, pendidikanIbu,
+      jumlahSaudara, anakKe,
+      namaAyah, statusHidupAyah, nikAyah, tempatLahirAyah, tanggalLahirAyah, pekerjaanAyah, pendidikanAyah, penghasilanAyah,
+      namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu, tanggalLahirIbu, pekerjaanIbu, pendidikanIbu, penghasilanIbu,
       address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
       fotoBase64, ijazahBase64, kkBase64,
@@ -379,8 +401,14 @@ export class StudentService {
           fullName, tempatLahir,
           tanggalLahir: tanggalLahir ? new Date(tanggalLahir) : null,
           jenisKelamin, kewarganegaraan,
-          namaAyah, statusHidupAyah, pekerjaanAyah, pendidikanAyah,
-          namaIbu, statusHidupIbu, pekerjaanIbu, pendidikanIbu,
+          jumlahSaudara: jumlahSaudara !== undefined && jumlahSaudara !== '' ? Number(jumlahSaudara) : null,
+          anakKe: anakKe !== undefined && anakKe !== '' ? Number(anakKe) : null,
+          namaAyah, statusHidupAyah, nikAyah, tempatLahirAyah,
+          tanggalLahirAyah: tanggalLahirAyah ? new Date(tanggalLahirAyah) : null,
+          pekerjaanAyah, pendidikanAyah, penghasilanAyah,
+          namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu,
+          tanggalLahirIbu: tanggalLahirIbu ? new Date(tanggalLahirIbu) : null,
+          pekerjaanIbu, pendidikanIbu, penghasilanIbu,
           address, phone,
           kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
           ...(fotoBase64 && { fotoBase64 }),
@@ -477,6 +505,8 @@ export class StudentService {
         await tx.kehadiran.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.siswaFormal.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.dataDaimi.deleteMany({ where: { studentId: { in: studentIds } } });
+        await tx.riwayatKelasFormal.deleteMany({ where: { studentId: { in: studentIds } } });
+        await tx.permintaanTarikData.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.student.deleteMany({ where: { id: { in: studentIds } } });
         await tx.biodata.deleteMany({ where: { id: { in: biodataIds } } });
       }
@@ -497,6 +527,8 @@ export class StudentService {
       await tx.kehadiran.deleteMany({ where: { studentId: id } });
       await tx.siswaFormal.deleteMany({ where: { studentId: id } });
       await tx.dataDaimi.deleteMany({ where: { studentId: id } });
+      await tx.riwayatKelasFormal.deleteMany({ where: { studentId: id } });
+      await tx.permintaanTarikData.deleteMany({ where: { studentId: id } });
 
       await tx.student.delete({ where: { id } });
       await tx.biodata.delete({ where: { id: student.biodataId } });
@@ -528,7 +560,11 @@ export class StudentService {
         wilayah: true,
         cabang: true,
         siswaFormal: {
-          include: { kelas: true }
+          include: { 
+            kelas: {
+              include: { lembagaMuadalah: true }
+            } 
+          }
         },
         riwayatPendidikan: {
           include: { cabang: true },
@@ -630,6 +666,8 @@ export class StudentService {
         await tx.kehadiran.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.siswaFormal.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.dataDaimi.deleteMany({ where: { studentId: { in: studentIds } } });
+        await tx.riwayatKelasFormal.deleteMany({ where: { studentId: { in: studentIds } } });
+        await tx.permintaanTarikData.deleteMany({ where: { studentId: { in: studentIds } } });
         await tx.student.deleteMany({ where: { id: { in: studentIds } } });
         await tx.biodata.deleteMany({ where: { id: { in: biodataIds } } });
       }

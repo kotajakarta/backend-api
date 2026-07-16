@@ -92,11 +92,14 @@ export class DashboardService {
     ];
 
     const totalKelas = await this.prisma.kelas.count({
-      where: user.scope === 'GLOBAL' 
-        ? {} 
-        : user.scope === 'WILAYAH' 
-          ? { cabang: { wilayahId: user.wilayahId } }
-          : { cabangId: user.cabangId }
+      where: {
+        isActive: true,
+        ...(user.scope === 'GLOBAL' 
+          ? {} 
+          : user.scope === 'WILAYAH' 
+            ? { cabang: { wilayahId: user.wilayahId } }
+            : { cabangId: user.cabangId })
+      }
     });
 
     // Subject coverage logic
@@ -112,6 +115,7 @@ export class DashboardService {
       include: {
         wilayah: { select: { name: true } },
         kelas: {
+          where: { isActive: true },
           include: {
             guruMapelKelas: {
               include: {
@@ -205,6 +209,7 @@ export class DashboardService {
       include: {
         wilayah: { select: { id: true, name: true } },
         kelas: {
+          where: { isActive: true },
           orderBy: { name: 'asc' },
           include: {
             guruMapelKelas: {

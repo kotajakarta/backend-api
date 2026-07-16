@@ -2,6 +2,7 @@ model SiswaFormal {
   id        String  @id @default(uuid())
   studentId String  @unique @map("student_id")
   kelasId   String? @map("kelas_id")
+  tingkat   String? @map("tingkat")
   nis       String? @map("nis")
   nisn      String? @unique
   isVerval  Boolean @default(false) @map("is_verval")
@@ -19,9 +20,18 @@ model Kelas {
   isActive           Boolean              @default(true) @map("is_active")
   cabangId           String?              @map("cabang_id")
   lembagaMuadalahId  String?              @map("lembaga_muadalah_id")
+  tahunAjaran        String?              @map("tahun_ajaran")
+  waliKelasId        String?              @map("wali_kelas_id")
+  ruangId            String?              @map("ruang_id")
+  kurikulum          String?              @map("kurikulum")
+  jurusan            String?              @map("jurusan")
+  jenisRombel        String?              @map("jenis_rombel")
+  kapasitas          Int?                 @default(80) @map("kapasitas")
   guruMapelKelas     GuruMapelKelas[]
   cabang             Cabang?              @relation(fields: [cabangId], references: [id])
   lembagaMuadalah    LembagaMuadalah?     @relation(fields: [lembagaMuadalahId], references: [id])
+  waliKelas          Staff?               @relation("KelasWali", fields: [waliKelasId], references: [id])
+  ruang              Ruang?               @relation(fields: [ruangId], references: [id])
   riwayatKelasFormal RiwayatKelasFormal[]
   siswaFormal        SiswaFormal[]
 
