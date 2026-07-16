@@ -25,7 +25,8 @@ setInterval(() => {
 
 function createRateLimiter(maxRequests: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    // Membaca IP asli dari header proxy (Cloudflare/Cloudflared) atau fallback ke IP socket
+    const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'unknown';
     const key = `${ip}:${req.path}`;
     const now = Date.now();
 
