@@ -40,7 +40,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
 # Port aplikasi
-EXPOSE 8080
+EXPOSE 8087
 
 # Jalankan aplikasi
 CMD ["npm", "run", "start"]
