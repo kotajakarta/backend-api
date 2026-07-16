@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  daimi-api:
+    build: .
+    container_name: edaimi-api
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    # Jika menggunakan network eksternal (seperti global_net di podman):
+    networks:
+      - global_net
+
+networks:
+  global_net:
+    external: true
