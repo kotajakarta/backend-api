@@ -91,6 +91,15 @@ export class StudentController {
     return this.studentService.tarikMassalSiswa(dto.studentIds, dto.cabangId);
   }
 
+  @Post('lepas-massal')
+  @UseGuards(AccessControlGuard)
+  lepasMassalSiswa(
+    @Body() dto: { studentIds: string[]; statusAkhir: StatusPool; catatan?: string },
+    @Request() req: any
+  ) {
+    return this.studentService.lepasMassalSiswa(dto.studentIds, dto, req.user);
+  }
+
   @Post(':id/tarik')
   @UseGuards(AccessControlGuard)
   tarikSiswa(@Param('id') id: string, @Body('cabangId') cabangId: string) {

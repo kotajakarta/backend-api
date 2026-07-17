@@ -983,6 +983,67 @@ export class StudentService {
     });
   }
 
+  async lepasMassalSiswa(studentIds: string[], dto: { statusAkhir: StatusPool, catatan?: string }, user: any) {
+    if (!studentIds || studentIds.length === 0) {
+      throw new BadRequestException('Siswa tidak terpilih');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const students = await tx.student.findMany({
+        where: { id: { in: studentIds } }
+      });
+
+      if (students.length === 0) {
+        throw new BadRequestException('Siswa tidak ditemukan');
+      }
+
+      for (const student of students) {
+        if (user.scope !== 'GLOBAL' && student.cabangId !== user.cabangId) {
+          throw new BadRequestException(`Tidak memiliki akses untuk siswa ${student.id}`);
+        }
+
+        // Update current riwayat
+        const activeRiwayat = await tx.riwayatPendidikan.findFirst({
+          where: {
+            studentId: student.id,
+            tanggalKeluar: null,
+          },
+          orderBy: {
+            tanggalMasuk: 'desc',
+          },
+        });
+
+        if (activeRiwayat) {
+          await tx.riwayatPendidikan.update({
+            where: { id: activeRiwayat.id },
+            data: {
+              tanggalKeluar: new Date(),
+              statusAkhir: dto.statusAkhir,
+              catatan: dto.catatan,
+            },
+          });
+        }
+
+        let isActive = true;
+        if (dto.statusAkhir === StatusPool.MUTASI || dto.statusAkhir === StatusPool.DROP_OUT) {
+          isActive = false;
+        }
+
+        await tx.student.update({
+          where: { id: student.id },
+          data: {
+            statusPool: dto.statusAkhir,
+            cabangId: (dto.statusAkhir === StatusPool.TERSEDIA) ? null : student.cabangId,
+            wilayahId: (dto.statusAkhir === StatusPool.TERSEDIA) ? null : student.wilayahId,
+            isActive,
+          },
+        });
+      }
+
+      return { count: students.length };
+    });
+  }
+
   async verifyDaftarUlang({ nik, kodeDaftarUlang }: { nik: string, kodeDaftarUlang: string }) {
     const setting = await this.prisma.pengaturanAkademik.findFirst();
     if (!setting || !setting.kodeDaftarUlang || setting.kodeDaftarUlang.toUpperCase() !== kodeDaftarUlang?.toUpperCase()) {
