@@ -13,6 +13,12 @@ export class AuthController {
     return this.authService.login(dto.username, dto.password);
   }
 
+  // Alias endpoint — avoids adblocker rules that block "auth/login" patterns
+  @Post('signin')
+  async signin(@Body() dto: LoginDto) {
+    return this.authService.login(dto.username, dto.password);
+  }
+
   @Put('profile')
   @UseGuards(AccessControlGuard)
   async updateProfile(@Request() req: any, @Body() body: any) {
