@@ -982,4 +982,60 @@ export class StudentService {
       return updatedStudent;
     });
   }
+
+  async verifyDaftarUlang({ nik, kodeDaftarUlang }: { nik: string, kodeDaftarUlang: string }) {
+    const setting = await this.prisma.pengaturanAkademik.findFirst();
+    if (!setting || setting.kodeDaftarUlang !== kodeDaftarUlang) {
+      throw new BadRequestException('Kode daftar ulang salah atau tidak tersedia');
+    }
+
+    if (!nik || !nik.trim()) {
+      return { exists: false };
+    }
+
+    const biodata = await this.prisma.biodata.findFirst({
+      where: { nik: nik.trim() }
+    });
+
+    if (!biodata) {
+      return { exists: false };
+    }
+
+    const student = await this.prisma.student.findFirst({
+      where: { biodataId: biodata.id },
+      include: {
+        biodata: true,
+        wilayah: true,
+        cabang: true,
+        siswaFormal: { include: { kelas: true } },
+        riwayatPendidikan: {
+          include: { cabang: true },
+          orderBy: { tanggalMasuk: 'desc' },
+        },
+      }
+    });
+
+    if (!student) {
+      return { exists: false };
+    }
+
+    return { exists: true, student };
+  }
+
+  async submitDaftarUlang(data: any) {
+    const { kodeDaftarUlang, studentId, ...studentData } = data;
+    
+    const setting = await this.prisma.pengaturanAkademik.findFirst();
+    if (!setting || setting.kodeDaftarUlang !== kodeDaftarUlang) {
+      throw new BadRequestException('Kode daftar ulang salah atau tidak tersedia');
+    }
+
+    if (studentId) {
+      // Re-registration of existing student
+      return this.updateStudent(studentId, studentData, null);
+    } else {
+      // New student registration
+      return this.createStudent(null, studentData);
+    }
+  }
 }

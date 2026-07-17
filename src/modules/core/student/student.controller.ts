@@ -106,4 +106,16 @@ export class StudentController {
   ) {
     return this.studentService.lepasSiswa(id, dto, req.user);
   }
+
+  // --- PUBLIC ENDPOINTS ---
+
+  @Post('daftar-ulang/verify')
+  verifyDaftarUlang(@Body() data: { nik: string, kodeDaftarUlang: string }) {
+    return this.studentService.verifyDaftarUlang(data);
+  }
+
+  @Post('daftar-ulang/submit')
+  submitDaftarUlang(@Body() data: any) {
+    return this.studentService.submitDaftarUlang(data);
+  }
 }

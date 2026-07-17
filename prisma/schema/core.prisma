@@ -192,10 +192,11 @@ model Staff {
 }
 
 model PengaturanAkademik {
-  id            String   @id @default(uuid())
-  semesterAktif String   @map("semester_aktif")
-  tahunAjaran   String   @map("tahun_ajaran")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(uuid())
+  semesterAktif   String   @map("semester_aktif")
+  tahunAjaran     String   @map("tahun_ajaran")
+  kodeDaftarUlang String?  @map("kode_daftar_ulang")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@map("pengaturan_akademik")
   @@schema("core")

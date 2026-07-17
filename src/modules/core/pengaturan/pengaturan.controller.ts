@@ -19,7 +19,7 @@ export class PengaturanController {
 
   @Put('akademik')
   @UseGuards(AccessControlGuard)
-  updatePengaturanAkademik(@Body() data: { semesterAktif: string, tahunAjaran: string }) {
+  updatePengaturanAkademik(@Body() data: { semesterAktif: string, tahunAjaran: string, kodeDaftarUlang?: string }) {
     return this.pengaturanService.updatePengaturanAkademik(data);
   }
 

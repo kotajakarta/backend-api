@@ -15,14 +15,15 @@ export class PengaturanService {
       setting = await this.prisma.pengaturanAkademik.create({
         data: {
           semesterAktif: 'Ganjil',
-          tahunAjaran: '2026/2027'
+          tahunAjaran: '2026/2027',
+          kodeDaftarUlang: ''
         }
       });
     }
     return setting;
   }
 
-  async updatePengaturanAkademik(data: { semesterAktif: string, tahunAjaran: string }) {
+  async updatePengaturanAkademik(data: { semesterAktif: string, tahunAjaran: string, kodeDaftarUlang?: string }) {
     const setting = await this.getPengaturanAkademik();
     return this.prisma.pengaturanAkademik.update({
       where: { id: setting.id },
