@@ -985,7 +985,7 @@ export class StudentService {
 
   async verifyDaftarUlang({ nik, kodeDaftarUlang }: { nik: string, kodeDaftarUlang: string }) {
     const setting = await this.prisma.pengaturanAkademik.findFirst();
-    if (!setting || setting.kodeDaftarUlang !== kodeDaftarUlang) {
+    if (!setting || !setting.kodeDaftarUlang || setting.kodeDaftarUlang.toUpperCase() !== kodeDaftarUlang?.toUpperCase()) {
       throw new BadRequestException('Kode daftar ulang salah atau tidak tersedia');
     }
 
@@ -993,9 +993,22 @@ export class StudentService {
       return { exists: false };
     }
 
-    const biodata = await this.prisma.biodata.findFirst({
-      where: { nik: nik.trim() }
+    const searchVal = nik.trim();
+    let biodata = await this.prisma.biodata.findFirst({
+      where: { nik: searchVal }
     });
+    
+    // Fallback search by NISN or NIS Lokal if NIK not found
+    if (!biodata) {
+      biodata = await this.prisma.biodata.findFirst({
+        where: { 
+          OR: [
+            { nisn: searchVal },
+            { nisLokal: searchVal }
+          ]
+        }
+      });
+    }
 
     if (!biodata) {
       return { exists: false };
@@ -1026,7 +1039,7 @@ export class StudentService {
     const { kodeDaftarUlang, studentId, ...studentData } = data;
     
     const setting = await this.prisma.pengaturanAkademik.findFirst();
-    if (!setting || setting.kodeDaftarUlang !== kodeDaftarUlang) {
+    if (!setting || !setting.kodeDaftarUlang || setting.kodeDaftarUlang.toUpperCase() !== kodeDaftarUlang?.toUpperCase()) {
       throw new BadRequestException('Kode daftar ulang salah atau tidak tersedia');
     }
 
