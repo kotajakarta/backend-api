@@ -8,19 +8,26 @@ Image=docker.io/library/node:20-alpine
 WorkingDir=/app
 
 # Mengeset nama container agar bisa dipanggil oleh cloudflared tunnel
-ContainerName=daimi-api
+ContainerName=esantri-api
 
 # Menghubungkan container langsung ke jaringan Podman 'global_net'
 Network=global_net
 
 # Mount direktori kode aplikasi (dengan label keamanan SELinux ':Z')
-Volume=/data/podman-hosting/apps/backend-api:/app:Z
+Volume=/webku/appsku/esantri/backend-api:/app:Z
 
 # Menjalankan backend API
 Exec=node dist/main.js
 
 # Menggunakan berkas environment host RHEL
-EnvironmentFile=/data/podman-hosting/apps/backend-api/.env
+EnvironmentFile=/webku/appsku/esantri/backend-api/.env
+
+# === SEKSI HEALTH CHECK ===
+HealthCmd=node --input-type=module -e "import http from 'http'; http.get('http://localhost:8080/api/v1/health', (r) => { if (r.statusCode === 200) process.exit(0); else process.exit(1); }).on('error', () => process.exit(1));"
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=10s
 
 [Install]
 WantedBy=default.target
