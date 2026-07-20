@@ -82,7 +82,6 @@ model User {
   operatorName      String?            @map("operator_name")
   cabang            Cabang?            @relation(fields: [cabangId], references: [id])
   wilayah           Wilayah?           @relation(fields: [wilayahId], references: [id])
-  panitia           Panitia[]
   confirmedKegiatan Kegiatan[]
 
   @@map("users")
@@ -199,6 +198,7 @@ model Staff {
   guruMapelKelas   GuruMapelKelas[]
   riwayatWaliKelas RiwayatKelasFormal[]
   kelasWali        Kelas[]              @relation("KelasWali")
+  panitia          Panitia[]
 
   @@map("staff")
   @@schema("core")

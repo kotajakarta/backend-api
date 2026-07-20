@@ -185,7 +185,7 @@ export class KegiatanService {
       await tx.panitia.create({
         data: {
           kegiatanId: kegiatan.id,
-          userId: data.ketuaPanitiaId,
+          staffId: data.ketuaPanitiaId,
           jabatan: 'KETUA'
         }
       });
@@ -213,7 +213,7 @@ export class KegiatanService {
               dokumen: true
             }
           },
-          panitia: { include: { user: true } },
+          panitia: { include: { staff: true } },
           dokumen: true,
           cabang: true,
           asrama: true
@@ -239,11 +239,11 @@ export class KegiatanService {
         },
         panitia: {
           include: {
-            user: {
+            staff: {
               select: {
                 id: true,
-                username: true,
-                operatorName: true
+                name: true,
+                position: true
               }
             }
           }
@@ -275,11 +275,11 @@ export class KegiatanService {
         },
         panitia: {
           include: {
-            user: {
+            staff: {
               select: {
                 id: true,
-                username: true,
-                operatorName: true
+                name: true,
+                position: true
               }
             }
           }
@@ -330,7 +330,7 @@ export class KegiatanService {
         await tx.panitia.create({
           data: {
             kegiatanId: id,
-            userId: data.ketuaPanitiaId,
+            staffId: data.ketuaPanitiaId,
             jabatan: 'KETUA'
           }
         });
@@ -359,7 +359,7 @@ export class KegiatanService {
               dokumen: true
             }
           },
-          panitia: { include: { user: true } },
+          panitia: { include: { staff: true } },
           dokumen: true,
           cabang: true,
           asrama: true

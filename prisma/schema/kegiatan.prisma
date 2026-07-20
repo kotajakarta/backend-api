@@ -69,13 +69,13 @@ model Kegiatan {
 model Panitia {
   id         String   @id @default(uuid())
   kegiatanId String   @map("kegiatan_id")
-  userId     String   @map("user_id")
+  staffId    String   @map("staff_id")
   jabatan    String   // KETUA
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   kegiatan   Kegiatan @relation(fields: [kegiatanId], references: [id], onDelete: Cascade)
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  staff      Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
 
   @@map("panitia")
   @@schema("core")
