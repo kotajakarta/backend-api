@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Put, Delete, UseGuards, Inject, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, UseGuards, Inject, Body, Param } from '@nestjs/common';
 import { AdminService } from './admin.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireScope } from '../../common/decorators/access-control.decorator.js';
+import { CreateUserDto } from './dto/create-user.dto.js';
+import { UpdateUserDto } from './dto/update-user.dto.js';
 
 @Controller('admin')
 export class AdminController {
@@ -17,28 +19,28 @@ export class AdminController {
   @Post('users')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')
-  createUser(@Request() req: any) {
-    return this.adminService.createUser(req.body);
+  createUser(@Body() dto: CreateUserDto) {
+    return this.adminService.createUser(dto);
   }
 
   @Post('users/import')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')
-  importUsers(@Request() req: any) {
-    return this.adminService.importUsers(req.body);
+  importUsers(@Body() data: any[]) {
+    return this.adminService.importUsers(data);
   }
 
   @Put('users/:id')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')
-  updateUser(@Request() req: any) {
-    return this.adminService.updateUser(req.params.id, req.body);
+  updateUser(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+    return this.adminService.updateUser(id, dto);
   }
 
   @Delete('users/:id')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')
-  deleteUser(@Request() req: any) {
-    return this.adminService.deleteUser(req.params.id);
+  deleteUser(@Param('id') id: string) {
+    return this.adminService.deleteUser(id);
   }
 }

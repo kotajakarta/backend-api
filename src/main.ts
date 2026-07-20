@@ -12,7 +12,7 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware.js';
-import { loginRateLimiter, globalRateLimiter } from './common/middleware/rate-limit.middleware.js';
+import { loginRateLimiter, globalRateLimiter, daftarUlangRateLimiter } from './common/middleware/rate-limit.middleware.js';
 
 async function bootstrap() {
   const server = express();
@@ -54,6 +54,8 @@ async function bootstrap() {
   // ════════════════════════════════════════════════════════════════
   const apiPrefix = process.env.API_PREFIX || 'api/v1';
   server.use(`/${apiPrefix}/auth/login`, loginRateLimiter);
+  server.use(`/${apiPrefix}/students/daftar-ulang/verify`, daftarUlangRateLimiter);
+  server.use(`/${apiPrefix}/students/daftar-ulang/submit`, daftarUlangRateLimiter);
   server.use(`/${apiPrefix}`, globalRateLimiter);
 
   // ════════════════════════════════════════════════════════════════

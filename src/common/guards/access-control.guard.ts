@@ -48,8 +48,14 @@ export class AccessControlGuard implements CanActivate {
 
       req.user = payload;
 
-      const requiredDivisi = this.reflector.get<string>('requireDivisi', context.getHandler());
-      const requiredScope = this.reflector.get<string>('requireScope', context.getHandler());
+      const requiredDivisi = this.reflector.getAllAndOverride<string>('requireDivisi', [
+        context.getHandler(),
+        context.getClass(),
+      ]);
+      const requiredScope = this.reflector.getAllAndOverride<string>('requireScope', [
+        context.getHandler(),
+        context.getClass(),
+      ]);
 
       if (requiredDivisi) {
         if (payload.divisi !== requiredDivisi && payload.divisi !== 'ALL') {

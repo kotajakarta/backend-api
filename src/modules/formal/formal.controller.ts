@@ -5,8 +5,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
+import { RequireDivisi } from '../../common/decorators/access-control.decorator.js';
 
 @Controller('formal')
+@RequireDivisi('FORMAL')
 export class FormalController {
   constructor(@Inject(FormalService) private readonly formalService: FormalService) {}
 
@@ -249,8 +251,26 @@ export class FormalController {
   uploadFile(@UploadedFile() file: any) {
     if (!file) throw new BadRequestException('File is required');
     
+    // Size check: Max 5MB
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      throw new BadRequestException('File size exceeds the 5MB limit');
+    }
+
+    // Extension check
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.pdf'];
+    if (!allowedExtensions.includes(ext)) {
+      throw new BadRequestException('Only .jpg, .jpeg, .png, and .pdf files are allowed');
+    }
+
+    // MIME type check
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Invalid file type');
+    }
+
     // Generate a simple unique filename
-    const ext = path.extname(file.originalname);
     const filename = `muadalah_${Date.now()}_${Math.round(Math.random() * 1e9)}${ext}`;
     const uploadDir = path.join(process.cwd(), 'uploads');
     
@@ -269,7 +289,10 @@ export class FormalController {
 
   @Get('muadalah/uploads/:filename')
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
-    const filePath = path.join(process.cwd(), 'uploads', filename);
+    const safeFilename = path.basename(filename);
+    const uploadDir = path.join(process.cwd(), 'uploads');
+    const filePath = path.join(uploadDir, safeFilename);
+
     if (fs.existsSync(filePath)) {
       return res.sendFile(filePath);
     }

@@ -61,5 +61,8 @@ function createRateLimiter(maxRequests: number, windowMs: number) {
 /** Strict rate limiter for authentication endpoints: 5 attempts per 60 seconds */
 export const loginRateLimiter = createRateLimiter(5, 60_000);
 
+/** Rate limiter for student public registration / re-registration: 10 attempts per 60 seconds */
+export const daftarUlangRateLimiter = createRateLimiter(10, 60_000);
+
 /** General rate limiter for all API endpoints: 100 requests per 60 seconds */
 export const globalRateLimiter = createRateLimiter(100, 60_000);

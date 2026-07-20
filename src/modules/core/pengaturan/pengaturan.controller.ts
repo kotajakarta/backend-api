@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, UseInterceptors, UploadedFile, Res, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, UseInterceptors, UploadedFile, Res, Inject, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import * as path from 'path';
@@ -59,13 +59,36 @@ export class PengaturanController {
   @UseGuards(AccessControlGuard)
   @UseInterceptors(FileInterceptor('file'))
   uploadKalender(@UploadedFile() file: any, @Body('title') title: string) {
-    if (!file) throw new Error('File is required');
+    if (!file) throw new BadRequestException('File is required');
+
+    // Size check: Max 5MB
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      throw new BadRequestException('File size exceeds the 5MB limit');
+    }
+
+    // Extension check
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.pdf'];
+    if (!allowedExtensions.includes(ext)) {
+      throw new BadRequestException('Only .jpg, .jpeg, .png, and .pdf files are allowed');
+    }
+
+    // MIME type check
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Invalid file type');
+    }
+
     return this.pengaturanService.uploadKalender(file, title);
   }
 
   @Get('uploads/:filename')
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
-    const filePath = path.join(process.cwd(), 'uploads', filename);
+    const safeFilename = path.basename(filename);
+    const uploadDir = path.join(process.cwd(), 'uploads');
+    const filePath = path.join(uploadDir, safeFilename);
+
     if (fs.existsSync(filePath)) {
       return res.sendFile(filePath);
     }

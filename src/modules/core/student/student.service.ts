@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Inject } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, ForbiddenException } from '@nestjs/common';
 import { StatusPool } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
@@ -390,6 +390,31 @@ export class StudentService {
     const student = await this.prisma.student.findUnique({ where: { id }, include: { biodata: true } });
     if (!student) throw new BadRequestException('Student not found');
 
+    if (user && user.scope !== 'GLOBAL') {
+      if (user.scope === 'WILAYAH' && student.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Akses ditolak: Siswa berada di luar wilayah Anda.');
+      }
+      if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Akses ditolak: Siswa berada di luar cabang Anda.');
+      }
+    }
+
+    let targetCabangId = cabangId;
+    let targetWilayahId = wilayahId;
+
+    if (user && user.scope === 'CABANG') {
+      targetCabangId = user.cabangId;
+      targetWilayahId = user.wilayahId;
+    } else if (user && user.scope === 'WILAYAH') {
+      targetWilayahId = user.wilayahId;
+      if (targetCabangId && targetCabangId !== student.cabangId) {
+        const targetCabang = await this.prisma.cabang.findUnique({ where: { id: targetCabangId } });
+        if (!targetCabang || targetCabang.wilayahId !== user.wilayahId) {
+          throw new ForbiddenException('Akses ditolak: Cabang tujuan berada di luar wilayah Anda.');
+        }
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const biodata = await tx.biodata.update({
         where: { id: student.biodataId },
@@ -421,8 +446,8 @@ export class StudentService {
       const updatedStudent = await tx.student.update({
         where: { id },
         data: {
-          wilayahId,
-          cabangId,
+          wilayahId: targetWilayahId,
+          cabangId: targetCabangId,
           jenisSiswa: data.jenisSiswa || null,
           grupDaimi: data.grupDaimi || null,
           isActive: data.isActive !== undefined ? data.isActive : student.isActive

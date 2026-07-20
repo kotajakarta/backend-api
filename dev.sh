@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script untuk menjalankan backend-api secara lokal untuk pengembangan
+# push ke github
 set -e
 
 # Ambil parameter pesan commit dari argumen perintah, jika kosong pakai default
@@ -16,6 +16,7 @@ git push origin main
 
 echo "Push Berhasil! Kode terbaru sudah ada di GitHub."
 
+# Script untuk menjalankan backend-api secara lokal untuk pengembangan
 echo "=== Menghentikan proses di port 8080 (jika ada) ==="
 fuser -k 8080/tcp 2>/dev/null || kill -9 $(lsof -t -i:8080) 2>/dev/null || true
 echo "=== Menjalankan Backend API Lokal ==="
