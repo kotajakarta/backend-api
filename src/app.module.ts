@@ -19,6 +19,7 @@ import { SarprasModule } from './modules/sarpras/sarpras.module.js';
 @Module({
   imports: [
     PrismaModule,
+    RedisModule,
     AuthModule,
     StudentModule,
     MasterDataModule,
