@@ -1,21 +1,36 @@
-enum KegiatanStatus {
-  DRAFT
-  ACTIVE
-  CLOSED
+model JenisKegiatan {
+  id        String             @id @default(uuid())
+  nama      String             @unique
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+  templates TemplateKegiatan[]
 
+  @@map("jenis_kegiatan")
+  @@schema("core")
+}
+
+model TemplateKegiatan {
+  id          String        @id @default(uuid())
+  judul       String
+  deskripsi   String
+  deadline    DateTime
+  jenisId     String        @map("jenis_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  jenis       JenisKegiatan @relation(fields: [jenisId], references: [id])
+  kegiatan    Kegiatan[]
+
+  @@map("template_kegiatan")
   @@schema("core")
 }
 
 model Kegiatan {
   id                String            @id @default(uuid())
-  judul             String
-  deskripsi         String
-  ringkasan         String
-  jenis             String            // HUT, RAMADHAN, PIKNIK, dll
-  deadline          DateTime
-  status            KegiatanStatus    @default(ACTIVE)
+  templateId        String            @map("template_id")
   cabangId          String            @map("cabang_id")
-  asramaId          String?           @map("asrama_id") // Asrama terkait di cabang tersebut (opsional)
+  asramaId          String?           @map("asrama_id")
+  deskripsi         String            // Deskripsi pelaksanaan oleh cabang
   
   // Konfirmasi oleh Pusat
   isConfirmed       Boolean           @default(false) @map("is_confirmed")
@@ -25,11 +40,12 @@ model Kegiatan {
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
 
-  panitia           Panitia[]
-  dokumen           DokumenKegiatan[]
+  template          TemplateKegiatan  @relation(fields: [templateId], references: [id], onDelete: Cascade)
   cabang            Cabang            @relation(fields: [cabangId], references: [id], onDelete: Cascade)
   asrama            Ruang?            @relation(fields: [asramaId], references: [id], onDelete: SetNull)
   confirmedByUser   User?             @relation(fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+  panitia           Panitia[]
+  dokumen           DokumenKegiatan[]
 
   @@map("kegiatan")
   @@schema("core")
@@ -39,7 +55,7 @@ model Panitia {
   id         String   @id @default(uuid())
   kegiatanId String   @map("kegiatan_id")
   userId     String   @map("user_id")
-  jabatan    String   // Ketua, Sekretaris, dll
+  jabatan    String   // KETUA
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 

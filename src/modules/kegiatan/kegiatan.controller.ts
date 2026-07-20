@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFiles, Res, Inject, ForbiddenException } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { KegiatanService } from './kegiatan.service.js';
-import { CreateKegiatanDto, UpdateKegiatanDto } from './dto/kegiatan.dto.js';
+import { CreateKegiatanDto, UpdateKegiatanDto, CreateJenisKegiatanDto, UpdateJenisKegiatanDto, CreateTemplateKegiatanDto, UpdateTemplateKegiatanDto } from './dto/kegiatan.dto.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { Response } from 'express';
 import multer from 'multer';
@@ -30,6 +30,80 @@ const storage = multer.diskStorage({
 export class KegiatanController {
   constructor(@Inject(KegiatanService) private readonly kegiatanService: KegiatanService) {}
 
+  // === ENDPOINT JENIS KEGIATAN ===
+
+  @Get('jenis')
+  @UseGuards(AccessControlGuard)
+  async getJenisAll() {
+    return this.kegiatanService.findJenisAll();
+  }
+
+  @Post('jenis')
+  @UseGuards(AccessControlGuard)
+  async createJenis(@Request() req: any, @Body() body: CreateJenisKegiatanDto) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola jenis kegiatan.');
+    }
+    return this.kegiatanService.createJenis(body);
+  }
+
+  @Put('jenis/:id')
+  @UseGuards(AccessControlGuard)
+  async updateJenis(@Param('id') id: string, @Request() req: any, @Body() body: UpdateJenisKegiatanDto) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola jenis kegiatan.');
+    }
+    return this.kegiatanService.updateJenis(id, body);
+  }
+
+  @Delete('jenis/:id')
+  @UseGuards(AccessControlGuard)
+  async deleteJenis(@Param('id') id: string, @Request() req: any) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola jenis kegiatan.');
+    }
+    return this.kegiatanService.removeJenis(id);
+  }
+
+
+  // === ENDPOINT TEMPLATE KEGIATAN ===
+
+  @Get('templates')
+  @UseGuards(AccessControlGuard)
+  async getTemplatesAll() {
+    return this.kegiatanService.findTemplateAll();
+  }
+
+  @Post('templates')
+  @UseGuards(AccessControlGuard)
+  async createTemplate(@Request() req: any, @Body() body: CreateTemplateKegiatanDto) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola template kegiatan.');
+    }
+    return this.kegiatanService.createTemplate(body);
+  }
+
+  @Put('templates/:id')
+  @UseGuards(AccessControlGuard)
+  async updateTemplate(@Param('id') id: string, @Request() req: any, @Body() body: UpdateTemplateKegiatanDto) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola template kegiatan.');
+    }
+    return this.kegiatanService.updateTemplate(id, body);
+  }
+
+  @Delete('templates/:id')
+  @UseGuards(AccessControlGuard)
+  async deleteTemplate(@Param('id') id: string, @Request() req: any) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola template kegiatan.');
+    }
+    return this.kegiatanService.removeTemplate(id);
+  }
+
+
+  // === ENDPOINT BAP KEGIATAN CABANG ===
+
   @Post()
   @UseGuards(AccessControlGuard)
   @UseInterceptors(FilesInterceptor('files', 10, { storage }))
@@ -39,11 +113,8 @@ export class KegiatanController {
     @UploadedFiles() files: any[]
   ) {
     const createDto = new CreateKegiatanDto();
-    createDto.judul = body.judul;
+    createDto.templateId = body.templateId;
     createDto.deskripsi = body.deskripsi;
-    createDto.ringkasan = body.ringkasan;
-    createDto.jenis = body.jenis;
-    createDto.deadline = body.deadline;
     createDto.ketuaPanitiaId = body.ketuaPanitiaId;
     if (body.asramaId) {
       createDto.asramaId = body.asramaId;
@@ -57,8 +128,8 @@ export class KegiatanController {
 
   @Get()
   @UseGuards(AccessControlGuard)
-  async findAll(@Request() req: any, @Query('status') status?: any) {
-    return this.kegiatanService.findAll(req.user, status);
+  async findAll(@Request() req: any) {
+    return this.kegiatanService.findAll(req.user);
   }
 
   @Post(':id/confirm')
@@ -86,15 +157,9 @@ export class KegiatanController {
     @UploadedFiles() files: any[]
   ) {
     const updateDto: UpdateKegiatanDto = {};
-    if (body.judul) updateDto.judul = body.judul;
     if (body.deskripsi) updateDto.deskripsi = body.deskripsi;
-    if (body.ringkasan) updateDto.ringkasan = body.ringkasan;
-    if (body.jenis) updateDto.jenis = body.jenis;
-    if (body.deadline) updateDto.deadline = body.deadline;
-    if (body.status) updateDto.status = body.status;
     if (body.ketuaPanitiaId) updateDto.ketuaPanitiaId = body.ketuaPanitiaId;
     if (body.asramaId !== undefined) updateDto.asramaId = body.asramaId;
-    if (body.cabangId) updateDto.cabangId = body.cabangId;
 
     return this.kegiatanService.update(id, updateDto, files, req.user);
   }

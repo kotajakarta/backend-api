@@ -1,7 +1,18 @@
-import { IsString, IsNotEmpty, IsDateString, IsOptional, IsEnum } from 'class-validator';
-import { KegiatanStatus } from '@prisma/client';
+import { IsString, IsNotEmpty, IsDateString, IsOptional } from 'class-validator';
 
-export class CreateKegiatanDto {
+export class CreateJenisKegiatanDto {
+  @IsString()
+  @IsNotEmpty()
+  nama!: string;
+}
+
+export class UpdateJenisKegiatanDto {
+  @IsString()
+  @IsNotEmpty()
+  nama!: string;
+}
+
+export class CreateTemplateKegiatanDto {
   @IsString()
   @IsNotEmpty()
   judul!: string;
@@ -10,17 +21,41 @@ export class CreateKegiatanDto {
   @IsNotEmpty()
   deskripsi!: string;
 
-  @IsString()
-  @IsNotEmpty()
-  ringkasan!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  jenis!: string;
-
   @IsDateString()
   @IsNotEmpty()
   deadline!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  jenisId!: string;
+}
+
+export class UpdateTemplateKegiatanDto {
+  @IsString()
+  @IsOptional()
+  judul?: string;
+
+  @IsString()
+  @IsOptional()
+  deskripsi?: string;
+
+  @IsDateString()
+  @IsOptional()
+  deadline?: string;
+
+  @IsString()
+  @IsOptional()
+  jenisId?: string;
+}
+
+export class CreateKegiatanDto {
+  @IsString()
+  @IsNotEmpty()
+  templateId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  deskripsi!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -38,27 +73,7 @@ export class CreateKegiatanDto {
 export class UpdateKegiatanDto {
   @IsString()
   @IsOptional()
-  judul?: string;
-
-  @IsString()
-  @IsOptional()
   deskripsi?: string;
-
-  @IsString()
-  @IsOptional()
-  ringkasan?: string;
-
-  @IsString()
-  @IsOptional()
-  jenis?: string;
-
-  @IsDateString()
-  @IsOptional()
-  deadline?: string;
-
-  @IsEnum(KegiatanStatus)
-  @IsOptional()
-  status?: KegiatanStatus;
 
   @IsString()
   @IsOptional()
@@ -67,8 +82,4 @@ export class UpdateKegiatanDto {
   @IsString()
   @IsOptional()
   asramaId?: string;
-
-  @IsString()
-  @IsOptional()
-  cabangId?: string;
 }
