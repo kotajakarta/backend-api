@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from './common/prisma/prisma.module.js';
+import { RedisModule } from './common/redis/redis.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { StudentModule } from './modules/core/student/student.module.js';
 import { MasterDataModule } from './modules/core/master/master-data.module.js';
