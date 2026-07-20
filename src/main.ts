@@ -54,6 +54,7 @@ async function bootstrap() {
   // ════════════════════════════════════════════════════════════════
   const apiPrefix = process.env.API_PREFIX || 'api/v1';
   server.use(`/${apiPrefix}/auth/login`, loginRateLimiter);
+  server.use(`/${apiPrefix}/signin`, loginRateLimiter);
   server.use(`/${apiPrefix}/students/daftar-ulang/verify`, daftarUlangRateLimiter);
   server.use(`/${apiPrefix}/students/daftar-ulang/submit`, daftarUlangRateLimiter);
   server.use(`/${apiPrefix}`, globalRateLimiter);

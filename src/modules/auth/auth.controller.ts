@@ -4,11 +4,11 @@ import { AccessControlGuard } from '../../common/guards/access-control.guard.js'
 import { RequireDivisi } from '../../common/decorators/access-control.decorator.js';
 import { LoginDto } from './login.dto.js';
 
-@Controller('auth')
+@Controller()
 export class AuthController {
   constructor(@Inject(AuthService) private readonly authService: AuthService) {}
 
-  @Post('login')
+  @Post('auth/login')
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto.username, dto.password);
   }
@@ -19,13 +19,13 @@ export class AuthController {
     return this.authService.login(dto.username, dto.password);
   }
 
-  @Put('profile')
+  @Put('auth/profile')
   @UseGuards(AccessControlGuard)
   async updateProfile(@Request() req: any, @Body() body: any) {
     return this.authService.updateProfile(req.user.id, body, req.user.scope === 'GLOBAL');
   }
 
-  @Get('protected-formal')
+  @Get('auth/protected-formal')
   @UseGuards(AccessControlGuard)
   @RequireDivisi('FORMAL')
   getProtectedFormal(@Request() req: any) {
