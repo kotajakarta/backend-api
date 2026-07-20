@@ -210,22 +210,42 @@ export class AbsensiService {
   }
 
   async getKehadiranRecap(filters: {
-    kelasId: string;
-    cabangId: string;
+    wilayahId?: string;
+    cabangId?: string;
+    kelasId?: string;
     startDate?: string;
     endDate?: string;
     semester?: string;
     tahunAjaran?: string;
-  }) {
-    const { kelasId, cabangId, startDate, endDate, semester, tahunAjaran } = filters;
-    if (!kelasId) throw new BadRequestException('Kelas ID is required');
-    if (!cabangId) throw new BadRequestException('Cabang ID is required');
+    month?: string;
+  }, user: any) {
+    const { wilayahId, cabangId, kelasId, startDate, endDate, semester, tahunAjaran, month } = filters;
+    
+    let effectiveWilayahId = wilayahId;
+    let effectiveCabangId = cabangId;
+    
+    if (user?.scope === 'CABANG') {
+      effectiveWilayahId = user.wilayahId;
+      effectiveCabangId = user.cabangId;
+    } else if (user?.scope === 'WILAYAH') {
+      effectiveWilayahId = user.wilayahId;
+    }
 
     let dateFilter: any = {};
     if (startDate && endDate) {
       dateFilter = {
         gte: new Date(startDate),
-        lte: new Date(endDate),
+        lte: new Date(`${endDate}T23:59:59`),
+      };
+    } else if (month) {
+      const [yearStr, monthStr] = month.split('-');
+      const y = parseInt(yearStr);
+      const m = parseInt(monthStr);
+      const startOfMonth = new Date(y, m - 1, 1);
+      const endOfMonth = new Date(y, m, 0, 23, 59, 59);
+      dateFilter = {
+        gte: startOfMonth,
+        lte: endOfMonth,
       };
     } else if (semester && tahunAjaran) {
       const [startYearStr, endYearStr] = tahunAjaran.split('/');
@@ -257,11 +277,9 @@ export class AbsensiService {
 
     const students = await this.prisma.student.findMany({
       where: {
-        cabangId,
         isActive: true,
-        siswaFormal: {
-          kelasId,
-        },
+        ...(effectiveCabangId ? { cabangId: effectiveCabangId } : (effectiveWilayahId ? { cabang: { wilayahId: effectiveWilayahId } } : {})),
+        ...(kelasId ? { siswaFormal: { kelasId } } : {}),
       },
       include: {
         biodata: {
@@ -282,7 +300,7 @@ export class AbsensiService {
       where: {
         programId: { in: programIds },
         studentId: { in: students.map(s => s.id) },
-        cabangId,
+        ...(effectiveCabangId ? { cabangId: effectiveCabangId } : (effectiveWilayahId ? { cabang: { wilayahId: effectiveWilayahId } } : {})),
       },
     });
 
