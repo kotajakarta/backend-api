@@ -1,6 +1,5 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { CreateKegiatanDto, UpdateKegiatanDto, CreateJenisKegiatanDto, UpdateJenisKegiatanDto, CreateTemplateKegiatanDto, UpdateTemplateKegiatanDto } from './dto/kegiatan.dto.js';
 
 @Injectable()
 export class KegiatanService {
@@ -14,7 +13,7 @@ export class KegiatanService {
     });
   }
 
-  async createJenis(data: CreateJenisKegiatanDto) {
+  async createJenis(data: { nama: string }) {
     const existing = await this.prisma.jenisKegiatan.findUnique({
       where: { nama: data.nama }
     });
@@ -26,7 +25,7 @@ export class KegiatanService {
     });
   }
 
-  async updateJenis(id: string, data: UpdateJenisKegiatanDto) {
+  async updateJenis(id: string, data: { nama: string }) {
     const exists = await this.prisma.jenisKegiatan.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException('Jenis kegiatan tidak ditemukan.');
 
@@ -47,7 +46,6 @@ export class KegiatanService {
     const exists = await this.prisma.jenisKegiatan.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException('Jenis kegiatan tidak ditemukan.');
 
-    // Check if used in any template
     const used = await this.prisma.templateKegiatan.findFirst({ where: { jenisId: id } });
     if (used) {
       throw new BadRequestException('Jenis kegiatan tidak bisa dihapus karena sedang digunakan dalam template kegiatan.');
@@ -57,40 +55,89 @@ export class KegiatanService {
   }
 
 
-  // === CRUD TEMPLATE KEGIATAN ===
+  // === CRUD TEMPLATE KEGIATAN (Dengan Multi-Upload File dari Pusat) ===
 
   async findTemplateAll() {
     return this.prisma.templateKegiatan.findMany({
-      include: { jenis: true },
+      include: {
+        jenis: true,
+        dokumen: true
+      },
       orderBy: { createdAt: 'desc' }
     });
   }
 
-  async createTemplate(data: CreateTemplateKegiatanDto) {
-    return this.prisma.templateKegiatan.create({
-      data: {
-        judul: data.judul,
-        deskripsi: data.deskripsi,
-        deadline: new Date(data.deadline),
-        jenisId: data.jenisId
-      },
-      include: { jenis: true }
+  async createTemplate(data: any, files: any[]) {
+    return this.prisma.$transaction(async (tx) => {
+      const template = await tx.templateKegiatan.create({
+        data: {
+          judul: data.judul,
+          deskripsi: data.deskripsi,
+          deadline: new Date(data.deadline),
+          jenisId: data.jenisId
+        }
+      });
+
+      if (files && files.length > 0) {
+        for (const file of files) {
+          const isPhoto = file.mimetype.startsWith('image/');
+          await tx.dokumenTemplate.create({
+            data: {
+              templateId: template.id,
+              filePath: `/kegiatan/uploads/${file.filename}`,
+              fileName: file.originalname,
+              fileType: isPhoto ? 'PHOTO' : 'DOCUMENT'
+            }
+          });
+        }
+      }
+
+      return tx.templateKegiatan.findUnique({
+        where: { id: template.id },
+        include: {
+          jenis: true,
+          dokumen: true
+        }
+      });
     });
   }
 
-  async updateTemplate(id: string, data: UpdateTemplateKegiatanDto) {
+  async updateTemplate(id: string, data: any, files?: any[]) {
     const exists = await this.prisma.templateKegiatan.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException('Template kegiatan tidak ditemukan.');
 
-    return this.prisma.templateKegiatan.update({
-      where: { id },
-      data: {
-        judul: data.judul,
-        deskripsi: data.deskripsi,
-        deadline: data.deadline ? new Date(data.deadline) : undefined,
-        jenisId: data.jenisId
-      },
-      include: { jenis: true }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.templateKegiatan.update({
+        where: { id },
+        data: {
+          judul: data.judul,
+          deskripsi: data.deskripsi,
+          deadline: data.deadline ? new Date(data.deadline) : undefined,
+          jenisId: data.jenisId
+        }
+      });
+
+      if (files && files.length > 0) {
+        for (const file of files) {
+          const isPhoto = file.mimetype.startsWith('image/');
+          await tx.dokumenTemplate.create({
+            data: {
+              templateId: id,
+              filePath: `/kegiatan/uploads/${file.filename}`,
+              fileName: file.originalname,
+              fileType: isPhoto ? 'PHOTO' : 'DOCUMENT'
+            }
+          });
+        }
+      }
+
+      return tx.templateKegiatan.findUnique({
+        where: { id },
+        include: {
+          jenis: true,
+          dokumen: true
+        }
+      });
     });
   }
 
@@ -102,21 +149,19 @@ export class KegiatanService {
   }
 
 
-  // === TRANSAKSI BAP KEGIATAN CABANG ===
+  // === TRANSAKSI BAP KEGIATAN CABANG (Dengan Multi-Upload File dari Cabang) ===
 
-  async create(data: CreateKegiatanDto, files: any[], user: any) {
+  async create(data: any, files: any[], user: any) {
     let effectiveCabangId = data.cabangId || user.cabangId;
     if (!effectiveCabangId) {
       throw new BadRequestException('Cabang ID is required to submit Kegiatan BAP');
     }
 
-    // Check template exists
     const template = await this.prisma.templateKegiatan.findUnique({ where: { id: data.templateId } });
     if (!template) {
       throw new NotFoundException('Template kegiatan tidak ditemukan.');
     }
 
-    // Check if BAP for this template and branch already exists
     const existingBAP = await this.prisma.kegiatan.findFirst({
       where: {
         templateId: data.templateId,
@@ -162,7 +207,12 @@ export class KegiatanService {
       return tx.kegiatan.findUnique({
         where: { id: kegiatan.id },
         include: {
-          template: { include: { jenis: true } },
+          template: {
+            include: {
+              jenis: true,
+              dokumen: true
+            }
+          },
           panitia: { include: { user: true } },
           dokumen: true,
           cabang: true,
@@ -174,8 +224,6 @@ export class KegiatanService {
 
   async findAll(user: any) {
     const whereClause: any = {};
-    
-    // Filter by branch if user scope is CABANG
     if (user?.scope === 'CABANG') {
       whereClause.cabangId = user.cabangId;
     }
@@ -184,7 +232,10 @@ export class KegiatanService {
       where: whereClause,
       include: {
         template: {
-          include: { jenis: true }
+          include: {
+            jenis: true,
+            dokumen: true
+          }
         },
         panitia: {
           include: {
@@ -217,7 +268,10 @@ export class KegiatanService {
       where: { id },
       include: {
         template: {
-          include: { jenis: true }
+          include: {
+            jenis: true,
+            dokumen: true
+          }
         },
         panitia: {
           include: {
@@ -245,7 +299,6 @@ export class KegiatanService {
 
     if (!kegiatan) throw new NotFoundException('Laporan BAP kegiatan tidak ditemukan');
 
-    // Access restriction for CABANG scope
     if (user?.scope === 'CABANG' && kegiatan.cabangId !== user.cabangId) {
       throw new BadRequestException('You do not have access to this BAP');
     }
@@ -253,7 +306,7 @@ export class KegiatanService {
     return kegiatan;
   }
 
-  async update(id: string, data: UpdateKegiatanDto, files?: any[], user?: any) {
+  async update(id: string, data: any, files?: any[], user?: any) {
     const kegiatan = await this.prisma.kegiatan.findUnique({ where: { id } });
     if (!kegiatan) throw new NotFoundException('Laporan BAP kegiatan tidak ditemukan');
 
@@ -300,7 +353,12 @@ export class KegiatanService {
       return tx.kegiatan.findUnique({
         where: { id },
         include: {
-          template: { include: { jenis: true } },
+          template: {
+            include: {
+              jenis: true,
+              dokumen: true
+            }
+          },
           panitia: { include: { user: true } },
           dokumen: true,
           cabang: true,
@@ -333,7 +391,12 @@ export class KegiatanService {
         confirmedByUserId: userId
       },
       include: {
-        template: { include: { jenis: true } },
+        template: {
+          include: {
+            jenis: true,
+            dokumen: true
+          }
+        },
         cabang: true,
         asrama: true,
         confirmedByUser: {

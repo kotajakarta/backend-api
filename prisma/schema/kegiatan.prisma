@@ -10,18 +10,33 @@ model JenisKegiatan {
 }
 
 model TemplateKegiatan {
-  id          String        @id @default(uuid())
+  id          String            @id @default(uuid())
   judul       String
   deskripsi   String
   deadline    DateTime
-  jenisId     String        @map("jenis_id")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  jenisId     String            @map("jenis_id")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
 
-  jenis       JenisKegiatan @relation(fields: [jenisId], references: [id])
+  jenis       JenisKegiatan     @relation(fields: [jenisId], references: [id])
   kegiatan    Kegiatan[]
+  dokumen     DokumenTemplate[]
 
   @@map("template_kegiatan")
+  @@schema("core")
+}
+
+model DokumenTemplate {
+  id         String           @id @default(uuid())
+  templateId String           @map("template_id")
+  filePath   String           @map("file_path")
+  fileName   String           @map("file_name")
+  fileType   String           @map("file_type") // DOCUMENT, PHOTO
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  template   TemplateKegiatan @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("dokumen_template")
   @@schema("core")
 }
 

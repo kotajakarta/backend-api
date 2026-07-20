@@ -1,7 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFiles, Res, Inject, ForbiddenException } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { KegiatanService } from './kegiatan.service.js';
-import { CreateKegiatanDto, UpdateKegiatanDto, CreateJenisKegiatanDto, UpdateJenisKegiatanDto, CreateTemplateKegiatanDto, UpdateTemplateKegiatanDto } from './dto/kegiatan.dto.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { Response } from 'express';
 import multer from 'multer';
@@ -40,7 +39,7 @@ export class KegiatanController {
 
   @Post('jenis')
   @UseGuards(AccessControlGuard)
-  async createJenis(@Request() req: any, @Body() body: CreateJenisKegiatanDto) {
+  async createJenis(@Request() req: any, @Body() body: any) {
     if (req.user.scope !== 'GLOBAL') {
       throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola jenis kegiatan.');
     }
@@ -49,7 +48,7 @@ export class KegiatanController {
 
   @Put('jenis/:id')
   @UseGuards(AccessControlGuard)
-  async updateJenis(@Param('id') id: string, @Request() req: any, @Body() body: UpdateJenisKegiatanDto) {
+  async updateJenis(@Param('id') id: string, @Request() req: any, @Body() body: any) {
     if (req.user.scope !== 'GLOBAL') {
       throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola jenis kegiatan.');
     }
@@ -66,7 +65,7 @@ export class KegiatanController {
   }
 
 
-  // === ENDPOINT TEMPLATE KEGIATAN ===
+  // === ENDPOINT TEMPLATE KEGIATAN (Dengan Multi-Upload File dari Pusat) ===
 
   @Get('templates')
   @UseGuards(AccessControlGuard)
@@ -76,20 +75,31 @@ export class KegiatanController {
 
   @Post('templates')
   @UseGuards(AccessControlGuard)
-  async createTemplate(@Request() req: any, @Body() body: CreateTemplateKegiatanDto) {
+  @UseInterceptors(FilesInterceptor('files', 10, { storage }))
+  async createTemplate(
+    @Request() req: any,
+    @Body() body: any,
+    @UploadedFiles() files: any[]
+  ) {
     if (req.user.scope !== 'GLOBAL') {
       throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola template kegiatan.');
     }
-    return this.kegiatanService.createTemplate(body);
+    return this.kegiatanService.createTemplate(body, files);
   }
 
   @Put('templates/:id')
   @UseGuards(AccessControlGuard)
-  async updateTemplate(@Param('id') id: string, @Request() req: any, @Body() body: UpdateTemplateKegiatanDto) {
+  @UseInterceptors(FilesInterceptor('files', 10, { storage }))
+  async updateTemplate(
+    @Param('id') id: string,
+    @Request() req: any,
+    @Body() body: any,
+    @UploadedFiles() files: any[]
+  ) {
     if (req.user.scope !== 'GLOBAL') {
       throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola template kegiatan.');
     }
-    return this.kegiatanService.updateTemplate(id, body);
+    return this.kegiatanService.updateTemplate(id, body, files);
   }
 
   @Delete('templates/:id')
@@ -102,7 +112,7 @@ export class KegiatanController {
   }
 
 
-  // === ENDPOINT BAP KEGIATAN CABANG ===
+  // === ENDPOINT BAP KEGIATAN CABANG (Dengan Multi-Upload File dari Cabang) ===
 
   @Post()
   @UseGuards(AccessControlGuard)
@@ -112,18 +122,7 @@ export class KegiatanController {
     @Body() body: any,
     @UploadedFiles() files: any[]
   ) {
-    const createDto = new CreateKegiatanDto();
-    createDto.templateId = body.templateId;
-    createDto.deskripsi = body.deskripsi;
-    createDto.ketuaPanitiaId = body.ketuaPanitiaId;
-    if (body.asramaId) {
-      createDto.asramaId = body.asramaId;
-    }
-    if (body.cabangId) {
-      createDto.cabangId = body.cabangId;
-    }
-    
-    return this.kegiatanService.create(createDto, files, req.user);
+    return this.kegiatanService.create(body, files, req.user);
   }
 
   @Get()
@@ -156,12 +155,7 @@ export class KegiatanController {
     @Body() body: any,
     @UploadedFiles() files: any[]
   ) {
-    const updateDto: UpdateKegiatanDto = {};
-    if (body.deskripsi) updateDto.deskripsi = body.deskripsi;
-    if (body.ketuaPanitiaId) updateDto.ketuaPanitiaId = body.ketuaPanitiaId;
-    if (body.asramaId !== undefined) updateDto.asramaId = body.asramaId;
-
-    return this.kegiatanService.update(id, updateDto, files, req.user);
+    return this.kegiatanService.update(id, body, files, req.user);
   }
 
   @Delete(':id')
