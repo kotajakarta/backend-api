@@ -19,9 +19,11 @@ export class RedisService implements OnModuleDestroy {
     this.logger.log(`Menghubungkan ke Redis: ${redisUri.replace(/:[^@]+@/, ':****@')}`);
     
     this.client = new Redis(redisUri, {
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false, // Fail commands instantly when connection is offline to trigger fallback
+      connectTimeout: 2000, // 2 seconds connect timeout
       retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000);
+        const delay = Math.min(times * 1000, 15000);
         return delay;
       }
     });
