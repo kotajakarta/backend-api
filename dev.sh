@@ -14,7 +14,7 @@ git commit -m "$COMMIT_MSG"
 echo "=== 3. Mem-push ke GitHub ==="
 git push origin main
 
-echo "Push Berhasil! Kode terbaru sudah ada di GitHub."
+
 
 # Script untuk menjalankan backend-api secara lokal untuk pengembangan
 echo "=== Menghentikan proses di port 8080 (jika ada) ==="
