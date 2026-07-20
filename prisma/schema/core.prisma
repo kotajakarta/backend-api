@@ -80,6 +80,7 @@ model User {
 model Biodata {
   id                    String    @id @default(uuid())
   nik                   String?   @unique
+  noKk                  String?   @map("no_kk")
   nisLokal              String?   @map("nis_lokal")
   noGlodemy             String?   @map("no_glodemy")
   fullName              String    @map("full_name")

@@ -12,7 +12,7 @@ export class StudentService {
 
   async createStudent(user: any, data: any) {
     const { 
-      nisn, nik, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
+      nisn, nik, noKk, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
       jumlahSaudara, anakKe,
       namaAyah, statusHidupAyah, nikAyah, tempatLahirAyah, tanggalLahirAyah, pekerjaanAyah, pendidikanAyah, penghasilanAyah,
       namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu, tanggalLahirIbu, pekerjaanIbu, pendidikanIbu, penghasilanIbu,
@@ -31,6 +31,7 @@ export class StudentService {
       const biodata = await tx.biodata.create({
         data: {
           nik: nik?.trim() ? nik.trim() : null,
+          noKk: noKk?.trim() ? noKk.trim() : null,
           nisn: nisn?.trim() ? nisn.trim() : null,
           nisLokal: nisLokal?.trim() ? nisLokal.trim() : null,
           noGlodemy: noGlodemy?.trim() ? noGlodemy.trim() : null,
@@ -376,7 +377,7 @@ export class StudentService {
 
   async updateStudent(id: string, data: any, user?: any) {
     const { 
-      nisn, nik, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
+      nisn, nik, noKk, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
       jumlahSaudara, anakKe,
       namaAyah, statusHidupAyah, nikAyah, tempatLahirAyah, tanggalLahirAyah, pekerjaanAyah, pendidikanAyah, penghasilanAyah,
       namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu, tanggalLahirIbu, pekerjaanIbu, pendidikanIbu, penghasilanIbu,
@@ -420,6 +421,7 @@ export class StudentService {
         where: { id: student.biodataId },
         data: {
           nik: nik?.trim() ? nik.trim() : null,
+          noKk: noKk?.trim() ? noKk.trim() : null,
           nisn: nisn?.trim() ? nisn.trim() : null,
           nisLokal: nisLokal?.trim() ? nisLokal.trim() : null,
           noGlodemy: noGlodemy?.trim() ? noGlodemy.trim() : null,
