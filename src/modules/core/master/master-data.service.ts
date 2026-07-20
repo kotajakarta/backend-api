@@ -692,7 +692,16 @@ export class MasterDataService {
         alamatJalan: data.alamatJalan || null,
         alamatNegara: data.alamatNegara || null,
         statusTanah: data.statusTanah || null,
-        statusBangunan: data.statusBangunan || null
+        statusBangunan: data.statusBangunan || null,
+        fotoPlang: data.fotoPlang || null,
+        fotoGedung: data.fotoGedung || null,
+        fotoHalaman: data.fotoHalaman || null,
+        fotoDenah: data.fotoDenah || null,
+        fotoMushala: data.fotoMushala || null,
+        fotoKelas: data.fotoKelas || null,
+        fotoRuangTidur: data.fotoRuangTidur || null,
+        fotoRuangMakan: data.fotoRuangMakan || null,
+        fotoKamarMandi: data.fotoKamarMandi || null
       }
     });
     if (user) {
