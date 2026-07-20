@@ -1,18 +1,19 @@
 model Ruang {
-  id         String      @id @default(uuid())
-  nama       String
-  kode       String?
-  tipe       String      // e.g., KELAS, ASRAMA, KANTOR, LAB, AULA, PERPUSTAKAAN, LAINNYA
-  kapasitas  Int?
-  luas       Float?
-  kondisi    String      // e.g., BAIK, RUSAK_RINGAN, RUSAK_BERAT
-  keterangan String?
-  cabangId   String      @map("cabang_id")
-  cabang     Cabang      @relation(fields: [cabangId], references: [id], onDelete: Cascade)
-  fasilitas  Fasilitas[]
-  kelas      Kelas[]
-  createdAt  DateTime    @default(now()) @map("created_at")
-  updatedAt  DateTime    @updatedAt @map("updated_at")
+  id               String             @id @default(uuid())
+  nama             String
+  kode             String?
+  tipe             String      // e.g., KELAS, ASRAMA, KANTOR, LAB, AULA, PERPUSTAKAAN, LAINNYA
+  kapasitas        Int?
+  luas             Float?
+  kondisi          String      // e.g., BAIK, RUSAK_RINGAN, RUSAK_BERAT
+  keterangan       String?
+  cabangId         String             @map("cabang_id")
+  cabang           Cabang             @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+  fasilitas        Fasilitas[]
+  kelas            Kelas[]
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  notifikasiAsrama NotifikasiAsrama[]
 
   @@map("ruang")
   @@schema("core")

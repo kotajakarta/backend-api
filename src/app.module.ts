@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './common/prisma/prisma.module.js';
 import { RedisModule } from './common/redis/redis.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
@@ -15,6 +16,7 @@ import { AuditLogModule } from './modules/audit-log/audit-log.module.js';
 import { FaqModule } from './modules/faq/faq.module.js';
 import { SearchModule } from './modules/search/search.module.js';
 import { SarprasModule } from './modules/sarpras/sarpras.module.js';
+import { KegiatanModule } from './modules/kegiatan/kegiatan.module.js';
 
 @Module({
   imports: [
@@ -33,7 +35,9 @@ import { SarprasModule } from './modules/sarpras/sarpras.module.js';
     AuditLogModule,
     FaqModule,
     SearchModule,
-    SarprasModule
+    SarprasModule,
+    KegiatanModule,
+    ScheduleModule.forRoot()
   ],
   controllers: [],
   providers: [],

@@ -1,0 +1,72 @@
+enum KegiatanStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+
+  @@schema("core")
+}
+
+model Kegiatan {
+  id          String            @id @default(uuid())
+  judul       String
+  deskripsi   String
+  ringkasan   String
+  jenis       String            // HUT, RAMADHAN, PIKNIK, dll
+  deadline    DateTime
+  status      KegiatanStatus    @default(DRAFT)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  panitia     Panitia[]
+  dokumen     DokumenKegiatan[]
+  notifikasi  NotifikasiAsrama[]
+
+  @@map("kegiatan")
+  @@schema("core")
+}
+
+model Panitia {
+  id         String   @id @default(uuid())
+  kegiatanId String   @map("kegiatan_id")
+  userId     String   @map("user_id")
+  jabatan    String   // Ketua, Sekretaris, dll
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  kegiatan   Kegiatan @relation(fields: [kegiatanId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("panitia")
+  @@schema("core")
+}
+
+model DokumenKegiatan {
+  id         String   @id @default(uuid())
+  kegiatanId String   @map("kegiatan_id")
+  filePath   String   @map("file_path")
+  fileName   String   @map("file_name")
+  fileType   String   @map("file_type") // DOCUMENT, PHOTO
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  kegiatan   Kegiatan @relation(fields: [kegiatanId], references: [id], onDelete: Cascade)
+
+  @@map("dokumen_kegiatan")
+  @@schema("core")
+}
+
+model NotifikasiAsrama {
+  id                String    @id @default(uuid())
+  kegiatanId        String    @map("kegiatan_id")
+  asramaId          String    @map("asrama_id")
+  isConfirmed       Boolean   @default(false) @map("is_confirmed")
+  confirmedAt       DateTime? @map("confirmed_at")
+  confirmedByUserId String?   @map("confirmed_by_user_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  kegiatan          Kegiatan  @relation(fields: [kegiatanId], references: [id], onDelete: Cascade)
+  asrama            Ruang     @relation(fields: [asramaId], references: [id], onDelete: Cascade)
+  confirmedByUser   User?     @relation(fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("notifikasi_asrama")
+  @@schema("core")
+}
