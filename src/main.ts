@@ -12,7 +12,8 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware.js';
-import { loginRateLimiter, globalRateLimiter, daftarUlangRateLimiter } from './common/middleware/rate-limit.middleware.js';
+import { loginRateLimiter, globalRateLimiter, daftarUlangRateLimiter, setRateLimitRedisClient } from './common/middleware/rate-limit.middleware.js';
+import { RedisService } from './common/redis/redis.service.js';
 
 async function bootstrap() {
   const server = express();
@@ -72,6 +73,10 @@ async function bootstrap() {
     bodyParser: false,
     logger: ['error', 'warn', 'log'],
   });
+
+  // Hubungkan middleware rate limit ke client Redis
+  const redisService = nestApp.get(RedisService);
+  setRateLimitRedisClient(redisService.getClient());
 
   nestApp.setGlobalPrefix(apiPrefix);
 

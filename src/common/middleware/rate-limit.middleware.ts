@@ -1,60 +1,115 @@
 import { Request, Response, NextFunction } from 'express';
+import { Redis } from 'ioredis';
 
 /**
- * Enterprise-grade in-memory rate limiter.
- * Tracks request counts per IP within sliding time windows.
- * No external dependencies (Redis-free).
+ * Enterprise-grade Redis-backed sliding window rate limiter.
+ * Fallbacks automatically to in-memory store if Redis is unavailable.
  */
+
+let redisClient: Redis | null = null;
+
+export function setRateLimitRedisClient(client: Redis) {
+  redisClient = client;
+}
 
 interface RateLimitEntry {
   count: number;
   resetTime: number;
 }
 
-const store = new Map<string, RateLimitEntry>();
+const memoryStore = new Map<string, RateLimitEntry>();
 
-// Clean up expired entries every 60 seconds to prevent memory leaks
+// Clean up expired local memory entries to prevent leaks
 setInterval(() => {
   const now = Date.now();
-  for (const [key, entry] of store.entries()) {
+  for (const [key, entry] of memoryStore.entries()) {
     if (now > entry.resetTime) {
-      store.delete(key);
+      memoryStore.delete(key);
     }
   }
 }, 60_000);
 
+function fallbackLimiter(req: Request, res: Response, next: NextFunction, key: string, maxRequests: number, windowMs: number) {
+  const now = Date.now();
+  const entry = memoryStore.get(key);
+
+  if (!entry || now > entry.resetTime) {
+    memoryStore.set(key, { count: 1, resetTime: now + windowMs });
+    res.setHeader('X-RateLimit-Limit', maxRequests);
+    res.setHeader('X-RateLimit-Remaining', maxRequests - 1);
+    return next();
+  }
+
+  if (entry.count >= maxRequests) {
+    const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
+    res.setHeader('Retry-After', retryAfter);
+    res.setHeader('X-RateLimit-Limit', maxRequests);
+    res.setHeader('X-RateLimit-Remaining', 0);
+    return res.status(429).json({
+      statusCode: 429,
+      message: 'Too many requests. Please try again later.',
+      retryAfterSeconds: retryAfter,
+    });
+  }
+
+  entry.count++;
+  res.setHeader('X-RateLimit-Limit', maxRequests);
+  res.setHeader('X-RateLimit-Remaining', maxRequests - entry.count);
+  next();
+}
+
 function createRateLimiter(maxRequests: number, windowMs: number) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     // Membaca IP asli dari header proxy (Cloudflare/Cloudflared) atau fallback ke IP socket
     const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'unknown';
-    const key = `${ip}:${req.path}`;
-    const now = Date.now();
+    const key = `ratelimit:${ip}:${req.path}`;
+    const windowSec = Math.ceil(windowMs / 1000);
 
-    const entry = store.get(key);
-
-    if (!entry || now > entry.resetTime) {
-      store.set(key, { count: 1, resetTime: now + windowMs });
-      res.setHeader('X-RateLimit-Limit', maxRequests);
-      res.setHeader('X-RateLimit-Remaining', maxRequests - 1);
-      return next();
+    if (!redisClient) {
+      return fallbackLimiter(req, res, next, key, maxRequests, windowMs);
     }
 
-    if (entry.count >= maxRequests) {
-      const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
-      res.setHeader('Retry-After', retryAfter);
-      res.setHeader('X-RateLimit-Limit', maxRequests);
-      res.setHeader('X-RateLimit-Remaining', 0);
-      return res.status(429).json({
-        statusCode: 429,
-        message: 'Too many requests. Please try again later.',
-        retryAfterSeconds: retryAfter,
-      });
-    }
+    try {
+      // atomic INCR and TTL fetch using multi
+      const multi = redisClient.multi();
+      multi.incr(key);
+      multi.ttl(key);
+      
+      const results = await multi.exec();
+      if (!results || results.length < 2) {
+        return fallbackLimiter(req, res, next, key, maxRequests, windowMs);
+      }
 
-    entry.count++;
-    res.setHeader('X-RateLimit-Limit', maxRequests);
-    res.setHeader('X-RateLimit-Remaining', maxRequests - entry.count);
-    next();
+      // results[0] = [err, count], results[1] = [err, ttl]
+      const count = results[0][1] as number;
+      let ttl = results[1][1] as number;
+
+      // If key is new or doesn't have an expiry set, set the TTL
+      if (count === 1 || ttl === -1) {
+        await redisClient.expire(key, windowSec);
+        ttl = windowSec;
+      }
+
+      const remaining = Math.max(0, maxRequests - count);
+      res.setHeader('X-RateLimit-Limit', maxRequests);
+      res.setHeader('X-RateLimit-Remaining', remaining);
+
+      if (count > maxRequests) {
+        const retryAfter = ttl > 0 ? ttl : windowSec;
+        res.setHeader('Retry-After', retryAfter);
+        res.setHeader('X-RateLimit-Remaining', 0);
+        return res.status(429).json({
+          statusCode: 429,
+          message: 'Too many requests. Please try again later.',
+          retryAfterSeconds: retryAfter,
+        });
+      }
+
+      next();
+    } catch (err) {
+      // Fallback to local memory on connection failure
+      fallbackLimiter(req, res, next, key, maxRequests, windowMs);
+    }
   };
 }
 
