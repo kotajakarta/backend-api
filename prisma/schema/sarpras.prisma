@@ -13,7 +13,7 @@ model Ruang {
   kelas            Kelas[]
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
-  notifikasiAsrama NotifikasiAsrama[]
+  kegiatan         Kegiatan[]
 
   @@map("ruang")
   @@schema("core")

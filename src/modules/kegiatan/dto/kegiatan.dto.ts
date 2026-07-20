@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsDateString, IsOptional, IsEnum, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsDateString, IsOptional, IsEnum } from 'class-validator';
 import { KegiatanStatus } from '@prisma/client';
 
 export class CreateKegiatanDto {
@@ -26,9 +26,13 @@ export class CreateKegiatanDto {
   @IsNotEmpty()
   ketuaPanitiaId!: string;
 
-  @IsArray()
+  @IsString()
   @IsOptional()
-  asramaIds?: string[];
+  asramaId?: string;
+
+  @IsString()
+  @IsOptional()
+  cabangId?: string;
 }
 
 export class UpdateKegiatanDto {
@@ -60,7 +64,11 @@ export class UpdateKegiatanDto {
   @IsOptional()
   ketuaPanitiaId?: string;
 
-  @IsArray()
+  @IsString()
   @IsOptional()
-  asramaIds?: string[];
+  asramaId?: string;
+
+  @IsString()
+  @IsOptional()
+  cabangId?: string;
 }

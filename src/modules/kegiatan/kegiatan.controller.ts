@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFiles, Res, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFiles, Res, Inject, ForbiddenException } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { KegiatanService } from './kegiatan.service.js';
 import { CreateKegiatanDto, UpdateKegiatanDto } from './dto/kegiatan.dto.js';
@@ -34,6 +34,7 @@ export class KegiatanController {
   @UseGuards(AccessControlGuard)
   @UseInterceptors(FilesInterceptor('files', 10, { storage }))
   async create(
+    @Request() req: any,
     @Body() body: any,
     @UploadedFiles() files: any[]
   ) {
@@ -44,35 +45,35 @@ export class KegiatanController {
     createDto.jenis = body.jenis;
     createDto.deadline = body.deadline;
     createDto.ketuaPanitiaId = body.ketuaPanitiaId;
-    if (body.asramaIds) {
-      createDto.asramaIds = Array.isArray(body.asramaIds) ? body.asramaIds : body.asramaIds.split(',').filter(Boolean);
+    if (body.asramaId) {
+      createDto.asramaId = body.asramaId;
+    }
+    if (body.cabangId) {
+      createDto.cabangId = body.cabangId;
     }
     
-    return this.kegiatanService.create(createDto, files);
+    return this.kegiatanService.create(createDto, files, req.user);
   }
 
   @Get()
   @UseGuards(AccessControlGuard)
-  async findAll(@Query('status') status?: any) {
-    return this.kegiatanService.findAll(status);
+  async findAll(@Request() req: any, @Query('status') status?: any) {
+    return this.kegiatanService.findAll(req.user, status);
   }
 
-  @Get('notifikasi/asrama')
+  @Post(':id/confirm')
   @UseGuards(AccessControlGuard)
-  async getNotifikasiAsrama(@Query('asramaId') asramaId?: string) {
-    return this.kegiatanService.getNotifikasiAsrama(asramaId);
-  }
-
-  @Post('notifikasi/:id/confirm')
-  @UseGuards(AccessControlGuard)
-  async confirmNotifikasi(@Param('id') id: string, @Request() req: any) {
-    return this.kegiatanService.confirmNotifikasi(id, req.user.id);
+  async confirmKegiatan(@Param('id') id: string, @Request() req: any) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Only Pusat (GLOBAL) can confirm Kegiatan BAP receipt');
+    }
+    return this.kegiatanService.confirmKegiatan(id, req.user.id);
   }
 
   @Get(':id')
   @UseGuards(AccessControlGuard)
-  async findOne(@Param('id') id: string) {
-    return this.kegiatanService.findOne(id);
+  async findOne(@Param('id') id: string, @Request() req: any) {
+    return this.kegiatanService.findOne(id, req.user);
   }
 
   @Put(':id')
@@ -80,6 +81,7 @@ export class KegiatanController {
   @UseInterceptors(FilesInterceptor('files', 10, { storage }))
   async update(
     @Param('id') id: string,
+    @Request() req: any,
     @Body() body: any,
     @UploadedFiles() files: any[]
   ) {
@@ -91,17 +93,16 @@ export class KegiatanController {
     if (body.deadline) updateDto.deadline = body.deadline;
     if (body.status) updateDto.status = body.status;
     if (body.ketuaPanitiaId) updateDto.ketuaPanitiaId = body.ketuaPanitiaId;
-    if (body.asramaIds) {
-      updateDto.asramaIds = Array.isArray(body.asramaIds) ? body.asramaIds : body.asramaIds.split(',').filter(Boolean);
-    }
+    if (body.asramaId !== undefined) updateDto.asramaId = body.asramaId;
+    if (body.cabangId) updateDto.cabangId = body.cabangId;
 
-    return this.kegiatanService.update(id, updateDto, files);
+    return this.kegiatanService.update(id, updateDto, files, req.user);
   }
 
   @Delete(':id')
   @UseGuards(AccessControlGuard)
-  async remove(@Param('id') id: string) {
-    return this.kegiatanService.remove(id);
+  async remove(@Param('id') id: string, @Request() req: any) {
+    return this.kegiatanService.remove(id, req.user);
   }
 
   @Get('uploads/:filename')

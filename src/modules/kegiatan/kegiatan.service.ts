@@ -8,7 +8,6 @@ import { KegiatanStatus } from '@prisma/client';
 export class KegiatanService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  // Cron Job to automatically close expired activities every minute
   @Cron(CronExpression.EVERY_MINUTE)
   async handleDeadlineCleanup() {
     const now = new Date();
@@ -25,14 +24,19 @@ export class KegiatanService {
         }
       });
       if (expired.count > 0) {
-        console.log(`[Cron] Automatically closed ${expired.count} expired kegiatan.`);
+        console.log(`[Cron] Automatically closed ${expired.count} expired BAP kegiatan.`);
       }
     } catch (err) {
       console.error('[Cron] Error running handleDeadlineCleanup:', err);
     }
   }
 
-  async create(data: CreateKegiatanDto, files: any[]) {
+  async create(data: CreateKegiatanDto, files: any[], user: any) {
+    let effectiveCabangId = data.cabangId || user.cabangId;
+    if (!effectiveCabangId) {
+      throw new BadRequestException('Cabang ID is required to create Kegiatan BAP');
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const kegiatan = await tx.kegiatan.create({
         data: {
@@ -41,7 +45,9 @@ export class KegiatanService {
           ringkasan: data.ringkasan,
           jenis: data.jenis,
           deadline: new Date(data.deadline),
-          status: KegiatanStatus.ACTIVE
+          status: KegiatanStatus.ACTIVE,
+          cabangId: effectiveCabangId,
+          asramaId: data.asramaId || null,
         }
       });
 
@@ -67,32 +73,31 @@ export class KegiatanService {
         }
       }
 
-      if (data.asramaIds && data.asramaIds.length > 0) {
-        for (const asramaId of data.asramaIds) {
-          await tx.notifikasiAsrama.create({
-            data: {
-              kegiatanId: kegiatan.id,
-              asramaId: asramaId,
-              isConfirmed: false
-            }
-          });
-        }
-      }
-
       return tx.kegiatan.findUnique({
         where: { id: kegiatan.id },
         include: {
           panitia: { include: { user: true } },
           dokumen: true,
-          notifikasi: { include: { asrama: true } }
+          cabang: true,
+          asrama: true
         }
       });
     });
   }
 
-  async findAll(status?: KegiatanStatus) {
+  async findAll(user: any, status?: KegiatanStatus) {
+    const whereClause: any = {};
+    if (status) {
+      whereClause.status = status;
+    }
+    
+    // Filter by branch if user scope is CABANG
+    if (user?.scope === 'CABANG') {
+      whereClause.cabangId = user.cabangId;
+    }
+
     return this.prisma.kegiatan.findMany({
-      where: status ? { status } : undefined,
+      where: whereClause,
       include: {
         panitia: {
           include: {
@@ -106,9 +111,13 @@ export class KegiatanService {
           }
         },
         dokumen: true,
-        notifikasi: {
-          include: {
-            asrama: true
+        cabang: true,
+        asrama: true,
+        confirmedByUser: {
+          select: {
+            id: true,
+            username: true,
+            operatorName: true
           }
         }
       },
@@ -116,7 +125,7 @@ export class KegiatanService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user: any) {
     const kegiatan = await this.prisma.kegiatan.findUnique({
       where: { id },
       include: {
@@ -132,28 +141,35 @@ export class KegiatanService {
           }
         },
         dokumen: true,
-        notifikasi: {
-          include: {
-            asrama: true,
-            confirmedByUser: {
-              select: {
-                id: true,
-                username: true,
-                operatorName: true
-              }
-            }
+        cabang: true,
+        asrama: true,
+        confirmedByUser: {
+          select: {
+            id: true,
+            username: true,
+            operatorName: true
           }
         }
       }
     });
 
-    if (!kegiatan) throw new NotFoundException('Kegiatan not found');
+    if (!kegiatan) throw new NotFoundException('Kegiatan BAP not found');
+
+    // Access restriction for CABANG scope
+    if (user?.scope === 'CABANG' && kegiatan.cabangId !== user.cabangId) {
+      throw new BadRequestException('You do not have access to this BAP');
+    }
+
     return kegiatan;
   }
 
-  async update(id: string, data: UpdateKegiatanDto, files?: any[]) {
+  async update(id: string, data: UpdateKegiatanDto, files?: any[], user?: any) {
     const kegiatan = await this.prisma.kegiatan.findUnique({ where: { id } });
-    if (!kegiatan) throw new NotFoundException('Kegiatan not found');
+    if (!kegiatan) throw new NotFoundException('Kegiatan BAP not found');
+
+    if (user?.scope === 'CABANG' && kegiatan.cabangId !== user.cabangId) {
+      throw new BadRequestException('You do not have access to modify this BAP');
+    }
 
     return this.prisma.$transaction(async (tx) => {
       await tx.kegiatan.update({
@@ -164,7 +180,8 @@ export class KegiatanService {
           ringkasan: data.ringkasan,
           jenis: data.jenis,
           deadline: data.deadline ? new Date(data.deadline) : undefined,
-          status: data.status
+          status: data.status,
+          asramaId: data.asramaId !== undefined ? data.asramaId : undefined,
         }
       });
 
@@ -195,82 +212,42 @@ export class KegiatanService {
         }
       }
 
-      if (data.asramaIds) {
-        await tx.notifikasiAsrama.deleteMany({
-          where: { kegiatanId: id, isConfirmed: false }
-        });
-        
-        for (const asramaId of data.asramaIds) {
-          const exists = await tx.notifikasiAsrama.findFirst({
-            where: { kegiatanId: id, asramaId }
-          });
-          if (!exists) {
-            await tx.notifikasiAsrama.create({
-              data: {
-                kegiatanId: id,
-                asramaId,
-                isConfirmed: false
-              }
-            });
-          }
-        }
-      }
-
       return tx.kegiatan.findUnique({
         where: { id },
         include: {
           panitia: { include: { user: true } },
           dokumen: true,
-          notifikasi: { include: { asrama: true } }
+          cabang: true,
+          asrama: true
         }
       });
     });
   }
 
-  async remove(id: string) {
-    const exists = await this.prisma.kegiatan.findUnique({ where: { id } });
-    if (!exists) throw new NotFoundException('Kegiatan not found');
+  async remove(id: string, user: any) {
+    const kegiatan = await this.prisma.kegiatan.findUnique({ where: { id } });
+    if (!kegiatan) throw new NotFoundException('Kegiatan BAP not found');
+
+    if (user?.scope === 'CABANG' && kegiatan.cabangId !== user.cabangId) {
+      throw new BadRequestException('You do not have access to delete this BAP');
+    }
+
     return this.prisma.kegiatan.delete({ where: { id } });
   }
 
-  async getNotifikasiAsrama(asramaId?: string) {
-    return this.prisma.notifikasiAsrama.findMany({
-      where: asramaId ? { asramaId } : undefined,
-      include: {
-        kegiatan: {
-          include: {
-            panitia: {
-              include: {
-                user: {
-                  select: { id: true, username: true, operatorName: true }
-                }
-              }
-            },
-            dokumen: true
-          }
-        },
-        asrama: true,
-        confirmedByUser: {
-          select: { id: true, username: true, operatorName: true }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-  }
+  async confirmKegiatan(id: string, userId: string) {
+    const exists = await this.prisma.kegiatan.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException('Kegiatan BAP not found');
 
-  async confirmNotifikasi(notifikasiId: string, userId: string) {
-    const exists = await this.prisma.notifikasiAsrama.findUnique({ where: { id: notifikasiId } });
-    if (!exists) throw new NotFoundException('Notifikasi not found');
-
-    return this.prisma.notifikasiAsrama.update({
-      where: { id: notifikasiId },
+    return this.prisma.kegiatan.update({
+      where: { id },
       data: {
         isConfirmed: true,
         confirmedAt: new Date(),
         confirmedByUserId: userId
       },
       include: {
-        kegiatan: true,
+        cabang: true,
         asrama: true,
         confirmedByUser: {
           select: { id: true, username: true, operatorName: true }
