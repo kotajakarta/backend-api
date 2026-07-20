@@ -1,20 +1,29 @@
 import { PrismaClient, UserScope, UserDivisi, StatusPool } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import pg from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
+import dotenv from 'dotenv';
 
-const prisma = new PrismaClient();
+dotenv.config();
+
+const connectionString = process.env.DATABASE_URL;
+const pool = new pg.Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log('Seeding data...');
 
   // Clean up existing data first
-  await prisma.logKehadiran.deleteMany();
-  await prisma.riwayatPendidikan.deleteMany();
-  await prisma.student.deleteMany();
-  await prisma.biodata.deleteMany();
-  await prisma.staff.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.cabang.deleteMany();
-  await prisma.wilayah.deleteMany();
+  await prisma.kehadiran.deleteMany().catch(() => {});
+  await prisma.programAbsensi.deleteMany().catch(() => {});
+  await prisma.riwayatPendidikan.deleteMany().catch(() => {});
+  await prisma.student.deleteMany().catch(() => {});
+  await prisma.biodata.deleteMany().catch(() => {});
+  await prisma.staff.deleteMany().catch(() => {});
+  await prisma.user.deleteMany().catch(() => {});
+  await prisma.cabang.deleteMany().catch(() => {});
+  await prisma.wilayah.deleteMany().catch(() => {});
 
   // Create Wilayah (2)
   const wilayah1 = await prisma.wilayah.create({
