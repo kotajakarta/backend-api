@@ -1,0 +1,26 @@
+[Unit]
+Description=Edaimi Backend API (Rootless)
+After=network-online.target
+
+[Container]
+# Menggunakan image Node.js
+Image=docker.io/library/node:20-alpine
+WorkingDir=/app
+
+# Mengeset nama container agar bisa dipanggil oleh cloudflared tunnel
+ContainerName=daimi-api
+
+# Menghubungkan container langsung ke jaringan Podman 'global_net'
+Network=global_net
+
+# Mount direktori kode aplikasi (dengan label keamanan SELinux ':Z')
+Volume=/data/podman-hosting/apps/backend-api:/app:Z
+
+# Menjalankan backend API
+Exec=node dist/main.js
+
+# Menggunakan berkas environment host RHEL
+EnvironmentFile=/data/podman-hosting/apps/backend-api/.env
+
+[Install]
+WantedBy=default.target
