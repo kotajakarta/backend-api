@@ -7,7 +7,15 @@ export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
 
   constructor() {
-    const redisUri = process.env.REDIS_URI || process.env.REDIS_URL || 'redis://localhost:6379';
+    let redisUri = process.env.REDIS_URI || process.env.REDIS_URL || 'redis://localhost:6379';
+    // Clean up any surrounding quotes added by container env loaders
+    redisUri = redisUri.trim().replace(/^['"]|['"]$/g, '');
+
+    // Correct protocol prefix if it got malformed (e.g. starts with //)
+    if (redisUri.startsWith('//')) {
+      redisUri = 'redis:' + redisUri;
+    }
+
     this.logger.log(`Menghubungkan ke Redis: ${redisUri.replace(/:[^@]+@/, ':****@')}`);
     
     this.client = new Redis(redisUri, {
