@@ -593,6 +593,11 @@ export class StudentService {
             } 
           }
         },
+        dataDaimi: {
+          include: {
+            grup: true
+          }
+        },
         riwayatPendidikan: {
           include: { cabang: true },
           orderBy: { tanggalMasuk: 'desc' },
