@@ -1,5 +1,7 @@
-import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class KegiatanService {
@@ -399,6 +401,33 @@ export class KegiatanService {
     }
 
     return this.prisma.kegiatan.delete({ where: { id } });
+  }
+
+  async removeKegiatanDokumen(dokumenId: string, user: any) {
+    const doc = await this.prisma.dokumenKegiatan.findUnique({
+      where: { id: dokumenId },
+      include: { kegiatan: { select: { cabangId: true } } }
+    });
+    if (!doc) throw new NotFoundException('Dokumen tidak ditemukan.');
+
+    // Cabang users can only delete their own documents; GLOBAL can delete any
+    if (user.scope === 'CABANG' && doc.kegiatan.cabangId !== user.cabangId) {
+      throw new ForbiddenException('Tidak diizinkan menghapus dokumen cabang lain.');
+    }
+
+    // Try to remove the physical file
+    try {
+      const uploadDir = path.join(process.cwd(), 'uploads/kegiatan');
+      const filename = path.basename(doc.filePath);
+      const fullPath = path.join(uploadDir, filename);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    } catch (_) {
+      // Ignore file system errors
+    }
+
+    return this.prisma.dokumenKegiatan.delete({ where: { id: dokumenId } });
   }
 
   async confirmKegiatan(id: string, userId: string) {

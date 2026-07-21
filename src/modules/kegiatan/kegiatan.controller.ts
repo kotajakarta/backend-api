@@ -167,6 +167,12 @@ export class KegiatanController {
     return this.kegiatanService.update(id, body, files, req.user);
   }
 
+  @Delete('dokumen/:id')
+  @UseGuards(AccessControlGuard)
+  async removeDokumen(@Param('id') id: string, @Request() req: any) {
+    return this.kegiatanService.removeKegiatanDokumen(id, req.user);
+  }
+
   @Delete(':id')
   @UseGuards(AccessControlGuard)
   async remove(@Param('id') id: string, @Request() req: any) {
