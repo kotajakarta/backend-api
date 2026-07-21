@@ -16,6 +16,11 @@ export class PesantrenService {
       orderBy: { name: 'asc' },
       include: {
         ketua: true,
+        cabang: {
+          include: {
+            wilayah: true
+          }
+        },
         dataDaimi: {
           include: {
             student: {

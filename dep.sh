@@ -26,9 +26,9 @@ systemctl --user daemon-reload
 systemctl --user restart esantri-api.service
 
 
-echo "=== 6. Prisma Migrate Deploy ==="
-# Menjalankan migrasi database di dalam container yang sudah berjalan
-podman exec esantri-api npx prisma migrate deploy
+echo "=== 6. Prisma DB Push ==="
+# Menjalankan sinkronisasi database di dalam container yang sudah berjalan
+podman exec esantri-api npx prisma db push
 
 echo "=== Deployment Selesai! ==="
 systemctl --user status esantri-api.service --no-pager
