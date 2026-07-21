@@ -241,8 +241,8 @@ export class FormalController {
 
   @Get('muadalah')
   @UseGuards(AccessControlGuard)
-  getLembagaMuadalah() {
-    return this.formalService.getLembagaMuadalah();
+  getLembagaMuadalah(@Request() req: any) {
+    return this.formalService.getLembagaMuadalah(req.user);
   }
 
   @Post('muadalah/upload')

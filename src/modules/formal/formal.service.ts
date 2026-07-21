@@ -914,11 +914,22 @@ export class FormalService {
     });
   }
 
-  async getLembagaMuadalah() {
+  async getLembagaMuadalah(user?: any) {
+    const where: any = {};
+    if (user?.scope === 'CABANG') {
+      where.kelas = {
+        some: {
+          cabangId: user.cabangId
+        }
+      };
+    }
+
     return this.prisma.lembagaMuadalah.findMany({
+      where,
       orderBy: { name: 'asc' },
       include: {
         kelas: {
+          where: user?.scope === 'CABANG' ? { cabangId: user.cabangId } : undefined,
           include: {
             cabang: {
               include: {

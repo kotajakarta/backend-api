@@ -9,6 +9,9 @@ model Kamar {
 model GrupDaimi {
   id                 String               @id @default(uuid())
   name               String
+  jenis              String?
+  ketuaId            String?              @map("ketua_id")
+  ketua              Staff?               @relation("GrupDaimiKetua", fields: [ketuaId], references: [id])
   staff              Staff[]
   keaktifanMapelGrup KeaktifanMapelGrup[]
   dataDaimi          DataDaimi[]

@@ -194,6 +194,7 @@ model Staff {
   waliKelas        String?              @map("wali_kelas")
   cabang           Cabang?              @relation(fields: [cabangId], references: [id])
   grupDaimi        GrupDaimi?           @relation(fields: [grupDaimiId], references: [id])
+  grupDaimiKetua   GrupDaimi[]          @relation("GrupDaimiKetua")
   wilayah          Wilayah?             @relation(fields: [wilayahId], references: [id])
   guruMapelKelas   GuruMapelKelas[]
   riwayatWaliKelas RiwayatKelasFormal[]
