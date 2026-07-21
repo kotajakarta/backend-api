@@ -709,4 +709,26 @@ export class MasterDataService {
     }
     return result;
   }
+
+  async getCountries() {
+    try {
+      const response = await fetch(
+        'https://api.restcountries.com/countries/v5?q=indonesia',
+        { headers: { 'Authorization': 'Bearer rc_live_a9e86719eb5a4f1598832ea9db912de1' } }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to fetch countries');
+      }
+      return await response.json();
+    } catch (e) {
+      return {
+        data: {
+          objects: [
+            { names: { common: 'Indonesia' } },
+            { names: { common: 'Malaysia' } }
+          ]
+        }
+      };
+    }
+  }
 }

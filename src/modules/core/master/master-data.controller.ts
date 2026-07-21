@@ -149,4 +149,9 @@ export class MasterDataController {
   deleteWilayah(@Request() req: any) {
     return this.masterDataService.deleteWilayah(req.params.id, req.user);
   }
+
+  @Get('countries')
+  getCountries() {
+    return this.masterDataService.getCountries();
+  }
 }
