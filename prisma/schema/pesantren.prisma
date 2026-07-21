@@ -11,6 +11,8 @@ model GrupDaimi {
   name               String
   jenis              String?
   ketuaId            String?              @map("ketua_id")
+  cabangId           String?              @map("cabang_id")
+  cabang             Cabang?              @relation("GrupDaimiCabang", fields: [cabangId], references: [id])
   ketua              Staff?               @relation("GrupDaimiKetua", fields: [ketuaId], references: [id])
   staff              Staff[]
   keaktifanMapelGrup KeaktifanMapelGrup[]

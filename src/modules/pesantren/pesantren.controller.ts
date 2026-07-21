@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, UseGuards, Inject, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, UseGuards, Inject, Body, Param, Request } from '@nestjs/common';
 import { PesantrenService } from './pesantren.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireDivisi } from '../../common/decorators/access-control.decorator.js';
@@ -10,17 +10,23 @@ export class PesantrenController {
   constructor(@Inject(PesantrenService) private readonly pesantrenService: PesantrenService) {}
 
   @Get('grup-daimi')
-  getGrupDaimi() {
-    return this.pesantrenService.getGrupDaimi();
+  getGrupDaimi(@Request() req: any) {
+    return this.pesantrenService.getGrupDaimi(req.user);
   }
 
   @Post('grup-daimi')
-  createGrupDaimi(@Body() data: { name: string; jenis?: string; ketuaId?: string }) {
+  createGrupDaimi(@Request() req: any, @Body() data: { name: string; jenis?: string; ketuaId?: string; cabangId?: string }) {
+    if (req.user.scope === 'CABANG') {
+      data.cabangId = req.user.cabangId;
+    }
     return this.pesantrenService.createGrupDaimi(data);
   }
 
   @Put('grup-daimi/:id')
-  updateGrupDaimi(@Param('id') id: string, @Body() data: { name: string; jenis?: string; ketuaId?: string }) {
+  updateGrupDaimi(@Request() req: any, @Param('id') id: string, @Body() data: { name: string; jenis?: string; ketuaId?: string; cabangId?: string }) {
+    if (req.user.scope === 'CABANG') {
+      data.cabangId = req.user.cabangId;
+    }
     return this.pesantrenService.updateGrupDaimi(id, data);
   }
 

@@ -5,8 +5,14 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 export class PesantrenService {
   constructor(@Inject(PrismaService) private prisma: PrismaService) {}
 
-  async getGrupDaimi() {
+  async getGrupDaimi(user?: any) {
+    const where: any = {};
+    if (user?.scope === 'CABANG') {
+      where.cabangId = user.cabangId;
+    }
+
     return this.prisma.grupDaimi.findMany({
+      where,
       orderBy: { name: 'asc' },
       include: {
         ketua: true,
@@ -23,17 +29,18 @@ export class PesantrenService {
     });
   }
 
-  async createGrupDaimi(data: { name: string; jenis?: string; ketuaId?: string }) {
+  async createGrupDaimi(data: { name: string; jenis?: string; ketuaId?: string; cabangId?: string }) {
     return this.prisma.grupDaimi.create({
       data: {
         name: data.name,
         jenis: data.jenis || null,
         ketuaId: data.ketuaId || null,
+        cabangId: data.cabangId || null,
       }
     });
   }
 
-  async updateGrupDaimi(id: string, data: { name: string; jenis?: string; ketuaId?: string }) {
+  async updateGrupDaimi(id: string, data: { name: string; jenis?: string; ketuaId?: string; cabangId?: string }) {
     const existing = await this.prisma.grupDaimi.findUnique({ where: { id } });
     const result = await this.prisma.grupDaimi.update({
       where: { id },
@@ -41,6 +48,7 @@ export class PesantrenService {
         name: data.name,
         jenis: data.jenis !== undefined ? data.jenis : undefined,
         ketuaId: data.ketuaId !== undefined ? data.ketuaId : undefined,
+        cabangId: data.cabangId !== undefined ? data.cabangId : undefined,
       }
     });
 

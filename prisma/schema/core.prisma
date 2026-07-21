@@ -55,6 +55,7 @@ model Cabang {
   ruang                     Ruang[]
   fasilitas                 Fasilitas[]
   kegiatan                  Kegiatan[]
+  grupDaimi                 GrupDaimi[]           @relation("GrupDaimiCabang")
 
   @@map("cabang")
   @@schema("core")
