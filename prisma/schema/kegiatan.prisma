@@ -10,17 +10,20 @@ model JenisKegiatan {
 }
 
 model TemplateKegiatan {
-  id          String            @id @default(uuid())
-  judul       String
-  deskripsi   String
-  deadline    DateTime
-  jenisId     String            @map("jenis_id")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  id              String            @id @default(uuid())
+  judul           String
+  deskripsi       String
+  deadline        DateTime
+  jenisId         String            @map("jenis_id")
+  tanggalKegiatan DateTime?         @map("tanggal_kegiatan")
+  waktuKegiatan   String?           @map("waktu_kegiatan")
+  tujuanKegiatan  String?           @map("tujuan_kegiatan")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
-  jenis       JenisKegiatan     @relation(fields: [jenisId], references: [id])
-  kegiatan    Kegiatan[]
-  dokumen     DokumenTemplate[]
+  jenis           JenisKegiatan     @relation(fields: [jenisId], references: [id])
+  kegiatan        Kegiatan[]
+  dokumen         DokumenTemplate[]
 
   @@map("template_kegiatan")
   @@schema("core")
@@ -46,6 +49,12 @@ model Kegiatan {
   cabangId          String            @map("cabang_id")
   asramaId          String?           @map("asrama_id")
   deskripsi         String            // Deskripsi pelaksanaan oleh cabang
+  tanggalKegiatan   DateTime?         @map("tanggal_kegiatan")
+  waktuKegiatan     String?           @map("waktu_kegiatan")
+  tempatKegiatan    String?           @map("tempat_kegiatan")
+  jumlahPeserta     Int?              @map("jumlah_peserta")
+  ringkasanKegiatan String?           @map("ringkasan_kegiatan")
+  kesimpulan        String?           @map("kesimpulan")
   
   // Konfirmasi oleh Pusat
   isConfirmed       Boolean           @default(false) @map("is_confirmed")

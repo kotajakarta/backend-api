@@ -74,7 +74,10 @@ export class KegiatanService {
           judul: data.judul,
           deskripsi: data.deskripsi,
           deadline: new Date(data.deadline),
-          jenisId: data.jenisId
+          jenisId: data.jenisId,
+          tanggalKegiatan: data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null,
+          waktuKegiatan: data.waktuKegiatan || null,
+          tujuanKegiatan: data.tujuanKegiatan || null,
         }
       });
 
@@ -113,7 +116,10 @@ export class KegiatanService {
           judul: data.judul,
           deskripsi: data.deskripsi,
           deadline: data.deadline ? new Date(data.deadline) : undefined,
-          jenisId: data.jenisId
+          jenisId: data.jenisId,
+          tanggalKegiatan: data.tanggalKegiatan !== undefined ? (data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null) : undefined,
+          waktuKegiatan: data.waktuKegiatan !== undefined ? data.waktuKegiatan : undefined,
+          tujuanKegiatan: data.tujuanKegiatan !== undefined ? data.tujuanKegiatan : undefined,
         }
       });
 
@@ -183,6 +189,12 @@ export class KegiatanService {
           cabangId: effectiveCabangId,
           asramaId: data.asramaId || null,
           deskripsi: data.deskripsi,
+          tanggalKegiatan: data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null,
+          waktuKegiatan: data.waktuKegiatan || null,
+          tempatKegiatan: data.tempatKegiatan || null,
+          jumlahPeserta: data.jumlahPeserta ? Number(data.jumlahPeserta) : null,
+          ringkasanKegiatan: data.ringkasanKegiatan || null,
+          kesimpulan: data.kesimpulan || null,
         }
       });
 
@@ -324,6 +336,12 @@ export class KegiatanService {
         data: {
           deskripsi: data.deskripsi,
           asramaId: data.asramaId !== undefined ? data.asramaId : undefined,
+          tanggalKegiatan: data.tanggalKegiatan !== undefined ? (data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null) : undefined,
+          waktuKegiatan: data.waktuKegiatan !== undefined ? data.waktuKegiatan : undefined,
+          tempatKegiatan: data.tempatKegiatan !== undefined ? data.tempatKegiatan : undefined,
+          jumlahPeserta: data.jumlahPeserta !== undefined ? (data.jumlahPeserta ? Number(data.jumlahPeserta) : null) : undefined,
+          ringkasanKegiatan: data.ringkasanKegiatan !== undefined ? data.ringkasanKegiatan : undefined,
+          kesimpulan: data.kesimpulan !== undefined ? data.kesimpulan : undefined,
         }
       });
 
