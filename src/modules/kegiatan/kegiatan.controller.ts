@@ -111,6 +111,15 @@ export class KegiatanController {
     return this.kegiatanService.removeTemplate(id);
   }
 
+  @Delete('templates/dokumen/:id')
+  @UseGuards(AccessControlGuard)
+  async deleteTemplateDokumen(@Param('id') id: string, @Request() req: any) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin Pusat (GLOBAL) yang bisa mengelola template kegiatan.');
+    }
+    return this.kegiatanService.removeTemplateDokumen(id);
+  }
+
 
   // === ENDPOINT BAP KEGIATAN CABANG (Dengan Multi-Upload File dari Cabang) ===
 

@@ -148,6 +148,10 @@ export class KegiatanService {
     return this.prisma.templateKegiatan.delete({ where: { id } });
   }
 
+  async removeTemplateDokumen(id: string) {
+    return this.prisma.dokumenTemplate.delete({ where: { id } });
+  }
+
 
   // === TRANSAKSI BAP KEGIATAN CABANG (Dengan Multi-Upload File dari Cabang) ===
 
