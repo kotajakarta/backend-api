@@ -931,7 +931,23 @@ export class FormalService {
     });
   }
 
-  async createLembagaMuadalah(data: { name: string; code: string; npsn?: string; nspp?: string; namaKetua?: string; ttdKetua?: string; skSpm?: string; isActive?: boolean }, user?: any) {
+  async createLembagaMuadalah(data: { 
+    name: string; 
+    code: string; 
+    npsn?: string; 
+    nspp?: string; 
+    namaKetua?: string; 
+    ttdKetua?: string; 
+    skSpm?: string; 
+    isActive?: boolean;
+    namaLain?: string;
+    jenjang?: string;
+    provinsi?: string;
+    kabupaten?: string;
+    kecamatan?: string;
+    kelurahan?: string;
+    alamatDetail?: string;
+  }, user?: any) {
     const existing = await this.prisma.lembagaMuadalah.findUnique({
       where: { code: data.code }
     });
@@ -947,7 +963,14 @@ export class FormalService {
         namaKetua: data.namaKetua || null,
         ttdKetua: data.ttdKetua || null,
         skSpm: data.skSpm || null,
-        isActive: data.isActive !== undefined ? data.isActive : true
+        isActive: data.isActive !== undefined ? data.isActive : true,
+        namaLain: data.namaLain || null,
+        jenjang: data.jenjang || null,
+        provinsi: data.provinsi || null,
+        kabupaten: data.kabupaten || null,
+        kecamatan: data.kecamatan || null,
+        kelurahan: data.kelurahan || null,
+        alamatDetail: data.alamatDetail || null,
       }
     });
     if (user) {
@@ -956,7 +979,22 @@ export class FormalService {
     return result;
   }
 
-  async updateLembagaMuadalah(id: string, data: { name: string; code: string; npsn?: string; nspp?: string; namaKetua?: string; ttdKetua?: string; skSpm?: string }, user?: any) {
+  async updateLembagaMuadalah(id: string, data: { 
+    name: string; 
+    code: string; 
+    npsn?: string; 
+    nspp?: string; 
+    namaKetua?: string; 
+    ttdKetua?: string; 
+    skSpm?: string;
+    namaLain?: string;
+    jenjang?: string;
+    provinsi?: string;
+    kabupaten?: string;
+    kecamatan?: string;
+    kelurahan?: string;
+    alamatDetail?: string;
+  }, user?: any) {
     const existingCode = await this.prisma.lembagaMuadalah.findFirst({
       where: {
         code: data.code,
@@ -976,7 +1014,14 @@ export class FormalService {
         nspp: data.nspp || null,
         namaKetua: data.namaKetua || null,
         ttdKetua: data.ttdKetua || null,
-        skSpm: data.skSpm || null
+        skSpm: data.skSpm || null,
+        namaLain: data.namaLain !== undefined ? data.namaLain : undefined,
+        jenjang: data.jenjang !== undefined ? data.jenjang : undefined,
+        provinsi: data.provinsi !== undefined ? data.provinsi : undefined,
+        kabupaten: data.kabupaten !== undefined ? data.kabupaten : undefined,
+        kecamatan: data.kecamatan !== undefined ? data.kecamatan : undefined,
+        kelurahan: data.kelurahan !== undefined ? data.kelurahan : undefined,
+        alamatDetail: data.alamatDetail !== undefined ? data.alamatDetail : undefined,
       }
     });
     if (user) {

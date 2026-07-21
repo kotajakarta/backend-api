@@ -40,18 +40,25 @@ model Kelas {
 }
 
 model LembagaMuadalah {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique
-  npsn      String?
-  nspp      String?
-  namaKetua String?  @map("nama_ketua")
-  ttdKetua  String?  @map("ttd_ketua")
-  skSpm     String?  @map("sk_spm")
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  kelas     Kelas[]
+  id           String   @id @default(uuid())
+  name         String
+  code         String   @unique
+  npsn         String?
+  nspp         String?
+  namaKetua    String?  @map("nama_ketua")
+  ttdKetua     String?  @map("ttd_ketua")
+  skSpm        String?  @map("sk_spm")
+  isActive     Boolean  @default(true) @map("is_active")
+  namaLain     String?  @map("nama_lain")
+  jenjang      String?  // ULA, WUSTHA, ULYA
+  provinsi     String?
+  kabupaten    String?
+  kecamatan    String?
+  kelurahan    String?
+  alamatDetail String?  @map("alamat_detail")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  kelas        Kelas[]
 
   @@map("lembaga_muadalah")
   @@schema("formal")
