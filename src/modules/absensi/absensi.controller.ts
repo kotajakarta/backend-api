@@ -92,4 +92,21 @@ export class AbsensiController {
     const cabangId = body.cabangId || req.user.cabangId;
     return this.absensiService.saveKehadiranBulk(body.programId, cabangId, body.logs);
   }
+
+  @Get('kehadiran-guru')
+  @UseGuards(AccessControlGuard)
+  getKehadiranGuru(
+    @Query('programId') programId: string,
+    @Request() req: any
+  ) {
+    const cabangId = req.query.cabangId || req.user.cabangId;
+    return this.absensiService.getKehadiranGuru(programId, cabangId);
+  }
+
+  @Post('kehadiran-guru/bulk')
+  @UseGuards(AccessControlGuard)
+  saveKehadiranGuruBulk(@Body() body: { programId: string; cabangId?: string; logs: any[] }, @Request() req: any) {
+    const cabangId = body.cabangId || req.user.cabangId;
+    return this.absensiService.saveKehadiranGuruBulk(body.programId, cabangId, body.logs);
+  }
 }

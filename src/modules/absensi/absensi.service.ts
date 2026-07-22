@@ -209,6 +209,67 @@ export class AbsensiService {
     );
   }
 
+  async getKehadiranGuru(programId: string, cabangId: string) {
+    if (!cabangId) throw new BadRequestException('Cabang ID is required');
+
+    const teachers = await this.prisma.staff.findMany({
+      where: {
+        cabangId,
+        statusPool: { not: 'TERSEDIA' }
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    const existingLogs = await this.prisma.kehadiranGuru.findMany({
+      where: {
+        programId,
+        cabangId
+      }
+    });
+
+    return teachers.map(teacher => {
+      const log = existingLogs.find(l => l.guruId === teacher.id);
+      return {
+        guruId: teacher.id,
+        fullName: teacher.name,
+        position: teacher.position || 'Guru',
+        phone: teacher.phone || null,
+        status: log?.status || 'HADIR',
+        catatan: log?.catatan || ''
+      };
+    });
+  }
+
+  async saveKehadiranGuruBulk(programId: string, cabangId: string, logs: Array<{ guruId: string; status: KehadiranStatus; catatan?: string }>) {
+    if (!cabangId) throw new BadRequestException('Cabang ID is required');
+
+    return this.prisma.$transaction(
+      logs.map(log => 
+        this.prisma.kehadiranGuru.upsert({
+          where: {
+            programId_guruId: {
+              programId,
+              guruId: log.guruId
+            }
+          },
+          update: {
+            status: log.status,
+            catatan: log.catatan || null
+          },
+          create: {
+            programId,
+            guruId: log.guruId,
+            cabangId,
+            status: log.status,
+            catatan: log.catatan || null
+          }
+        })
+      )
+    );
+  }
+
   async getKehadiranRecap(filters: {
     wilayahId?: string;
     cabangId?: string;

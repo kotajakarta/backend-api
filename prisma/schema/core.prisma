@@ -201,6 +201,7 @@ model Staff {
   riwayatWaliKelas RiwayatKelasFormal[]
   kelasWali        Kelas[]              @relation("KelasWali")
   panitia          Panitia[]
+  kehadiranGuru    KehadiranGuru[]
 
   @@map("staff")
   @@schema("core")
