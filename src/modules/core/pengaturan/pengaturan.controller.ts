@@ -61,23 +61,17 @@ export class PengaturanController {
   uploadKalender(@UploadedFile() file: any, @Body('title') title: string) {
     if (!file) throw new BadRequestException('File is required');
 
-    // Size check: Max 5MB
-    const MAX_SIZE = 5 * 1024 * 1024;
+    // Size check: Max 25MB
+    const MAX_SIZE = 25 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      throw new BadRequestException('File size exceeds the 5MB limit');
+      throw new BadRequestException('Ukuran file melebihi batas 25MB');
     }
 
     // Extension check
-    const ext = path.extname(file.originalname).toLowerCase();
-    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.pdf'];
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.pdf', '.webp'];
     if (!allowedExtensions.includes(ext)) {
-      throw new BadRequestException('Only .jpg, .jpeg, .png, and .pdf files are allowed');
-    }
-
-    // MIME type check
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'application/pdf'];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw new BadRequestException('Invalid file type');
+      throw new BadRequestException('Hanya berkas format .pdf, .jpg, .jpeg, .png, dan .webp yang diperbolehkan');
     }
 
     return this.pengaturanService.uploadKalender(file, title);
