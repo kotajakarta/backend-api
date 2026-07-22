@@ -6,7 +6,7 @@ import { PrismaClientExceptionFilter } from './common/filters/prisma-client-exce
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor.js';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -15,6 +15,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware.js';
 import { loginRateLimiter, globalRateLimiter, daftarUlangRateLimiter, setRateLimitRedisClient } from './common/middleware/rate-limit.middleware.js';
+import { createUploadAuthMiddleware } from './common/middleware/upload-auth.middleware.js';
 import { RedisService } from './common/redis/redis.service.js';
 
 async function bootstrap() {
@@ -68,14 +69,17 @@ async function bootstrap() {
   server.use(express.json({ limit: '10mb' }));
   server.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-  // Static uploads directory serving
+  // Static uploads directory serving with JWT auth protection
+  let nestAppInstance: INestApplication | null = null;
+  const uploadAuthMiddleware = createUploadAuthMiddleware(() => nestAppInstance);
+
   const uploadDir = path.join(process.cwd(), 'uploads');
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
-  server.use('/uploads', express.static(uploadDir));
-  server.use(`/${apiPrefix}/uploads`, express.static(uploadDir));
-  server.use(`/${apiPrefix}/pengaturan/uploads`, express.static(uploadDir));
+  server.use('/uploads', uploadAuthMiddleware, express.static(uploadDir));
+  server.use(`/${apiPrefix}/uploads`, uploadAuthMiddleware, express.static(uploadDir));
+  server.use(`/${apiPrefix}/pengaturan/uploads`, uploadAuthMiddleware, express.static(uploadDir));
 
   // ════════════════════════════════════════════════════════════════
   //  NestJS Application Bootstrap
@@ -84,6 +88,7 @@ async function bootstrap() {
     bodyParser: false,
     logger: ['error', 'warn', 'log'],
   });
+  nestAppInstance = nestApp;
 
   // Hubungkan middleware rate limit ke client Redis
   const redisService = nestApp.get(RedisService);
