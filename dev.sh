@@ -18,7 +18,10 @@ echo "=== 3. Mem-push ke GitHub ==="
 # Gunakan flag --verbose agar terlihat progress upload-nya
 git push --verbose origin main
 
-echo "=== 4. Menjalankan Backend API Lokal ==="
+echo "=== 4. Generate Prisma Client ==="
+npx prisma generate
+
+echo "=== 5. Menjalankan Backend API Lokal ==="
 # Menghentikan proses di port 8080 jika ada
 fuser -k 8080/tcp 2>/dev/null || kill -9 $(lsof -t -i:8080) 2>/dev/null || true
 
