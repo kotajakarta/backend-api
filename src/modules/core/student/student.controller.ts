@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Request, Inject } from '@nestjs/common';
-import { StudentService } from './student.service.js';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Request, Inject, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { StudentService, DOKUMEN_JENIS, DokumenJenis } from './student.service.js';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
 import { StatusPool } from '@prisma/client';
 
@@ -127,4 +128,69 @@ export class StudentController {
   submitDaftarUlang(@Body() data: any) {
     return this.studentService.submitDaftarUlang(data);
   }
+
+  // Upload dokumen sementara untuk daftar ulang (sebelum biodata terbentuk)
+  // POST /students/daftar-ulang/upload-temp/:jenis
+  @Post('daftar-ulang/upload-temp/:jenis')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDokumenPublikTemp(
+    @Param('jenis') jenis: string,
+    @UploadedFile() file: Express.Multer.File
+  ) {
+    if (!DOKUMEN_JENIS.includes(jenis as DokumenJenis)) {
+      throw new BadRequestException(`Jenis dokumen tidak valid. Pilihan: ${DOKUMEN_JENIS.join(', ')}`);
+    }
+    if (!file) throw new BadRequestException('File harus dilampirkan');
+    return this.studentService.uploadTemp(jenis as DokumenJenis, file);
+  }
+
+  // Upload dokumen untuk daftar ulang (publik, tidak perlu login)
+  // POST /students/daftar-ulang/upload/:biodataId/:jenis
+  @Post('daftar-ulang/upload/:biodataId/:jenis')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDokumenPublik(
+    @Param('biodataId') biodataId: string,
+    @Param('jenis') jenis: string,
+    @UploadedFile() file: Express.Multer.File
+  ) {
+    if (!DOKUMEN_JENIS.includes(jenis as DokumenJenis)) {
+      throw new BadRequestException(`Jenis dokumen tidak valid. Pilihan: ${DOKUMEN_JENIS.join(', ')}`);
+    }
+    if (!file) throw new BadRequestException('File harus dilampirkan');
+    return this.studentService.uploadDokumenPublik(biodataId, jenis as DokumenJenis, file);
+  }
+
+  // Upload dokumen sementara untuk admin (sebelum siswa terbentuk)
+  // POST /students/upload-temp/:jenis
+  @Post('upload-temp/:jenis')
+  @UseGuards(AccessControlGuard)
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDokumenSiswaTemp(
+    @Param('jenis') jenis: string,
+    @UploadedFile() file: Express.Multer.File
+  ) {
+    if (!DOKUMEN_JENIS.includes(jenis as DokumenJenis)) {
+      throw new BadRequestException(`Jenis dokumen tidak valid. Pilihan: ${DOKUMEN_JENIS.join(', ')}`);
+    }
+    if (!file) throw new BadRequestException('File harus dilampirkan');
+    return this.studentService.uploadTemp(jenis as DokumenJenis, file);
+  }
+
+  // Upload dokumen siswa (perlu login)
+  // POST /students/:id/upload/:jenis
+  @Post(':id/upload/:jenis')
+  @UseGuards(AccessControlGuard)
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDokumenSiswa(
+    @Param('id') id: string,
+    @Param('jenis') jenis: string,
+    @UploadedFile() file: Express.Multer.File
+  ) {
+    if (!DOKUMEN_JENIS.includes(jenis as DokumenJenis)) {
+      throw new BadRequestException(`Jenis dokumen tidak valid. Pilihan: ${DOKUMEN_JENIS.join(', ')}`);
+    }
+    if (!file) throw new BadRequestException('File harus dilampirkan');
+    return this.studentService.uploadDokumenSiswa(id, jenis as DokumenJenis, file);
+  }
 }
+

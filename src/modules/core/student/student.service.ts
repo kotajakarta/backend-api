@@ -2,6 +2,29 @@ import { Injectable, BadRequestException, Inject, ForbiddenException } from '@ne
 import { StatusPool } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Jenis dokumen yang didukung
+export const DOKUMEN_JENIS = [
+  'passfoto', 'kk', 'ijazah', 'akte', 'surat_mutasi',
+  'rapor', 'skhun', 'surat_kesehatan', 'surat_domisili', 'lainnya'
+] as const;
+export type DokumenJenis = typeof DOKUMEN_JENIS[number];
+
+// Pemetaan jenis dokumen → field biodata
+const JENIS_TO_FIELD: Record<DokumenJenis, string> = {
+  passfoto:         'fotoUrl',
+  kk:               'kkUrl',
+  ijazah:           'ijazahUrl',
+  akte:             'akteUrl',
+  surat_mutasi:     'suratMutasiUrl',
+  rapor:            'raporUrl',
+  skhun:            'skhunUrl',
+  surat_kesehatan:  'suratKesehatanUrl',
+  surat_domisili:   'suratDomisiliUrl',
+  lainnya:          'dokumenLainUrl',
+};
 
 @Injectable()
 export class StudentService {
@@ -18,7 +41,6 @@ export class StudentService {
       namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu, tanggalLahirIbu, pekerjaanIbu, pendidikanIbu, penghasilanIbu,
       address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
-      fotoBase64, ijazahBase64, kkBase64,
       wilayahId, cabangId, tanggalMasuk,
       jenisSiswa, grupDaimi,
       alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
@@ -48,7 +70,6 @@ export class StudentService {
           pekerjaanIbu, pendidikanIbu, penghasilanIbu,
           address, phone,
           kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
-          fotoBase64, ijazahBase64, kkBase64,
           alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
         }
       });
@@ -63,6 +84,8 @@ export class StudentService {
           grupDaimi: grupDaimi || null,
         }
       });
+
+      await this._processTempAndDocUrls(tx, biodata.id, data);
 
       if (cabangId) {
         await tx.riwayatPendidikan.create({
@@ -383,7 +406,6 @@ export class StudentService {
       namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu, tanggalLahirIbu, pekerjaanIbu, pendidikanIbu, penghasilanIbu,
       address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
-      fotoBase64, ijazahBase64, kkBase64,
       wilayahId, cabangId, isActive,
       alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
     } = data;
@@ -438,9 +460,6 @@ export class StudentService {
           pekerjaanIbu, pendidikanIbu, penghasilanIbu,
           address, phone,
           kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
-          ...(fotoBase64 && { fotoBase64 }),
-          ...(ijazahBase64 && { ijazahBase64 }),
-          ...(kkBase64 && { kkBase64 }),
           alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
         }
       });
@@ -455,6 +474,8 @@ export class StudentService {
           isActive: data.isActive !== undefined ? data.isActive : student.isActive
         }
       });
+
+      await this._processTempAndDocUrls(tx, student.biodataId, data);
 
       if (data.isVerval !== undefined) {
         const existingFormal = await tx.siswaFormal.findUnique({ where: { studentId: id } });
@@ -1144,4 +1165,139 @@ export class StudentService {
       return this.createStudent(null, studentData);
     }
   }
+
+  // ─── Upload Dokumen Siswa (membutuhkan auth) ───────────────────────────────
+
+  async uploadDokumenSiswa(studentId: string, jenis: DokumenJenis, file: Express.Multer.File) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { biodata: true }
+    });
+    if (!student) throw new BadRequestException('Siswa tidak ditemukan');
+
+    return this._simpanDokumenBiodata(student.biodataId, jenis, file);
+  }
+
+  // ─── Upload Dokumen Publik untuk Daftar Ulang ──────────────────────────────
+
+  async uploadDokumenPublik(biodataId: string, jenis: DokumenJenis, file: Express.Multer.File) {
+    const biodata = await this.prisma.biodata.findUnique({ where: { id: biodataId } });
+    if (!biodata) throw new BadRequestException('Data biodata tidak ditemukan');
+
+    return this._simpanDokumenBiodata(biodataId, jenis, file);
+  }
+
+  // ─── Internal helper ───────────────────────────────────────────────────────
+
+  private async _simpanDokumenBiodata(
+    biodataId: string,
+    jenis: DokumenJenis,
+    file: Express.Multer.File
+  ) {
+    const field = JENIS_TO_FIELD[jenis];
+    if (!field) throw new BadRequestException(`Jenis dokumen tidak valid: ${jenis}`);
+
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    const allowedExt = ['.jpg', '.jpeg', '.png', '.pdf', '.webp'];
+    if (!allowedExt.includes(ext)) {
+      throw new BadRequestException(`Format file tidak didukung. Gunakan: ${allowedExt.join(', ')}`);
+    }
+
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_SIZE) {
+      throw new BadRequestException('Ukuran file maksimal 10MB');
+    }
+
+    const uploadDir = path.join(process.cwd(), 'uploads', jenis);
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const filename = `biodata_${biodataId}_${jenis}${ext}`;
+    const filePath = path.join(uploadDir, filename);
+
+    // Hapus file lama jika ada
+    const biodata = await this.prisma.biodata.findUnique({ where: { id: biodataId } });
+    const oldUrl: string | null = (biodata as any)?.[field] ?? null;
+    if (oldUrl) {
+      const oldPath = path.join(process.cwd(), oldUrl.startsWith('/') ? oldUrl.slice(1) : oldUrl);
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    fs.writeFileSync(filePath, file.buffer);
+
+    const fileUrl = `/uploads/${jenis}/${filename}`;
+    await this.prisma.biodata.update({
+      where: { id: biodataId },
+      data: { [field]: fileUrl } as any
+    });
+
+    return { url: fileUrl, jenis, filename };
+  }
+
+  // ─── Upload File Sementara ─────────────────────────────────────────────────
+
+  async uploadTemp(jenis: DokumenJenis, file: Express.Multer.File) {
+    if (!JENIS_TO_FIELD[jenis]) {
+      throw new BadRequestException(`Jenis dokumen tidak valid: ${jenis}`);
+    }
+
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    const allowedExt = ['.jpg', '.jpeg', '.png', '.pdf', '.webp'];
+    if (!allowedExt.includes(ext)) {
+      throw new BadRequestException(`Format file tidak didukung. Gunakan: ${allowedExt.join(', ')}`);
+    }
+
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_SIZE) {
+      throw new BadRequestException('Ukuran file maksimal 10MB');
+    }
+
+    const uploadDir = path.join(process.cwd(), 'uploads', 'temp');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const filename = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+    const filePath = path.join(uploadDir, filename);
+    fs.writeFileSync(filePath, file.buffer);
+
+    const fileUrl = `/uploads/temp/${filename}`;
+    return { url: fileUrl, jenis, filename };
+  }
+
+  // ─── Pindahkan File Temp & Simpan URL Dokumen ke Biodata ──────────────────
+
+  private async _processTempAndDocUrls(tx: any, biodataId: string, data: any) {
+    const updates: any = {};
+    for (const [jenis, field] of Object.entries(JENIS_TO_FIELD)) {
+      const url = data[field];
+      if (url && typeof url === 'string' && url.includes('/uploads/temp/')) {
+        const tempPath = path.join(process.cwd(), url.startsWith('/') ? url.slice(1) : url);
+        if (fs.existsSync(tempPath)) {
+          const ext = path.extname(tempPath) || '.jpg';
+          const uploadDir = path.join(process.cwd(), 'uploads', jenis);
+          if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+          }
+          const filename = `biodata_${biodataId}_${jenis}${ext}`;
+          const newPath = path.join(uploadDir, filename);
+          fs.copyFileSync(tempPath, newPath);
+          try { fs.unlinkSync(tempPath); } catch {}
+          updates[field] = `/uploads/${jenis}/${filename}`;
+        } else {
+          updates[field] = url;
+        }
+      } else if (url !== undefined) {
+        updates[field] = url;
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      await tx.biodata.update({
+        where: { id: biodataId },
+        data: updates
+      });
+    }
+  }
 }
+
