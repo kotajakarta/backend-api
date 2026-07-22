@@ -139,17 +139,19 @@ export class AbsensiService {
     };
   }
 
-  async getKehadiran(programId: string, kelasId: string, cabangId: string) {
-    if (!cabangId) throw new BadRequestException('Cabang ID is required');
-    
+  async getKehadiran(programId: string, kelasId?: string, cabangId?: string, wilayahId?: string) {
+    const studentWhere: any = { isActive: true };
+    if (cabangId) {
+      studentWhere.cabangId = cabangId;
+    } else if (wilayahId) {
+      studentWhere.cabang = { wilayahId };
+    }
+    if (kelasId) {
+      studentWhere.siswaFormal = { kelasId };
+    }
+
     const students = await this.prisma.student.findMany({
-      where: {
-        cabangId,
-        isActive: true,
-        siswaFormal: {
-          kelasId
-        }
-      },
+      where: studentWhere,
       include: {
         biodata: {
           select: {
@@ -165,10 +167,11 @@ export class AbsensiService {
       }
     });
 
+    const studentIds = students.map(s => s.id);
     const existingLogs = await this.prisma.kehadiran.findMany({
       where: {
         programId,
-        cabangId
+        studentId: { in: studentIds }
       }
     });
 
@@ -184,9 +187,7 @@ export class AbsensiService {
     });
   }
 
-  async saveKehadiranBulk(programId: string, cabangId: string, logs: Array<{ studentId: string; status: KehadiranStatus; catatan?: string }>) {
-    if (!cabangId) throw new BadRequestException('Cabang ID is required');
-
+  async saveKehadiranBulk(programId: string, cabangId: string | undefined, logs: Array<{ studentId: string; status: KehadiranStatus; catatan?: string }>) {
     const program = await this.prisma.programAbsensi.findUnique({ where: { id: programId } });
     if (!program) throw new NotFoundException('Program absensi tidak ditemukan');
 
@@ -196,9 +197,18 @@ export class AbsensiService {
       throw new BadRequestException('Tidak dapat mengisi absensi untuk program dengan tanggal setelah hari ini.');
     }
 
+    const studentIds = logs.map(l => l.studentId);
+    const students = await this.prisma.student.findMany({
+      where: { id: { in: studentIds } },
+      select: { id: true, cabangId: true }
+    });
+    const studentCabangMap = new Map(students.map(s => [s.id, s.cabangId]));
+
     return this.prisma.$transaction(
-      logs.map(log => 
-        this.prisma.kehadiran.upsert({
+      logs.map(log => {
+        const logCabangId = studentCabangMap.get(log.studentId) || cabangId;
+        if (!logCabangId) throw new BadRequestException(`Cabang ID tidak ditemukan untuk santri ${log.studentId}`);
+        return this.prisma.kehadiran.upsert({
           where: {
             programId_studentId: {
               programId,
@@ -212,32 +222,35 @@ export class AbsensiService {
           create: {
             programId,
             studentId: log.studentId,
-            cabangId,
+            cabangId: logCabangId,
             status: log.status,
             catatan: log.catatan || null
           }
-        })
-      )
+        });
+      })
     );
   }
 
-  async getKehadiranGuru(programId: string, cabangId: string) {
-    if (!cabangId) throw new BadRequestException('Cabang ID is required');
+  async getKehadiranGuru(programId: string, cabangId?: string, wilayahId?: string) {
+    const teacherWhere: any = { statusPool: { not: 'TERSEDIA' } };
+    if (cabangId) {
+      teacherWhere.cabangId = cabangId;
+    } else if (wilayahId) {
+      teacherWhere.wilayahId = wilayahId;
+    }
 
     const teachers = await this.prisma.staff.findMany({
-      where: {
-        cabangId,
-        statusPool: { not: 'TERSEDIA' }
-      },
+      where: teacherWhere,
       orderBy: {
         name: 'asc'
       }
     });
 
+    const teacherIds = teachers.map(t => t.id);
     const existingLogs = await (this.prisma as any).kehadiranGuru.findMany({
       where: {
         programId,
-        cabangId
+        guruId: { in: teacherIds }
       }
     });
 
@@ -254,9 +267,7 @@ export class AbsensiService {
     });
   }
 
-  async saveKehadiranGuruBulk(programId: string, cabangId: string, logs: Array<{ guruId: string; status: KehadiranStatus; catatan?: string }>) {
-    if (!cabangId) throw new BadRequestException('Cabang ID is required');
-
+  async saveKehadiranGuruBulk(programId: string, cabangId: string | undefined, logs: Array<{ guruId: string; status: KehadiranStatus; catatan?: string }>) {
     const program = await this.prisma.programAbsensi.findUnique({ where: { id: programId } });
     if (!program) throw new NotFoundException('Program absensi tidak ditemukan');
 
@@ -266,9 +277,18 @@ export class AbsensiService {
       throw new BadRequestException('Tidak dapat mengisi absensi untuk program dengan tanggal setelah hari ini.');
     }
 
+    const teacherIds = logs.map(l => l.guruId);
+    const teachers = await this.prisma.staff.findMany({
+      where: { id: { in: teacherIds } },
+      select: { id: true, cabangId: true }
+    });
+    const teacherCabangMap = new Map(teachers.map(t => [t.id, t.cabangId]));
+
     return this.prisma.$transaction(
-      logs.map(log => 
-        (this.prisma as any).kehadiranGuru.upsert({
+      logs.map(log => {
+        const logCabangId = teacherCabangMap.get(log.guruId) || cabangId;
+        if (!logCabangId) throw new BadRequestException(`Cabang ID tidak ditemukan untuk guru ${log.guruId}`);
+        return (this.prisma as any).kehadiranGuru.upsert({
           where: {
             programId_guruId: {
               programId,
@@ -282,12 +302,12 @@ export class AbsensiService {
           create: {
             programId,
             guruId: log.guruId,
-            cabangId,
+            cabangId: logCabangId,
             status: log.status,
             catatan: log.catatan || null
           }
-        })
-      )
+        });
+      })
     );
   }
 

@@ -54,11 +54,20 @@ export class AbsensiController {
   @UseGuards(AccessControlGuard)
   getKehadiran(
     @Query('programId') programId: string,
-    @Query('kelasId') kelasId: string,
-    @Request() req: any
+    @Query('kelasId') kelasId?: string,
+    @Query('cabangId') cabangId?: string,
+    @Query('wilayahId') wilayahId?: string,
+    @Request() req?: any
   ) {
-    const cabangId = req.query.cabangId || req.user.cabangId;
-    return this.absensiService.getKehadiran(programId, kelasId, cabangId);
+    let effectiveWilayahId = wilayahId;
+    let effectiveCabangId = cabangId;
+    if (req?.user?.scope === 'CABANG') {
+      effectiveWilayahId = req.user.wilayahId;
+      effectiveCabangId = req.user.cabangId;
+    } else if (req?.user?.scope === 'WILAYAH') {
+      effectiveWilayahId = req.user.wilayahId;
+    }
+    return this.absensiService.getKehadiran(programId, kelasId, effectiveCabangId, effectiveWilayahId);
   }
 
   @Get('rekap')
@@ -89,7 +98,7 @@ export class AbsensiController {
   @Post('kehadiran/bulk')
   @UseGuards(AccessControlGuard)
   saveKehadiranBulk(@Body() body: { programId: string; cabangId?: string; logs: any[] }, @Request() req: any) {
-    const cabangId = body.cabangId || req.user.cabangId;
+    const cabangId = body.cabangId || req.user?.cabangId;
     return this.absensiService.saveKehadiranBulk(body.programId, cabangId, body.logs);
   }
 
@@ -97,16 +106,25 @@ export class AbsensiController {
   @UseGuards(AccessControlGuard)
   getKehadiranGuru(
     @Query('programId') programId: string,
-    @Request() req: any
+    @Query('cabangId') cabangId?: string,
+    @Query('wilayahId') wilayahId?: string,
+    @Request() req?: any
   ) {
-    const cabangId = req.query.cabangId || req.user.cabangId;
-    return this.absensiService.getKehadiranGuru(programId, cabangId);
+    let effectiveWilayahId = wilayahId;
+    let effectiveCabangId = cabangId;
+    if (req?.user?.scope === 'CABANG') {
+      effectiveWilayahId = req.user.wilayahId;
+      effectiveCabangId = req.user.cabangId;
+    } else if (req?.user?.scope === 'WILAYAH') {
+      effectiveWilayahId = req.user.wilayahId;
+    }
+    return this.absensiService.getKehadiranGuru(programId, effectiveCabangId, effectiveWilayahId);
   }
 
   @Post('kehadiran-guru/bulk')
   @UseGuards(AccessControlGuard)
   saveKehadiranGuruBulk(@Body() body: { programId: string; cabangId?: string; logs: any[] }, @Request() req: any) {
-    const cabangId = body.cabangId || req.user.cabangId;
+    const cabangId = body.cabangId || req.user?.cabangId;
     return this.absensiService.saveKehadiranGuruBulk(body.programId, cabangId, body.logs);
   }
 }
