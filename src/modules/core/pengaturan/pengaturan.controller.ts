@@ -90,6 +90,15 @@ export class PengaturanController {
     const filePath = path.join(uploadDir, safeFilename);
 
     if (fs.existsSync(filePath)) {
+      const ext = path.extname(safeFilename).toLowerCase();
+      if (ext === '.pdf') {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="' + safeFilename + '"');
+      } else if (ext === '.png') {
+        res.setHeader('Content-Type', 'image/png');
+      } else if (ext === '.jpg' || ext === '.jpeg') {
+        res.setHeader('Content-Type', 'image/jpeg');
+      }
       return res.sendFile(filePath);
     }
     return res.status(404).send('File not found');
