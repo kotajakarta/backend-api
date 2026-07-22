@@ -8,12 +8,15 @@ export class AbsensiService {
 
   async getPrograms(activeOnly?: boolean, userScope?: string, page?: number, limit?: number) {
     const whereClause: any = {};
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
     if (activeOnly) {
       whereClause.isActive = true;
-    }
-    if (userScope === 'CABANG' || userScope === 'WILAYAH') {
-      const today = new Date();
-      today.setHours(23, 59, 59, 999);
+      whereClause.date = {
+        lte: today
+      };
+    } else if (userScope === 'CABANG' || userScope === 'WILAYAH') {
       whereClause.date = {
         lte: today
       };
@@ -184,6 +187,15 @@ export class AbsensiService {
   async saveKehadiranBulk(programId: string, cabangId: string, logs: Array<{ studentId: string; status: KehadiranStatus; catatan?: string }>) {
     if (!cabangId) throw new BadRequestException('Cabang ID is required');
 
+    const program = await this.prisma.programAbsensi.findUnique({ where: { id: programId } });
+    if (!program) throw new NotFoundException('Program absensi tidak ditemukan');
+
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (new Date(program.date) > today) {
+      throw new BadRequestException('Tidak dapat mengisi absensi untuk program dengan tanggal setelah hari ini.');
+    }
+
     return this.prisma.$transaction(
       logs.map(log => 
         this.prisma.kehadiran.upsert({
@@ -222,15 +234,15 @@ export class AbsensiService {
       }
     });
 
-    const existingLogs = await this.prisma.kehadiranGuru.findMany({
+    const existingLogs = await (this.prisma as any).kehadiranGuru.findMany({
       where: {
         programId,
         cabangId
       }
     });
 
-    return teachers.map(teacher => {
-      const log = existingLogs.find(l => l.guruId === teacher.id);
+    return teachers.map((teacher: any) => {
+      const log = existingLogs.find((l: any) => l.guruId === teacher.id);
       return {
         guruId: teacher.id,
         fullName: teacher.name,
@@ -245,9 +257,18 @@ export class AbsensiService {
   async saveKehadiranGuruBulk(programId: string, cabangId: string, logs: Array<{ guruId: string; status: KehadiranStatus; catatan?: string }>) {
     if (!cabangId) throw new BadRequestException('Cabang ID is required');
 
+    const program = await this.prisma.programAbsensi.findUnique({ where: { id: programId } });
+    if (!program) throw new NotFoundException('Program absensi tidak ditemukan');
+
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (new Date(program.date) > today) {
+      throw new BadRequestException('Tidak dapat mengisi absensi untuk program dengan tanggal setelah hari ini.');
+    }
+
     return this.prisma.$transaction(
       logs.map(log => 
-        this.prisma.kehadiranGuru.upsert({
+        (this.prisma as any).kehadiranGuru.upsert({
           where: {
             programId_guruId: {
               programId,
