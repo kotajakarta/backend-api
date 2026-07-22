@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -73,8 +73,11 @@ export class PengaturanService {
   }
 
   async uploadKalender(file: any, title: string) {
-    // Generate a simple unique filename
-    const ext = path.extname(file.originalname);
+    if (!file || !file.buffer) {
+      throw new BadRequestException('File is required');
+    }
+
+    const ext = path.extname(file.originalname).toLowerCase() || '.pdf';
     const filename = `kalender_${Date.now()}${ext}`;
     const uploadDir = path.join(process.cwd(), 'uploads');
     
@@ -88,7 +91,7 @@ export class PengaturanService {
     return this.prisma.kalenderAkademik.create({
       data: {
         title: title || 'Kalender Pendidikan',
-        fileUrl: `/uploads/${filename}`
+        fileUrl: `/pengaturan/uploads/${filename}`
       }
     });
   }

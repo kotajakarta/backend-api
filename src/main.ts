@@ -8,6 +8,8 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import express from 'express';
+import path from 'path';
+import fs from 'fs';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -61,10 +63,19 @@ async function bootstrap() {
   server.use(`/${apiPrefix}`, globalRateLimiter);
 
   // ════════════════════════════════════════════════════════════════
-  //  LAYER 5: Body Parsing with size limits
+  //  LAYER 5: Body Parsing & Static Uploads Serving
   // ════════════════════════════════════════════════════════════════
   server.use(express.json({ limit: '10mb' }));
   server.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+  // Static uploads directory serving
+  const uploadDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+  server.use('/uploads', express.static(uploadDir));
+  server.use(`/${apiPrefix}/uploads`, express.static(uploadDir));
+  server.use(`/${apiPrefix}/pengaturan/uploads`, express.static(uploadDir));
 
   // ════════════════════════════════════════════════════════════════
   //  NestJS Application Bootstrap

@@ -91,13 +91,20 @@ export class PengaturanController {
 
     if (fs.existsSync(filePath)) {
       const ext = path.extname(safeFilename).toLowerCase();
+      const fileBuffer = fs.readFileSync(filePath);
+
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+
       if (ext === '.pdf') {
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'inline; filename="' + safeFilename + '"');
+        return res.send(fileBuffer);
       } else if (ext === '.png') {
         res.setHeader('Content-Type', 'image/png');
+        return res.send(fileBuffer);
       } else if (ext === '.jpg' || ext === '.jpeg') {
         res.setHeader('Content-Type', 'image/jpeg');
+        return res.send(fileBuffer);
       }
       return res.sendFile(filePath);
     }
