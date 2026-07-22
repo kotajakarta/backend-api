@@ -332,6 +332,10 @@ export class KegiatanService {
       throw new BadRequestException('You do not have access to modify this BAP');
     }
 
+    if (user?.scope === 'CABANG' && kegiatan.isConfirmed) {
+      throw new ForbiddenException('Laporan BAP yang telah diterima/disetujui oleh Pusat tidak dapat diubah lagi oleh Cabang.');
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await tx.kegiatan.update({
         where: { id },
@@ -400,19 +404,28 @@ export class KegiatanService {
       throw new BadRequestException('You do not have access to delete this BAP');
     }
 
+    if (user?.scope === 'CABANG' && kegiatan.isConfirmed) {
+      throw new ForbiddenException('Laporan BAP yang telah diterima/disetujui oleh Pusat tidak dapat dihapus.');
+    }
+
     return this.prisma.kegiatan.delete({ where: { id } });
   }
 
   async removeKegiatanDokumen(dokumenId: string, user: any) {
     const doc = await this.prisma.dokumenKegiatan.findUnique({
       where: { id: dokumenId },
-      include: { kegiatan: { select: { cabangId: true } } }
+      include: { kegiatan: { select: { cabangId: true, isConfirmed: true } } }
     });
     if (!doc) throw new NotFoundException('Dokumen tidak ditemukan.');
 
     // Cabang users can only delete their own documents; GLOBAL can delete any
-    if (user.scope === 'CABANG' && doc.kegiatan.cabangId !== user.cabangId) {
-      throw new ForbiddenException('Tidak diizinkan menghapus dokumen cabang lain.');
+    if (user.scope === 'CABANG') {
+      if (doc.kegiatan.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Tidak diizinkan menghapus dokumen cabang lain.');
+      }
+      if (doc.kegiatan.isConfirmed) {
+        throw new ForbiddenException('Dokumen BAP yang telah diterima/disetujui oleh Pusat tidak dapat dihapus.');
+      }
     }
 
     // Try to remove the physical file
