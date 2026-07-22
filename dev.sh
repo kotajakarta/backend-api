@@ -23,6 +23,6 @@ npx prisma generate
 
 echo "=== 5. Menjalankan Backend API Lokal ==="
 # Menghentikan proses di port 8080 jika ada
-fuser -k 8080/tcp 2>/dev/null || kill -9 $(lsof -t -i:8080) 2>/dev/null || true
+fuser -k 8080/tcp 2>/dev/null || true
 
 npm run dev
