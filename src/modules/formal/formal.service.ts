@@ -334,15 +334,21 @@ export class FormalService {
   }
 
   async getRapor() {
-    return this.prisma.nilaiFormal.findMany();
+    return this.prisma.nilaiFormal.findMany({
+      include: {
+        student: { include: { biodata: true } },
+        mataPelajaran: true,
+        kelas: true
+      }
+    });
   }
 
-  async createRapor(data: { studentName: string, subject: string, score: number }) {
-    return this.prisma.nilaiFormal.create({ data });
+  async createRapor(data: any) {
+    return this.prisma.nilaiFormal.create({ data: data as any });
   }
 
-  async updateRapor(id: string, data: { studentName: string, subject: string, score: number }) {
-    return this.prisma.nilaiFormal.update({ where: { id }, data });
+  async updateRapor(id: string, data: any) {
+    return this.prisma.nilaiFormal.update({ where: { id }, data: data as any });
   }
 
   async deleteRapor(id: string) {
@@ -1140,4 +1146,461 @@ export class FormalService {
     }
     return { success: true };
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MODUL e-RAPOR MADRASAH INDONESIA
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async getERaporNilai(kelasId: string, mataPelajaranId: string, tahunAjaran: string, semester: string) {
+    const siswaList = await this.prisma.siswaFormal.findMany({
+      where: { kelasId },
+      include: {
+        student: {
+          include: { 
+            biodata: true,
+            dataDaimi: {
+              include: { grup: true }
+            }
+          }
+        }
+      },
+      orderBy: { student: { biodata: { fullName: 'asc' } } }
+    });
+
+    const existingNilai = await this.prisma.nilaiFormal.findMany({
+      where: {
+        kelasId,
+        mataPelajaranId,
+        tahunAjaran,
+        semester
+      }
+    });
+
+    const nilaiMap = new Map(existingNilai.map(n => [n.studentId, n]));
+
+    return siswaList.map(s => {
+      const saved = nilaiMap.get(s.studentId);
+      const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+      return {
+        studentId: s.studentId,
+        nisn: s.nisn || s.student.biodata?.nisn || '',
+        nis: s.nis || s.student.biodata?.nisLokal || '',
+        fullName: s.student.biodata?.fullName || 'Siswa',
+        jenisGrupDaimi,
+        nilaiAkhir: saved?.nilaiAkhir ?? null,
+        predikat: saved?.predikat ?? '',
+      };
+    });
+  }
+
+  async saveERaporNilaiBatch(payload: {
+    kelasId: string;
+    mataPelajaranId: string;
+    tahunAjaran: string;
+    semester: string;
+    data: Array<{
+      studentId: string;
+      nilaiAkhir?: number | null;
+      predikat?: string;
+    }>;
+  }, user?: any) {
+    const { kelasId, mataPelajaranId, tahunAjaran, semester, data } = payload;
+
+    return this.prisma.$transaction(async (tx) => {
+      let savedCount = 0;
+
+      for (const item of data) {
+        let riwayat = await tx.riwayatKelasFormal.findUnique({
+          where: {
+            studentId_tahunAjaran_semester: {
+              studentId: item.studentId,
+              tahunAjaran,
+              semester
+            }
+          }
+        });
+
+        if (!riwayat) {
+          riwayat = await tx.riwayatKelasFormal.create({
+            data: {
+              studentId: item.studentId,
+              kelasId,
+              tahunAjaran,
+              semester
+            }
+          });
+        }
+
+        const finalScore = item.nilaiAkhir !== undefined && item.nilaiAkhir !== null ? Number(item.nilaiAkhir) : null;
+        
+        let predikatVal = item.predikat;
+        if (finalScore !== null && finalScore !== undefined) {
+          if (finalScore >= 90) predikatVal = 'A';
+          else if (finalScore >= 81) predikatVal = 'B+';
+          else if (finalScore >= 76) predikatVal = 'B';
+          else predikatVal = 'C+';
+        }
+
+        await tx.nilaiFormal.upsert({
+          where: {
+            studentId_mataPelajaranId_tahunAjaran_semester: {
+              studentId: item.studentId,
+              mataPelajaranId,
+              tahunAjaran,
+              semester
+            }
+          },
+          update: {
+            kelasId,
+            riwayatKelasId: riwayat.id,
+            nilaiAkhir: finalScore,
+            predikat: predikatVal || null
+          },
+          create: {
+            studentId: item.studentId,
+            mataPelajaranId,
+            kelasId,
+            riwayatKelasId: riwayat.id,
+            tahunAjaran,
+            semester,
+            nilaiAkhir: finalScore,
+            predikat: predikatVal || null
+          }
+        });
+
+        savedCount++;
+      }
+
+      if (user) {
+        await this.auditLogService.log('UPDATE', 'E_RAPOR_NILAI', kelasId, `Entry Nilai e-Rapor ${tahunAjaran} ${semester}`, user, `Menyimpan ${savedCount} nilai mapel ID ${mataPelajaranId}`);
+      }
+
+      return { success: true, count: savedCount };
+    });
+  }
+
+  async getERaporPresensiCatatan(kelasId: string, tahunAjaran: string, semester: string) {
+    const siswaList = await this.prisma.siswaFormal.findMany({
+      where: { kelasId },
+      include: {
+        student: {
+          include: { 
+            biodata: true,
+            dataDaimi: {
+              include: { grup: true }
+            }
+          }
+        }
+      },
+      orderBy: { student: { biodata: { fullName: 'asc' } } }
+    });
+
+    const riwayatList = await this.prisma.riwayatKelasFormal.findMany({
+      where: {
+        kelasId,
+        tahunAjaran,
+        semester
+      }
+    });
+
+    const riwayatMap = new Map(riwayatList.map(r => [r.studentId, r]));
+
+    return siswaList.map(s => {
+      const r = riwayatMap.get(s.studentId);
+      const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+      return {
+        studentId: s.studentId,
+        nisn: s.nisn || s.student.biodata?.nisn || '',
+        fullName: s.student.biodata?.fullName || 'Siswa',
+        jenisGrupDaimi,
+        sakit: r?.sakit ?? 0,
+        izin: r?.izin ?? 0,
+        alpa: r?.alpa ?? 0,
+        catatanWaliKelas: r?.catatanWaliKelas ?? r?.catatan ?? '',
+        sikapSpiritual: r?.sikapSpiritual ?? 'Sangat Baik',
+        sikapSosial: r?.sikapSosial ?? 'Baik',
+        statusAkhir: r?.statusAkhir ?? ''
+      };
+    });
+  }
+
+  async saveERaporPresensiCatatanBatch(payload: {
+    kelasId: string;
+    tahunAjaran: string;
+    semester: string;
+    data: Array<{
+      studentId: string;
+      sakit?: number;
+      izin?: number;
+      alpa?: number;
+      catatanWaliKelas?: string;
+      sikapSpiritual?: string;
+      sikapSosial?: string;
+      statusAkhir?: string;
+    }>;
+  }, user?: any) {
+    const { kelasId, tahunAjaran, semester, data } = payload;
+
+    return this.prisma.$transaction(async (tx) => {
+      let savedCount = 0;
+
+      for (const item of data) {
+        await tx.riwayatKelasFormal.upsert({
+          where: {
+            studentId_tahunAjaran_semester: {
+              studentId: item.studentId,
+              tahunAjaran,
+              semester
+            }
+          },
+          update: {
+            kelasId,
+            sakit: item.sakit ?? 0,
+            izin: item.izin ?? 0,
+            alpa: item.alpa ?? 0,
+            catatanWaliKelas: item.catatanWaliKelas || null,
+            sikapSpiritual: item.sikapSpiritual || null,
+            sikapSosial: item.sikapSosial || null,
+            statusAkhir: item.statusAkhir || null
+          },
+          create: {
+            studentId: item.studentId,
+            kelasId,
+            tahunAjaran,
+            semester,
+            sakit: item.sakit ?? 0,
+            izin: item.izin ?? 0,
+            alpa: item.alpa ?? 0,
+            catatanWaliKelas: item.catatanWaliKelas || null,
+            sikapSpiritual: item.sikapSpiritual || null,
+            sikapSosial: item.sikapSosial || null,
+            statusAkhir: item.statusAkhir || null
+          }
+        });
+        savedCount++;
+      }
+
+      if (user) {
+        await this.auditLogService.log('UPDATE', 'E_RAPOR_PRESENSI', kelasId, `Presensi/Catatan e-Rapor ${tahunAjaran} ${semester}`, user, `Menyimpan presensi & catatan ${savedCount} siswa`);
+      }
+
+      return { success: true, count: savedCount };
+    });
+  }
+
+  async getERaporLeger(kelasId: string, tahunAjaran: string, semester: string) {
+    const kelas = await this.prisma.kelas.findUnique({
+      where: { id: kelasId },
+      include: {
+        waliKelas: true,
+        lembagaMuadalah: true,
+        cabang: true
+      }
+    });
+    if (!kelas) throw new BadRequestException('Kelas tidak ditemukan');
+
+    const siswaList = await this.prisma.siswaFormal.findMany({
+      where: { kelasId },
+      include: {
+        student: {
+          include: { 
+            biodata: true,
+            dataDaimi: {
+              include: { grup: true }
+            }
+          }
+        }
+      },
+      orderBy: { student: { biodata: { fullName: 'asc' } } }
+    });
+
+    const allMapel = await this.prisma.mataPelajaran.findMany({
+      where: { isActive: true },
+      orderBy: { kodeMapel: 'asc' }
+    });
+
+    const allNilai = await this.prisma.nilaiFormal.findMany({
+      where: {
+        kelasId,
+        tahunAjaran,
+        semester
+      }
+    });
+
+    const riwayatList = await this.prisma.riwayatKelasFormal.findMany({
+      where: {
+        kelasId,
+        tahunAjaran,
+        semester
+      }
+    });
+
+    const nilaiMap = new Map<string, Record<string, number | null>>();
+    allNilai.forEach(n => {
+      if (!nilaiMap.has(n.studentId)) nilaiMap.set(n.studentId, {});
+      nilaiMap.get(n.studentId)![n.mataPelajaranId] = n.nilaiAkhir;
+    });
+
+    const riwayatMap = new Map(riwayatList.map(r => [r.studentId, r]));
+
+    const legerRows = siswaList.map(s => {
+      const studentNilaiMap = nilaiMap.get(s.studentId) || {};
+      const r = riwayatMap.get(s.studentId);
+      const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+
+      let totalNilai = 0;
+      let countMapel = 0;
+
+      allMapel.forEach(m => {
+        const val = studentNilaiMap[m.id];
+        if (val !== undefined && val !== null) {
+          totalNilai += val;
+          countMapel++;
+        }
+      });
+
+      const rataRata = countMapel > 0 ? Math.round((totalNilai / countMapel) * 100) / 100 : 0;
+
+      return {
+        studentId: s.studentId,
+        nisn: s.nisn || s.student.biodata?.nisn || '',
+        nis: s.nis || s.student.biodata?.nisLokal || '',
+        fullName: s.student.biodata?.fullName || 'Siswa',
+        jenisGrupDaimi,
+        scores: studentNilaiMap,
+        totalNilai,
+        rataRata,
+        sakit: r?.sakit ?? 0,
+        izin: r?.izin ?? 0,
+        alpa: r?.alpa ?? 0,
+        catatan: r?.catatanWaliKelas ?? ''
+      };
+    });
+
+    legerRows.sort((a, b) => b.rataRata - a.rataRata);
+    const rankedRows = legerRows.map((row, idx) => ({ ...row, ranking: idx + 1 }));
+
+    const totalRataRata = legerRows.length > 0
+      ? Math.round((legerRows.reduce((acc, curr) => acc + curr.rataRata, 0) / legerRows.length) * 100) / 100
+      : 0;
+
+    return {
+      kelas,
+      mapelList: allMapel,
+      siswa: rankedRows,
+      rataRataKelas: totalRataRata
+    };
+  }
+
+  async getERaporCetak(studentId: string, tahunAjaran: string, semester: string) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: {
+        biodata: true,
+        dataDaimi: {
+          include: { grup: true }
+        },
+        cabang: {
+          include: { wilayah: true }
+        },
+        siswaFormal: {
+          include: {
+            kelas: {
+              include: {
+                waliKelas: true,
+                lembagaMuadalah: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!student) throw new BadRequestException('Siswa tidak ditemukan');
+
+    const riwayat = await this.prisma.riwayatKelasFormal.findUnique({
+      where: {
+        studentId_tahunAjaran_semester: {
+          studentId,
+          tahunAjaran,
+          semester
+        }
+      },
+      include: {
+        kelas: {
+          include: {
+            waliKelas: true,
+            lembagaMuadalah: true
+          }
+        },
+        waliKelas: true
+      }
+    });
+
+    const kelasRef = riwayat?.kelas || student.siswaFormal?.kelas;
+    const waliKelasRef = riwayat?.waliKelas || kelasRef?.waliKelas;
+
+    const allNilai = await this.prisma.nilaiFormal.findMany({
+      where: {
+        studentId,
+        tahunAjaran,
+        semester
+      },
+      include: {
+        mataPelajaran: true
+      },
+      orderBy: { mataPelajaran: { kodeMapel: 'asc' } }
+    });
+
+    const jenisGrupDaimi = student.dataDaimi?.grup?.jenis || student.dataDaimi?.grup?.name || student.grupDaimi || '-';
+
+    return {
+      siswa: {
+        id: student.id,
+        fullName: student.biodata?.fullName || '',
+        nisn: student.siswaFormal?.nisn || student.biodata?.nisn || '',
+        nis: student.siswaFormal?.nis || student.biodata?.nisLokal || '',
+        jenisGrupDaimi,
+        tempatLahir: student.biodata?.tempatLahir || '',
+        tanggalLahir: student.biodata?.tanggalLahir || null,
+        jenisKelamin: student.biodata?.jenisKelamin || '',
+        namaAyah: student.biodata?.namaAyah || '',
+        namaIbu: student.biodata?.namaIbu || '',
+        pekerjaanAyah: student.biodata?.pekerjaanAyah || '',
+        address: student.biodata?.address || ''
+      },
+      sekolah: {
+        namaLembaga: kelasRef?.lembagaMuadalah?.name || student.cabang?.nameResmi || student.cabang?.name || 'Madrasah',
+        npsn: kelasRef?.lembagaMuadalah?.npsn || 'N/A',
+        nspp: kelasRef?.lembagaMuadalah?.nspp || 'N/A',
+        namaKetua: kelasRef?.lembagaMuadalah?.namaKetua || 'Kepala Madrasah',
+        cabangName: student.cabang?.name || ''
+      },
+      akademik: {
+        kelasName: kelasRef?.name || 'Belum Ada Kelas',
+        tingkat: kelasRef?.tingkat || student.siswaFormal?.tingkat || '-',
+        tahunAjaran,
+        semester,
+        waliKelasName: waliKelasRef?.name || 'Wali Kelas'
+      },
+      nilai: allNilai.map(n => ({
+        mataPelajaranId: n.mataPelajaranId,
+        kodeMapel: n.mataPelajaran.kodeMapel,
+        namaMapel: n.mataPelajaran.name,
+        grupMapel: n.mataPelajaran.grupMapel,
+        nilaiAkhir: n.nilaiAkhir,
+        predikat: n.predikat
+      })),
+      presensi: {
+        sakit: riwayat?.sakit ?? 0,
+        izin: riwayat?.izin ?? 0,
+        alpa: riwayat?.alpa ?? 0,
+        catatanWaliKelas: riwayat?.catatanWaliKelas ?? riwayat?.catatan ?? 'Tingkatkan terus prestasi dan keaktifan belajar.',
+        sikapSpiritual: riwayat?.sikapSpiritual ?? 'Sangat Baik',
+        sikapSosial: riwayat?.sikapSosial ?? 'Baik',
+        statusAkhir: riwayat?.statusAkhir ?? 'NAIK_KELAS'
+      }
+    };
+  }
 }
+

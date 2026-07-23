@@ -167,6 +167,7 @@ model Student {
   riwayatKelasFormal RiwayatKelasFormal[]
   siswaFormal        SiswaFormal?
   dataDaimi          DataDaimi?
+  nilaiFormal        NilaiFormal[]
 
   @@map("students")
   @@schema("core")

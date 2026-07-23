@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, Request, Inject, UseInterceptors, UploadedFile, Res, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Request, Inject, UseInterceptors, UploadedFile, Res, BadRequestException } from '@nestjs/common';
 import { FormalService } from './formal.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -322,4 +322,74 @@ export class FormalController {
   deleteLembagaMuadalah(@Request() req: any, @Param('id') id: string) {
     return this.formalService.deleteLembagaMuadalah(id, req.user);
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENDPOINTS e-RAPOR MADRASAH INDONESIA
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @Get('erapor/nilai')
+  @UseGuards(AccessControlGuard)
+  getERaporNilai(
+    @Query('kelasId') kelasId: string,
+    @Query('mataPelajaranId') mataPelajaranId: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string
+  ) {
+    if (!kelasId || !mataPelajaranId || !tahunAjaran || !semester) {
+      throw new BadRequestException('Parameter kelasId, mataPelajaranId, tahunAjaran, dan semester wajib diisi');
+    }
+    return this.formalService.getERaporNilai(kelasId, mataPelajaranId, tahunAjaran, semester);
+  }
+
+  @Post('erapor/nilai/batch')
+  @UseGuards(AccessControlGuard)
+  saveERaporNilaiBatch(@Request() req: any, @Body() data: any) {
+    return this.formalService.saveERaporNilaiBatch(data, req.user);
+  }
+
+  @Get('erapor/presensi-catatan')
+  @UseGuards(AccessControlGuard)
+  getERaporPresensiCatatan(
+    @Query('kelasId') kelasId: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string
+  ) {
+    if (!kelasId || !tahunAjaran || !semester) {
+      throw new BadRequestException('Parameter kelasId, tahunAjaran, dan semester wajib diisi');
+    }
+    return this.formalService.getERaporPresensiCatatan(kelasId, tahunAjaran, semester);
+  }
+
+  @Post('erapor/presensi-catatan/batch')
+  @UseGuards(AccessControlGuard)
+  saveERaporPresensiCatatanBatch(@Request() req: any, @Body() data: any) {
+    return this.formalService.saveERaporPresensiCatatanBatch(data, req.user);
+  }
+
+  @Get('erapor/leger')
+  @UseGuards(AccessControlGuard)
+  getERaporLeger(
+    @Query('kelasId') kelasId: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string
+  ) {
+    if (!kelasId || !tahunAjaran || !semester) {
+      throw new BadRequestException('Parameter kelasId, tahunAjaran, dan semester wajib diisi');
+    }
+    return this.formalService.getERaporLeger(kelasId, tahunAjaran, semester);
+  }
+
+  @Get('erapor/cetak/:studentId')
+  @UseGuards(AccessControlGuard)
+  getERaporCetak(
+    @Param('studentId') studentId: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string
+  ) {
+    if (!tahunAjaran || !semester) {
+      throw new BadRequestException('Parameter tahunAjaran dan semester wajib diisi');
+    }
+    return this.formalService.getERaporCetak(studentId, tahunAjaran, semester);
+  }
 }
+

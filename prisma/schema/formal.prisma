@@ -34,6 +34,7 @@ model Kelas {
   ruang              Ruang?               @relation(fields: [ruangId], references: [id])
   riwayatKelasFormal RiwayatKelasFormal[]
   siswaFormal        SiswaFormal[]
+  nilaiFormal        NilaiFormal[]
 
   @@map("kelas")
   @@schema("formal")
@@ -72,6 +73,7 @@ model MataPelajaran {
   kodeMapel      String               @unique @map("kode_mapel")
   guruMapelKelas GuruMapelKelas[]
   keaktifanGrup  KeaktifanMapelGrup[]
+  nilaiFormal    NilaiFormal[]
 
   @@map("mata_pelajaran")
   @@schema("formal")
@@ -91,29 +93,53 @@ model KeaktifanMapelGrup {
 }
 
 model NilaiFormal {
-  id          String @id @default(uuid())
-  studentName String @map("student_name")
-  subject     String
-  score       Float
+  id                String              @id @default(uuid())
+  studentId         String              @map("student_id")
+  mataPelajaranId   String              @map("mata_pelajaran_id")
+  kelasId           String              @map("kelas_id")
+  riwayatKelasId    String?             @map("riwayat_kelas_id")
+  tahunAjaran       String              @map("tahun_ajaran")
+  semester          String              // Ganjil / Genap
+  nilaiHarian       Float?              @map("nilai_harian") // Formatif / TP
+  nilaiPas          Float?              @map("nilai_pas")    // Sumatif Akhir Semester / PAS
+  nilaiAkhir        Float?              @map("nilai_akhir")  // Rapor 0-100
+  predikat          String?             // A, B, C, D
+  capaianKompetensi String?             @map("capaian_kompetensi") // Deskripsi capaian Kemenag
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
 
+  student           Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  mataPelajaran     MataPelajaran       @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  kelas             Kelas               @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  riwayatKelas      RiwayatKelasFormal? @relation(fields: [riwayatKelasId], references: [id], onDelete: SetNull)
+
+  @@unique([studentId, mataPelajaranId, tahunAjaran, semester])
   @@map("nilai_formal")
   @@schema("formal")
 }
 
 model RiwayatKelasFormal {
-  id          String   @id @default(uuid())
-  studentId   String   @map("student_id")
-  kelasId     String   @map("kelas_id")
-  tahunAjaran String   @map("tahun_ajaran")
-  semester    String
-  statusAkhir String?  @map("status_akhir")
-  waliKelasId String?  @map("wali_kelas_id")
-  catatan     String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  kelas       Kelas    @relation(fields: [kelasId], references: [id])
-  student     Student  @relation(fields: [studentId], references: [id])
-  waliKelas   Staff?   @relation(fields: [waliKelasId], references: [id])
+  id               String        @id @default(uuid())
+  studentId        String        @map("student_id")
+  kelasId          String        @map("kelas_id")
+  tahunAjaran      String        @map("tahun_ajaran")
+  semester         String
+  statusAkhir      String?       @map("status_akhir")
+  waliKelasId      String?       @map("wali_kelas_id")
+  catatan          String?
+  catatanWaliKelas String?       @map("catatan_wali_kelas")
+  sikapSpiritual   String?       @map("sikap_spiritual")
+  sikapSosial      String?       @map("sikap_sosial")
+  sakit            Int?          @default(0)
+  izin             Int?          @default(0)
+  alpa             Int?          @default(0)
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  kelas            Kelas         @relation(fields: [kelasId], references: [id])
+  student          Student       @relation(fields: [studentId], references: [id])
+  waliKelas        Staff?        @relation(fields: [waliKelasId], references: [id])
+  nilaiFormal      NilaiFormal[]
 
   @@unique([studentId, tahunAjaran, semester])
   @@map("riwayat_kelas_formal")
