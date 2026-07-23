@@ -577,6 +577,23 @@ export class FormalService {
     });
   }
 
+  // --- RIWAYAT NILAI FORMAL (RAPOR) ---
+
+  async getNilaiHistoryByStudent(studentId: string) {
+    return this.prisma.nilaiFormal.findMany({
+      where: { studentId },
+      include: {
+        mataPelajaran: true,
+        kelas: true
+      },
+      orderBy: [
+        { tahunAjaran: 'desc' },
+        { semester: 'desc' },
+        { mataPelajaran: { kodeMapel: 'asc' } }
+      ]
+    });
+  }
+
   async createRiwayatKelas(data: { studentId: string, kelasId: string, tahunAjaran: string, semester: string, statusAkhir?: string, waliKelasId?: string, catatan?: string }, user?: any) {
     if (user) {
       await this.checkStudentScope(data.studentId, user);

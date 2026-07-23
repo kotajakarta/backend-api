@@ -203,6 +203,14 @@ export class FormalController {
     return this.formalService.deleteRiwayatKelas(id, req.user);
   }
 
+  // --- RIWAYAT NILAI FORMAL (RAPOR) ---
+
+  @Get('nilai/student/:studentId')
+  @UseGuards(AccessControlGuard)
+  getNilaiHistoryByStudent(@Param('studentId') studentId: string) {
+    return this.formalService.getNilaiHistoryByStudent(studentId);
+  }
+
   @Post('kelas/naik-kelas-massal')
   @UseGuards(AccessControlGuard)
   prosesKenaikanKelasMassal(@Request() req: any, @Body() data: any) {
