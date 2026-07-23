@@ -1865,21 +1865,35 @@ export class FormalService {
     const jenisGrupDaimi = student.dataDaimi?.grup?.jenis || student.dataDaimi?.grup?.name || student.grupDaimi || '-';
     const isHafizlik = student.dataDaimi?.grup?.jenis === 'HAFIZLIK';
 
-    let hafalan: { jumlahJuz: number | null; jumlahHalaman: number | null } | null = null;
+    let hafalan: {
+      awalPutaran: number | null; awalJuz: number | null;
+      targetPutaran: number | null; targetJuz: number | null;
+      akhirPutaran: number | null; akhirJuz: number | null;
+      jumlahJuz: number | null; jumlahHalaman: number | null;
+    } | null = null;
     if (isHafizlik) {
       const hafalanData = await this.prisma.hafalanAlQuran.findUnique({
         where: {
           studentId_tahunAjaran_semester: { studentId, tahunAjaran, semester }
         }
       });
+      let jumlahJuz: number | null = null;
+      let jumlahHalaman: number | null = null;
       if (hafalanData && hafalanData.akhirPutaran !== null && hafalanData.akhirJuz !== null) {
         const total = (hafalanData.akhirPutaran * 30 + hafalanData.akhirJuz - 30) / 20;
-        const jumlahJuz = Math.floor(total);
-        const jumlahHalaman = Math.round((total - jumlahJuz) * 20);
-        hafalan = { jumlahJuz, jumlahHalaman };
-      } else {
-        hafalan = { jumlahJuz: null, jumlahHalaman: null };
+        jumlahJuz = Math.floor(total);
+        jumlahHalaman = Math.round((total - jumlahJuz) * 20);
       }
+      hafalan = {
+        awalPutaran: hafalanData?.awalPutaran ?? null,
+        awalJuz: hafalanData?.awalJuz ?? null,
+        targetPutaran: hafalanData?.targetPutaran ?? null,
+        targetJuz: hafalanData?.targetJuz ?? null,
+        akhirPutaran: hafalanData?.akhirPutaran ?? null,
+        akhirJuz: hafalanData?.akhirJuz ?? null,
+        jumlahJuz,
+        jumlahHalaman
+      };
     }
 
     return {
