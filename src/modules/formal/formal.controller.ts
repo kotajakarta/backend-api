@@ -363,6 +363,13 @@ export class FormalController {
     return this.formalService.saveNilaiForStudentPeriod(data, req.user);
   }
 
+  // Import massal nilai riwayat (backfill lintas banyak siswa sekaligus) dari file Excel
+  @Post('erapor/nilai/riwayat-import')
+  @UseGuards(AccessControlGuard)
+  importRiwayatNilai(@Request() req: any, @Body() data: any[]) {
+    return this.formalService.importRiwayatNilai(data, req.user);
+  }
+
   @Get('erapor/presensi-catatan')
   @UseGuards(AccessControlGuard)
   getERaporPresensiCatatan(

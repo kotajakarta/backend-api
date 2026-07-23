@@ -1362,28 +1362,40 @@ export class FormalService {
   }
 
   // Input/edit nilai lintas mapel untuk SATU siswa pada satu periode (backfill nilai
-  // semester/tahun ajaran lampau, mis. nilai kelas 10 saat siswa sudah di kelas 11)
+  // semester/tahun ajaran lampau, mis. nilai kelas 10 saat siswa sudah di kelas 11).
+  // Sengaja MENOLAK periode yang sama dengan periode aktif di Pengaturan Akademik,
+  // supaya jalur backfill ini tidak pernah bisa menyentuh/menimpa data nilai yang sedang
+  // berjalan - untuk periode aktif tetap harus lewat saveERaporNilaiBatch (tab Input Nilai Mapel).
   async saveNilaiForStudentPeriod(payload: {
     studentId: string;
     kelasId: string;
     tahunAjaran: string;
     semester: string;
+    grupDaimiId: string;
     data: Array<{
       mataPelajaranId: string;
       nilaiAkhir?: number | null;
     }>;
   }, user?: any) {
-    const { studentId, kelasId, tahunAjaran, semester, data } = payload;
+    const { studentId, kelasId, tahunAjaran, semester, grupDaimiId, data } = payload;
 
-    if (!studentId || !kelasId || !tahunAjaran || !semester) {
-      throw new BadRequestException('Parameter studentId, kelasId, tahunAjaran, dan semester wajib diisi');
+    if (!studentId || !kelasId || !tahunAjaran || !semester || !grupDaimiId) {
+      throw new BadRequestException('Parameter studentId, kelasId, tahunAjaran, semester, dan grupDaimiId wajib diisi');
     }
 
-    const student = await this.prisma.student.findUnique({
-      where: { id: studentId },
-      select: { dataDaimi: { select: { grupId: true } } }
-    });
-    const grupDaimiId = student?.dataDaimi?.grupId ?? null;
+    const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
+    const semesterOrder = (s: string) => {
+      const normalized = s?.toUpperCase();
+      if (normalized === 'GANJIL') return 0;
+      if (normalized === 'GENAP') return 1;
+      return 2;
+    };
+    if (pengaturan?.tahunAjaran && pengaturan?.semesterAktif) {
+      const isPeriodeAktif = tahunAjaran === pengaturan.tahunAjaran && semesterOrder(semester) === semesterOrder(pengaturan.semesterAktif);
+      if (isPeriodeAktif) {
+        throw new BadRequestException('Periode ini adalah periode aktif saat ini, gunakan tab Input Nilai Mapel untuk mengubahnya');
+      }
+    }
 
     const mapelIds = data.map(item => item.mataPelajaranId);
     const keaktifanList = await this.prisma.keaktifanMapelGrup.findMany({
@@ -1466,6 +1478,205 @@ export class FormalService {
 
       return { success: true, count: savedCount, skippedCount };
     });
+  }
+
+  // Import massal nilai riwayat (backfill lintas siswa) dari file Excel yang sudah di-parse
+  // jadi array of row object di frontend. Setiap baris divalidasi independen - baris yang
+  // gagal tidak menggagalkan baris lain, cukup dilaporkan di errorRows. Sama seperti
+  // saveNilaiForStudentPeriod, menolak keras periode yang sama dengan periode aktif.
+  async importRiwayatNilai(rows: any[], user: any) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new BadRequestException('Data import kosong');
+    }
+
+    const normalize = (s: any) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const getValue = (row: Record<string, any>, aliases: string[]) => {
+      const normalizedRow: Record<string, any> = {};
+      for (const [k, v] of Object.entries(row)) {
+        normalizedRow[normalize(k)] = v;
+      }
+      for (const alias of aliases) {
+        const val = normalizedRow[normalize(alias)];
+        if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+      }
+      return '';
+    };
+
+    const semesterOrder = (s: string) => {
+      const n = s?.toUpperCase();
+      if (n === 'GANJIL') return 0;
+      if (n === 'GENAP') return 1;
+      return 2;
+    };
+
+    const [pengaturan, allMapel, keaktifanList] = await Promise.all([
+      this.prisma.pengaturanAkademik.findFirst(),
+      this.prisma.mataPelajaran.findMany({ where: { isActive: true } }),
+      this.prisma.keaktifanMapelGrup.findMany()
+    ]);
+    const keaktifanMap = new Map(keaktifanList.map(k => [`${k.mataPelajaranId}||${k.grupDaimiId}`, k.isActive]));
+    const mapelByNormalizedName = new Map(allMapel.map(m => [normalize(m.name), m]));
+
+    // Parsing awal tiap baris: ambil field tetap + NIK, supaya bisa batch-resolve referensi
+    const parsedRows = rows.map((rawRow, idx) => {
+      const nik = String(getValue(rawRow, ['nik', 'NIK']) || '').trim();
+      const namaSiswa = String(getValue(rawRow, ['nama_siswa', 'Nama Siswa']) || '').trim();
+      const tahunAjaran = String(getValue(rawRow, ['tahun_ajaran', 'Tahun Ajaran']) || '').trim();
+      const semester = String(getValue(rawRow, ['semester', 'Semester']) || '').trim();
+      const kelasRombelName = String(getValue(rawRow, ['kelas_rombel', 'Kelas Rombel', 'kelas']) || '').trim();
+      const grupDaimiName = String(getValue(rawRow, ['jenis_grup_daimi', 'Jenis Grup Daimi', 'grup_daimi']) || '').trim();
+
+      const mapelValues: Array<{ mapel: any; rawValue: any }> = [];
+      allMapel.forEach(m => {
+        const val = getValue(rawRow, [m.name]);
+        if (val !== '') mapelValues.push({ mapel: m, rawValue: val });
+      });
+
+      return { rowNumber: idx + 1, nik, namaSiswa, tahunAjaran, semester, kelasRombelName, grupDaimiName, mapelValues };
+    });
+
+    const errorRows: Array<{ row: number; nik: string; message: string }> = [];
+    const niks = Array.from(new Set(parsedRows.map(r => r.nik).filter(Boolean)));
+
+    const students = await this.prisma.student.findMany({
+      where: { biodata: { nik: { in: niks } } },
+      include: {
+        biodata: true,
+        cabang: true,
+        dataDaimi: { include: { grup: true } },
+        siswaFormal: true
+      }
+    });
+    const studentByNik = new Map(students.map(s => [s.biodata?.nik, s]));
+
+    const cabangIds = Array.from(new Set(students.map(s => s.cabangId).filter((v): v is string => !!v)));
+    const [allKelas, allGrupDaimi] = await Promise.all([
+      cabangIds.length > 0 ? this.prisma.kelas.findMany({ where: { cabangId: { in: cabangIds } } }) : Promise.resolve([]),
+      cabangIds.length > 0 ? this.prisma.grupDaimi.findMany({ where: { cabangId: { in: cabangIds } } }) : Promise.resolve([])
+    ]);
+
+    let skippedMapelCount = 0;
+    const validRows: Array<{
+      rowNumber: number; studentId: string; kelasId: string; tahunAjaran: string; semester: string;
+      data: Array<{ mataPelajaranId: string; nilaiAkhir: number | null }>;
+    }> = [];
+
+    for (const r of parsedRows) {
+      if (!r.nik) { errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'NIK kosong' }); continue; }
+      const student = studentByNik.get(r.nik);
+      if (!student) { errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'NIK tidak ditemukan' }); continue; }
+      if (!student.siswaFormal) { errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'Siswa ini bukan siswa berkelas formal' }); continue; }
+
+      if (user.scope === 'CABANG' && user.cabangId && student.cabangId !== user.cabangId) {
+        errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'Siswa di luar cabang Anda' }); continue;
+      }
+      if (user.scope === 'WILAYAH' && user.wilayahId && student.cabang?.wilayahId !== user.wilayahId) {
+        errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'Siswa di luar wilayah Anda' }); continue;
+      }
+
+      if (!r.tahunAjaran || !r.semester) {
+        errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'Tahun ajaran / semester kosong' }); continue;
+      }
+
+      if (pengaturan?.tahunAjaran && pengaturan?.semesterAktif) {
+        const isPeriodeAktif = r.tahunAjaran === pengaturan.tahunAjaran && semesterOrder(r.semester) === semesterOrder(pengaturan.semesterAktif);
+        if (isPeriodeAktif) {
+          errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'Periode ini adalah periode aktif, gunakan tab Input Nilai Mapel' }); continue;
+        }
+      }
+
+      if (!r.kelasRombelName) {
+        errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'Kelas/rombel kosong' }); continue;
+      }
+      const matchingKelas = allKelas.filter(k =>
+        k.cabangId === student.cabangId &&
+        k.tahunAjaran === r.tahunAjaran &&
+        normalize(k.name) === normalize(r.kelasRombelName)
+      );
+      if (matchingKelas.length === 0) {
+        errorRows.push({ row: r.rowNumber, nik: r.nik, message: `Kelas/rombel "${r.kelasRombelName}" tidak ditemukan untuk cabang & tahun ajaran ini` }); continue;
+      }
+      if (matchingKelas.length > 1) {
+        errorRows.push({ row: r.rowNumber, nik: r.nik, message: `Nama kelas/rombel "${r.kelasRombelName}" ambigu (ada ${matchingKelas.length} kelas dengan nama sama)` }); continue;
+      }
+      const kelas = matchingKelas[0];
+
+      let grupDaimiId: string | null = student.dataDaimi?.grupId ?? null;
+      if (r.grupDaimiName) {
+        const matchingGrup = allGrupDaimi.filter(g =>
+          g.cabangId === student.cabangId &&
+          (normalize(g.name) === normalize(r.grupDaimiName) || normalize(g.jenis || '') === normalize(r.grupDaimiName))
+        );
+        if (matchingGrup.length === 0) {
+          errorRows.push({ row: r.rowNumber, nik: r.nik, message: `Jenis grup daimi "${r.grupDaimiName}" tidak ditemukan untuk cabang ini` }); continue;
+        }
+        grupDaimiId = matchingGrup[0].id;
+      }
+      if (!grupDaimiId) {
+        errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'Jenis grup daimi tidak diketahui (siswa belum ada grup daimi & kolom dikosongkan)' }); continue;
+      }
+
+      const data: Array<{ mataPelajaranId: string; nilaiAkhir: number | null }> = [];
+      for (const { mapel, rawValue } of r.mapelValues) {
+        const score = Number(rawValue);
+        if (isNaN(score) || score < 0 || score > 100) { skippedMapelCount++; continue; }
+        const isActive = keaktifanMap.get(`${mapel.id}||${grupDaimiId}`) === true;
+        if (!isActive) { skippedMapelCount++; continue; }
+        data.push({ mataPelajaranId: mapel.id, nilaiAkhir: score });
+      }
+
+      validRows.push({ rowNumber: r.rowNumber, studentId: student.id, kelasId: kelas.id, tahunAjaran: r.tahunAjaran, semester: r.semester, data });
+    }
+
+    let successRows = 0;
+    if (validRows.length > 0) {
+      await this.prisma.$transaction(async (tx) => {
+        for (const vr of validRows) {
+          let riwayat = await tx.riwayatKelasFormal.findUnique({
+            where: { studentId_tahunAjaran_semester: { studentId: vr.studentId, tahunAjaran: vr.tahunAjaran, semester: vr.semester } }
+          });
+          if (!riwayat) {
+            riwayat = await tx.riwayatKelasFormal.create({
+              data: { studentId: vr.studentId, kelasId: vr.kelasId, tahunAjaran: vr.tahunAjaran, semester: vr.semester }
+            });
+          } else if (riwayat.kelasId !== vr.kelasId) {
+            riwayat = await tx.riwayatKelasFormal.update({ where: { id: riwayat.id }, data: { kelasId: vr.kelasId } });
+          }
+
+          for (const item of vr.data) {
+            const finalScore = item.nilaiAkhir;
+            let predikatVal: string | null = null;
+            if (finalScore !== null) {
+              if (finalScore >= 90) predikatVal = 'A';
+              else if (finalScore >= 81) predikatVal = 'B+';
+              else if (finalScore >= 76) predikatVal = 'B';
+              else predikatVal = 'C+';
+            }
+
+            await tx.nilaiFormal.upsert({
+              where: {
+                studentId_mataPelajaranId_tahunAjaran_semester: {
+                  studentId: vr.studentId, mataPelajaranId: item.mataPelajaranId, tahunAjaran: vr.tahunAjaran, semester: vr.semester
+                }
+              },
+              update: { kelasId: vr.kelasId, riwayatKelasId: riwayat.id, nilaiAkhir: finalScore, predikat: predikatVal },
+              create: {
+                studentId: vr.studentId, mataPelajaranId: item.mataPelajaranId, kelasId: vr.kelasId, riwayatKelasId: riwayat.id,
+                tahunAjaran: vr.tahunAjaran, semester: vr.semester, nilaiAkhir: finalScore, predikat: predikatVal
+              }
+            });
+          }
+          successRows++;
+        }
+      }, { maxWait: 60000, timeout: 300000 });
+    }
+
+    if (user) {
+      await this.auditLogService.log('CREATE', 'E_RAPOR_NILAI_RIWAYAT', 'bulk-import', 'Import Riwayat Nilai (Excel)', user, `Import ${rows.length} baris: ${successRows} berhasil, ${errorRows.length} error, ${skippedMapelCount} nilai mapel dilewati`);
+    }
+
+    return { totalRows: rows.length, successRows, errorRows, skippedMapelCount };
   }
 
   async getERaporPresensiCatatan(kelasId: string, tahunAjaran: string, semester: string) {
