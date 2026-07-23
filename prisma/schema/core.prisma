@@ -158,6 +158,7 @@ model Student {
   isActive           Boolean               @default(true) @map("is_active")
   jenisSiswa         JenisSiswa?           @map("jenis_siswa")
   grupDaimi          String?               @map("grup_daimi")
+  statusHafidz       StatusHafidz?         @map("status_hafidz")
   kehadiran          Kehadiran[]
   permintaanTarik    PermintaanTarikData[]
   riwayatPendidikan  RiwayatPendidikan[]
@@ -168,6 +169,7 @@ model Student {
   siswaFormal        SiswaFormal?
   dataDaimi          DataDaimi?
   nilaiFormal        NilaiFormal[]
+  hafalanAlQuran     HafalanAlQuran[]
 
   @@map("students")
   @@schema("core")
@@ -314,6 +316,15 @@ enum StatusPool {
 enum JenisSiswa {
   MUADALAH
   NON_MUADALAH
+
+  @@schema("core")
+}
+
+enum StatusHafidz {
+  BELUM_MULAI
+  SEDANG_BERLANGSUNG
+  SUDAH_SETOR_30_JUZ
+  SUDAH_KHATAMAN_KUBRO
 
   @@schema("core")
 }

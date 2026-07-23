@@ -42,7 +42,7 @@ export class StudentService {
       address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
       wilayahId, cabangId, tanggalMasuk,
-      jenisSiswa, grupDaimi,
+      jenisSiswa, grupDaimi, statusHafidz,
       alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
     } = data;
     
@@ -82,6 +82,7 @@ export class StudentService {
           statusPool: initialStatus,
           jenisSiswa: jenisSiswa || null,
           grupDaimi: grupDaimi || null,
+          statusHafidz: statusHafidz || null,
         }
       });
 
@@ -494,6 +495,7 @@ export class StudentService {
           cabangId: targetCabangId !== undefined ? targetCabangId : student.cabangId,
           jenisSiswa: data.jenisSiswa !== undefined ? (data.jenisSiswa || null) : student.jenisSiswa,
           grupDaimi: data.grupDaimi !== undefined ? (data.grupDaimi || null) : student.grupDaimi,
+          statusHafidz: data.statusHafidz !== undefined ? (data.statusHafidz || null) : student.statusHafidz,
           isActive: data.isActive !== undefined ? data.isActive : student.isActive
         }
       });
@@ -532,6 +534,7 @@ export class StudentService {
           alamatJalan: 'Alamat Jalan',
           jenisSiswa: 'Jenis Siswa',
           grupDaimi: 'Grup Daimi',
+          statusHafidz: 'Status Hafidz',
           isActive: 'Status Aktif'
         };
 

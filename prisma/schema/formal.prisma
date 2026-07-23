@@ -35,6 +35,7 @@ model Kelas {
   riwayatKelasFormal RiwayatKelasFormal[]
   siswaFormal        SiswaFormal[]
   nilaiFormal        NilaiFormal[]
+  hafalanAlQuran     HafalanAlQuran[]
 
   @@map("kelas")
   @@schema("formal")
@@ -128,8 +129,15 @@ model RiwayatKelasFormal {
   waliKelasId      String?       @map("wali_kelas_id")
   catatan          String?
   catatanWaliKelas String?       @map("catatan_wali_kelas")
-  sikapSpiritual   String?       @map("sikap_spiritual")
-  sikapSosial      String?       @map("sikap_sosial")
+  ketakwaan             String? @map("ketakwaan")               // Predikat: A, B+, B, C+, C
+  ketaatan              String? @map("ketaatan")
+  kemampuanRepresentasi String? @map("kemampuan_representasi")
+  kerapihan             String? @map("kerapihan")
+  kepercayaanDiri       String? @map("kepercayaan_diri")
+  hubunganSosial        String? @map("hubungan_sosial")
+  semangatBelajar       String? @map("semangat_belajar")
+  disiplin              String? @map("disiplin")
+  tanggungJawab         String? @map("tanggung_jawab")
   sakit            Int?          @default(0)
   izin             Int?          @default(0)
   alpa             Int?          @default(0)
@@ -143,6 +151,29 @@ model RiwayatKelasFormal {
 
   @@unique([studentId, tahunAjaran, semester])
   @@map("riwayat_kelas_formal")
+  @@schema("formal")
+}
+
+model HafalanAlQuran {
+  id           String   @id @default(uuid())
+  studentId    String   @map("student_id")
+  kelasId      String   @map("kelas_id")
+  tahunAjaran  String   @map("tahun_ajaran")
+  semester     String
+  awalPutaran  Int?     @map("awal_putaran")
+  awalJuz      Int?     @map("awal_juz")
+  targetPutaran Int?    @map("target_putaran")
+  targetJuz    Int?     @map("target_juz")
+  akhirPutaran Int?     @map("akhir_putaran")
+  akhirJuz     Int?     @map("akhir_juz")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  kelas        Kelas    @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, tahunAjaran, semester])
+  @@map("hafalan_al_quran")
   @@schema("formal")
 }
 

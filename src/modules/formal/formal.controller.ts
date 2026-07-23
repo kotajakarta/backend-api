@@ -387,6 +387,25 @@ export class FormalController {
     return this.formalService.getERaporLeger(kelasId, tahunAjaran, semester);
   }
 
+  @Get('erapor/hafalan/:studentId')
+  @UseGuards(AccessControlGuard)
+  getHafalanByStudent(
+    @Param('studentId') studentId: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string
+  ) {
+    if (!tahunAjaran || !semester) {
+      throw new BadRequestException('Parameter tahunAjaran dan semester wajib diisi');
+    }
+    return this.formalService.getHafalanByStudent(studentId, tahunAjaran, semester);
+  }
+
+  @Post('erapor/hafalan')
+  @UseGuards(AccessControlGuard)
+  saveHafalan(@Request() req: any, @Body() data: any) {
+    return this.formalService.saveHafalan(data, req.user);
+  }
+
   @Get('erapor/cetak/:studentId')
   @UseGuards(AccessControlGuard)
   getERaporCetak(

@@ -1205,12 +1205,14 @@ export class FormalService {
       const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
       const grupDaimiId = s.student.dataDaimi?.grupId ?? null;
       const mapelAktifUntukGrup = !!grupDaimiId && keaktifanMap.get(grupDaimiId) === true;
+      const isHafizlik = s.student.dataDaimi?.grup?.jenis === 'HAFIZLIK';
       return {
         studentId: s.studentId,
         nisn: s.nisn || s.student.biodata?.nisn || '',
         nis: s.nis || s.student.biodata?.nisLokal || '',
         fullName: s.student.biodata?.fullName || 'Siswa',
         jenisGrupDaimi,
+        isHafizlik,
         nilaiAkhir: saved?.nilaiAkhir ?? null,
         predikat: saved?.predikat ?? '',
         mapelAktifUntukGrup,
@@ -1363,8 +1365,15 @@ export class FormalService {
         izin: r?.izin ?? 0,
         alpa: r?.alpa ?? 0,
         catatanWaliKelas: r?.catatanWaliKelas ?? r?.catatan ?? '',
-        sikapSpiritual: r?.sikapSpiritual ?? 'Sangat Baik',
-        sikapSosial: r?.sikapSosial ?? 'Baik',
+        ketakwaan: r?.ketakwaan ?? 'A',
+        ketaatan: r?.ketaatan ?? 'A',
+        kemampuanRepresentasi: r?.kemampuanRepresentasi ?? 'A',
+        kerapihan: r?.kerapihan ?? 'A',
+        kepercayaanDiri: r?.kepercayaanDiri ?? 'A',
+        hubunganSosial: r?.hubunganSosial ?? 'A',
+        semangatBelajar: r?.semangatBelajar ?? 'A',
+        disiplin: r?.disiplin ?? 'A',
+        tanggungJawab: r?.tanggungJawab ?? 'A',
         statusAkhir: r?.statusAkhir ?? ''
       };
     });
@@ -1380,8 +1389,15 @@ export class FormalService {
       izin?: number;
       alpa?: number;
       catatanWaliKelas?: string;
-      sikapSpiritual?: string;
-      sikapSosial?: string;
+      ketakwaan?: string;
+      ketaatan?: string;
+      kemampuanRepresentasi?: string;
+      kerapihan?: string;
+      kepercayaanDiri?: string;
+      hubunganSosial?: string;
+      semangatBelajar?: string;
+      disiplin?: string;
+      tanggungJawab?: string;
       statusAkhir?: string;
     }>;
   }, user?: any) {
@@ -1391,6 +1407,24 @@ export class FormalService {
       let savedCount = 0;
 
       for (const item of data) {
+        const sikapData = {
+          kelasId,
+          sakit: item.sakit ?? 0,
+          izin: item.izin ?? 0,
+          alpa: item.alpa ?? 0,
+          catatanWaliKelas: item.catatanWaliKelas || null,
+          ketakwaan: item.ketakwaan || null,
+          ketaatan: item.ketaatan || null,
+          kemampuanRepresentasi: item.kemampuanRepresentasi || null,
+          kerapihan: item.kerapihan || null,
+          kepercayaanDiri: item.kepercayaanDiri || null,
+          hubunganSosial: item.hubunganSosial || null,
+          semangatBelajar: item.semangatBelajar || null,
+          disiplin: item.disiplin || null,
+          tanggungJawab: item.tanggungJawab || null,
+          statusAkhir: item.statusAkhir || null
+        };
+
         await tx.riwayatKelasFormal.upsert({
           where: {
             studentId_tahunAjaran_semester: {
@@ -1399,28 +1433,12 @@ export class FormalService {
               semester
             }
           },
-          update: {
-            kelasId,
-            sakit: item.sakit ?? 0,
-            izin: item.izin ?? 0,
-            alpa: item.alpa ?? 0,
-            catatanWaliKelas: item.catatanWaliKelas || null,
-            sikapSpiritual: item.sikapSpiritual || null,
-            sikapSosial: item.sikapSosial || null,
-            statusAkhir: item.statusAkhir || null
-          },
+          update: sikapData,
           create: {
             studentId: item.studentId,
-            kelasId,
             tahunAjaran,
             semester,
-            sakit: item.sakit ?? 0,
-            izin: item.izin ?? 0,
-            alpa: item.alpa ?? 0,
-            catatanWaliKelas: item.catatanWaliKelas || null,
-            sikapSpiritual: item.sikapSpiritual || null,
-            sikapSosial: item.sikapSosial || null,
-            statusAkhir: item.statusAkhir || null
+            ...sikapData
           }
         });
         savedCount++;
@@ -1481,6 +1499,12 @@ export class FormalService {
       }
     });
 
+    const keaktifanList = await this.prisma.keaktifanMapelGrup.findMany({
+      where: { mataPelajaranId: { in: allMapel.map(m => m.id) } }
+    });
+    // key: `${mataPelajaranId}__${grupDaimiId}` -> isActive
+    const keaktifanMap = new Map(keaktifanList.map(k => [`${k.mataPelajaranId}__${k.grupDaimiId}`, k.isActive]));
+
     const nilaiMap = new Map<string, Record<string, number | null>>();
     allNilai.forEach(n => {
       if (!nilaiMap.has(n.studentId)) nilaiMap.set(n.studentId, {});
@@ -1493,9 +1517,11 @@ export class FormalService {
       const studentNilaiMap = nilaiMap.get(s.studentId) || {};
       const r = riwayatMap.get(s.studentId);
       const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+      const grupDaimiId = s.student.dataDaimi?.grupId ?? null;
 
       let totalNilai = 0;
       let countMapel = 0;
+      const aktifMapel: Record<string, boolean> = {};
 
       allMapel.forEach(m => {
         const val = studentNilaiMap[m.id];
@@ -1503,6 +1529,7 @@ export class FormalService {
           totalNilai += val;
           countMapel++;
         }
+        aktifMapel[m.id] = !!grupDaimiId && keaktifanMap.get(`${m.id}__${grupDaimiId}`) === true;
       });
 
       const rataRata = countMapel > 0 ? Math.round((totalNilai / countMapel) * 100) / 100 : 0;
@@ -1514,6 +1541,7 @@ export class FormalService {
         fullName: s.student.biodata?.fullName || 'Siswa',
         jenisGrupDaimi,
         scores: studentNilaiMap,
+        aktifMapel,
         totalNilai,
         rataRata,
         sakit: r?.sakit ?? 0,
@@ -1536,6 +1564,53 @@ export class FormalService {
       siswa: rankedRows,
       rataRataKelas: totalRataRata
     };
+  }
+
+  // --- HAFALAN AL-QUR'AN (KHUSUS GRUP DAIMI JENIS HAFIZLIK) ---
+
+  async getHafalanByStudent(studentId: string, tahunAjaran: string, semester: string) {
+    return this.prisma.hafalanAlQuran.findUnique({
+      where: {
+        studentId_tahunAjaran_semester: {
+          studentId,
+          tahunAjaran,
+          semester
+        }
+      }
+    });
+  }
+
+  async saveHafalan(data: {
+    studentId: string;
+    kelasId: string;
+    tahunAjaran: string;
+    semester: string;
+    awalPutaran?: number | null;
+    awalJuz?: number | null;
+    targetPutaran?: number | null;
+    targetJuz?: number | null;
+    akhirPutaran?: number | null;
+    akhirJuz?: number | null;
+  }, user?: any) {
+    const { studentId, kelasId, tahunAjaran, semester, ...rest } = data;
+
+    const result = await this.prisma.hafalanAlQuran.upsert({
+      where: {
+        studentId_tahunAjaran_semester: {
+          studentId,
+          tahunAjaran,
+          semester
+        }
+      },
+      update: { kelasId, ...rest },
+      create: { studentId, kelasId, tahunAjaran, semester, ...rest }
+    });
+
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'HAFALAN_AL_QURAN', studentId, `Hafalan Al-Qur'an ${tahunAjaran} ${semester}`, user, `Menyimpan pencapaian hafalan Al-Qur'an siswa`);
+    }
+
+    return result;
   }
 
   async getERaporCetak(studentId: string, tahunAjaran: string, semester: string) {
@@ -1598,7 +1673,34 @@ export class FormalService {
       orderBy: { mataPelajaran: { kodeMapel: 'asc' } }
     });
 
+    // Urutan cetak rapor: Umum -> Agama Islam -> Muatan Lokal
+    const GRUP_MAPEL_ORDER: Record<string, number> = { 'Umum': 0, 'Agama Islam': 1, 'Muatan Lokal': 2 };
+    allNilai.sort((a, b) => {
+      const orderA = GRUP_MAPEL_ORDER[a.mataPelajaran.grupMapel] ?? 99;
+      const orderB = GRUP_MAPEL_ORDER[b.mataPelajaran.grupMapel] ?? 99;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.mataPelajaran.kodeMapel.localeCompare(b.mataPelajaran.kodeMapel);
+    });
+
     const jenisGrupDaimi = student.dataDaimi?.grup?.jenis || student.dataDaimi?.grup?.name || student.grupDaimi || '-';
+    const isHafizlik = student.dataDaimi?.grup?.jenis === 'HAFIZLIK';
+
+    let hafalan: { jumlahJuz: number | null; jumlahHalaman: number | null } | null = null;
+    if (isHafizlik) {
+      const hafalanData = await this.prisma.hafalanAlQuran.findUnique({
+        where: {
+          studentId_tahunAjaran_semester: { studentId, tahunAjaran, semester }
+        }
+      });
+      if (hafalanData && hafalanData.akhirPutaran !== null && hafalanData.akhirJuz !== null) {
+        const total = (hafalanData.akhirPutaran * 30 + hafalanData.akhirJuz - 30) / 20;
+        const jumlahJuz = Math.floor(total);
+        const jumlahHalaman = Math.round((total - jumlahJuz) * 20);
+        hafalan = { jumlahJuz, jumlahHalaman };
+      } else {
+        hafalan = { jumlahJuz: null, jumlahHalaman: null };
+      }
+    }
 
     return {
       siswa: {
@@ -1607,6 +1709,9 @@ export class FormalService {
         nisn: student.siswaFormal?.nisn || student.biodata?.nisn || '',
         nis: student.siswaFormal?.nis || student.biodata?.nisLokal || '',
         jenisGrupDaimi,
+        isHafizlik,
+        hafalan,
+        statusHafidz: isHafizlik ? null : student.statusHafidz,
         tempatLahir: student.biodata?.tempatLahir || '',
         tanggalLahir: student.biodata?.tanggalLahir || null,
         jenisKelamin: student.biodata?.jenisKelamin || '',
@@ -1642,8 +1747,15 @@ export class FormalService {
         izin: riwayat?.izin ?? 0,
         alpa: riwayat?.alpa ?? 0,
         catatanWaliKelas: riwayat?.catatanWaliKelas ?? riwayat?.catatan ?? 'Tingkatkan terus prestasi dan keaktifan belajar.',
-        sikapSpiritual: riwayat?.sikapSpiritual ?? 'Sangat Baik',
-        sikapSosial: riwayat?.sikapSosial ?? 'Baik',
+        ketakwaan: riwayat?.ketakwaan ?? 'A',
+        ketaatan: riwayat?.ketaatan ?? 'A',
+        kemampuanRepresentasi: riwayat?.kemampuanRepresentasi ?? 'A',
+        kerapihan: riwayat?.kerapihan ?? 'A',
+        kepercayaanDiri: riwayat?.kepercayaanDiri ?? 'A',
+        hubunganSosial: riwayat?.hubunganSosial ?? 'A',
+        semangatBelajar: riwayat?.semangatBelajar ?? 'A',
+        disiplin: riwayat?.disiplin ?? 'A',
+        tanggungJawab: riwayat?.tanggungJawab ?? 'A',
         statusAkhir: riwayat?.statusAkhir ?? 'NAIK_KELAS'
       }
     };
