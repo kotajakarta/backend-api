@@ -79,6 +79,23 @@ export class PesantrenService {
     });
   }
 
+  // Master data "Jenis Grup Daimi"
+  async getJenisGrupDaimi() {
+    return this.prisma.jenisGrupDaimi.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  async createJenisGrupDaimi(data: { name: string }) {
+    return this.prisma.jenisGrupDaimi.create({ data: { name: data.name.trim() } });
+  }
+
+  async updateJenisGrupDaimi(id: string, data: { name: string }) {
+    return this.prisma.jenisGrupDaimi.update({ where: { id }, data: { name: data.name.trim() } });
+  }
+
+  async deleteJenisGrupDaimi(id: string) {
+    return this.prisma.jenisGrupDaimi.delete({ where: { id } });
+  }
+
   // Student Assignment APIs for Daimi Group
   async getStudentsInGrupDaimi(grupId: string) {
     const dataDaimiList = await this.prisma.dataDaimi.findMany({

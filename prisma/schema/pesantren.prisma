@@ -23,6 +23,17 @@ model GrupDaimi {
   @@schema("pesantren")
 }
 
+// Daftar terkelola untuk field GrupDaimi.jenis (tetap disimpan sebagai string biasa di
+// GrupDaimi, tabel ini hanya jadi sumber pilihan dropdown supaya nilainya konsisten)
+model JenisGrupDaimi {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("jenis_grup_daimi")
+  @@schema("pesantren")
+}
+
 model KelasDaimi {
   id        String      @id @default(uuid())
   name      String

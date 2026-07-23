@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, UseGuards, Inject, Body, Param, Request } from '@nestjs/common';
 import { PesantrenService } from './pesantren.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
-import { RequireDivisi } from '../../common/decorators/access-control.decorator.js';
+import { RequireDivisi, RequireScope } from '../../common/decorators/access-control.decorator.js';
 
 @Controller('pesantren')
 @UseGuards(AccessControlGuard)
@@ -49,5 +49,30 @@ export class PesantrenController {
   @Delete('grup-daimi/:id/students/:studentId')
   removeStudentFromGrupDaimi(@Param('id') id: string, @Param('studentId') studentId: string) {
     return this.pesantrenService.removeStudentFromGrupDaimi(id, studentId);
+  }
+
+  // Master data "Jenis Grup Daimi" - daftar terkelola untuk field GrupDaimi.jenis,
+  // menggantikan array hardcoded JENIS_DAIMI_OPTIONS supaya nilainya konsisten.
+  @Get('jenis-grup-daimi')
+  getJenisGrupDaimi() {
+    return this.pesantrenService.getJenisGrupDaimi();
+  }
+
+  @Post('jenis-grup-daimi')
+  @RequireScope('GLOBAL')
+  createJenisGrupDaimi(@Body() data: { name: string }) {
+    return this.pesantrenService.createJenisGrupDaimi(data);
+  }
+
+  @Put('jenis-grup-daimi/:id')
+  @RequireScope('GLOBAL')
+  updateJenisGrupDaimi(@Param('id') id: string, @Body() data: { name: string }) {
+    return this.pesantrenService.updateJenisGrupDaimi(id, data);
+  }
+
+  @Delete('jenis-grup-daimi/:id')
+  @RequireScope('GLOBAL')
+  deleteJenisGrupDaimi(@Param('id') id: string) {
+    return this.pesantrenService.deleteJenisGrupDaimi(id);
   }
 }
