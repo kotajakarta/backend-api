@@ -18,10 +18,13 @@ echo "=== 3. Mem-push ke GitHub ==="
 # Gunakan flag --verbose agar terlihat progress upload-nya
 git push --verbose origin main
 
-echo "=== 4. Generate Prisma Client ==="
+echo "=== 4. Menjalankan Migrasi Database (Prisma Migrate Deploy) ==="
+npx prisma migrate deploy
+
+echo "=== 5. Generate Prisma Client ==="
 npx prisma generate
 
-echo "=== 5. Menjalankan Backend API Lokal ==="
+echo "=== 6. Menjalankan Backend API Lokal ==="
 # Menghentikan proses di port 8080 jika ada
 fuser -k 8080/tcp 2>/dev/null || true
 

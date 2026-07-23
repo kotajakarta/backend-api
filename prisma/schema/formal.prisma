@@ -141,6 +141,7 @@ model RiwayatKelasFormal {
   sakit            Int?          @default(0)
   izin             Int?          @default(0)
   alpa             Int?          @default(0)
+  sudahCetak       Boolean       @default(false) @map("sudah_cetak")
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
 

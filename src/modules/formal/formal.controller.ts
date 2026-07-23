@@ -406,6 +406,36 @@ export class FormalController {
     return this.formalService.saveHafalan(data, req.user);
   }
 
+  @Get('erapor/cetak-list')
+  @UseGuards(AccessControlGuard)
+  getERaporCetakList(
+    @Request() req: any,
+    @Query('kelasId') kelasId: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string,
+    @Query('search') search: string,
+    @Query('page') page: string,
+    @Query('pageSize') pageSize: string
+  ) {
+    if (!tahunAjaran || !semester) {
+      throw new BadRequestException('Parameter tahunAjaran dan semester wajib diisi');
+    }
+    return this.formalService.getERaporCetakList({
+      kelasId: kelasId || undefined,
+      tahunAjaran,
+      semester,
+      search: search || undefined,
+      page: page ? parseInt(page, 10) : 1,
+      pageSize: pageSize ? parseInt(pageSize, 10) : 20
+    }, req.user);
+  }
+
+  @Post('erapor/tandai-cetak')
+  @UseGuards(AccessControlGuard)
+  toggleSudahCetak(@Request() req: any, @Body() data: any) {
+    return this.formalService.toggleSudahCetak(data, req.user);
+  }
+
   @Get('erapor/cetak/:studentId')
   @UseGuards(AccessControlGuard)
   getERaporCetak(

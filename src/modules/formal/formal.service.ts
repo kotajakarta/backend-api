@@ -1613,6 +1613,107 @@ export class FormalService {
     return result;
   }
 
+  // --- DAFTAR SISWA UNTUK CETAK RAPOR (list + status sudah cetak) ---
+
+  async getERaporCetakList(params: {
+    kelasId?: string;
+    tahunAjaran: string;
+    semester: string;
+    search?: string;
+    page: number;
+    pageSize: number;
+  }, user: any) {
+    const { kelasId, tahunAjaran, semester, search, page, pageSize } = params;
+
+    let kelasWhere: any = {};
+    if (kelasId) {
+      kelasWhere = { id: kelasId };
+    } else if (user.scope === 'CABANG' && user.cabangId) {
+      kelasWhere = { cabangId: user.cabangId };
+    } else if (user.scope === 'WILAYAH' && user.wilayahId) {
+      kelasWhere = { cabang: { wilayahId: user.wilayahId } };
+    }
+
+    const whereClause: any = {
+      kelas: kelasWhere,
+      ...(search?.trim() ? { student: { biodata: { fullName: { contains: search.trim(), mode: 'insensitive' } } } } : {})
+    };
+
+    // Ambil semua ID yang cocok filter (murah, hanya select id) untuk hitung total & status cetak
+    const allMatching = await this.prisma.siswaFormal.findMany({
+      where: whereClause,
+      select: { studentId: true },
+      orderBy: { student: { biodata: { fullName: 'asc' } } }
+    });
+    const total = allMatching.length;
+    const pageIds = allMatching.slice((page - 1) * pageSize, page * pageSize).map(s => s.studentId);
+
+    const [siswaList, riwayatList] = await Promise.all([
+      this.prisma.siswaFormal.findMany({
+        where: { studentId: { in: pageIds } },
+        include: {
+          student: {
+            include: { biodata: true, dataDaimi: { include: { grup: true } } }
+          },
+          kelas: { include: { cabang: true } }
+        },
+        orderBy: { student: { biodata: { fullName: 'asc' } } }
+      }),
+      this.prisma.riwayatKelasFormal.findMany({
+        where: { studentId: { in: allMatching.map(s => s.studentId) }, tahunAjaran, semester }
+      })
+    ]);
+
+    const riwayatMap = new Map(riwayatList.map(r => [r.studentId, r]));
+    const sudahCetakCount = riwayatList.filter(r => r.sudahCetak).length;
+
+    const data = siswaList.map(s => {
+      const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+      return {
+        studentId: s.studentId,
+        kelasId: s.kelasId || '',
+        nis: s.nis || s.student.biodata?.nisLokal || '',
+        nisn: s.nisn || s.student.biodata?.nisn || '',
+        fullName: s.student.biodata?.fullName || 'Siswa',
+        kelasName: s.kelas?.name || '-',
+        cabangName: s.kelas?.cabang?.name || '-',
+        jenisGrupDaimi,
+        sudahCetak: riwayatMap.get(s.studentId)?.sudahCetak ?? false
+      };
+    });
+
+    // Urutkan ulang sesuai urutan pageIds (findMany dengan `in` tidak menjamin urutan)
+    const orderMap = new Map(pageIds.map((id, idx) => [id, idx]));
+    data.sort((a, b) => (orderMap.get(a.studentId) ?? 0) - (orderMap.get(b.studentId) ?? 0));
+
+    return {
+      data,
+      total,
+      sudahCetakCount,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize))
+    };
+  }
+
+  async toggleSudahCetak(data: { studentId: string; kelasId: string; tahunAjaran: string; semester: string; sudahCetak: boolean }, user?: any) {
+    const { studentId, kelasId, tahunAjaran, semester, sudahCetak } = data;
+
+    const result = await this.prisma.riwayatKelasFormal.upsert({
+      where: {
+        studentId_tahunAjaran_semester: { studentId, tahunAjaran, semester }
+      },
+      update: { sudahCetak },
+      create: { studentId, kelasId, tahunAjaran, semester, sudahCetak }
+    });
+
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'E_RAPOR_CETAK', studentId, `Status Cetak Rapor ${tahunAjaran} ${semester}`, user, `Menandai rapor sebagai ${sudahCetak ? 'sudah dicetak' : 'belum dicetak'}`);
+    }
+
+    return result;
+  }
+
   async getERaporCetak(studentId: string, tahunAjaran: string, semester: string) {
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
