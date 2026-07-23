@@ -1156,7 +1156,7 @@ export class FormalService {
       where: { kelasId },
       include: {
         student: {
-          include: { 
+          include: {
             biodata: true,
             dataDaimi: {
               include: { grup: true }
@@ -1178,9 +1178,16 @@ export class FormalService {
 
     const nilaiMap = new Map(existingNilai.map(n => [n.studentId, n]));
 
+    const keaktifanList = await this.prisma.keaktifanMapelGrup.findMany({
+      where: { mataPelajaranId }
+    });
+    const keaktifanMap = new Map(keaktifanList.map(k => [k.grupDaimiId, k.isActive]));
+
     return siswaList.map(s => {
       const saved = nilaiMap.get(s.studentId);
       const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+      const grupDaimiId = s.student.dataDaimi?.grupId ?? null;
+      const mapelAktifUntukGrup = !!grupDaimiId && keaktifanMap.get(grupDaimiId) === true;
       return {
         studentId: s.studentId,
         nisn: s.nisn || s.student.biodata?.nisn || '',
@@ -1189,6 +1196,8 @@ export class FormalService {
         jenisGrupDaimi,
         nilaiAkhir: saved?.nilaiAkhir ?? null,
         predikat: saved?.predikat ?? '',
+        mapelAktifUntukGrup,
+        canInput: mapelAktifUntukGrup,
       };
     });
   }
@@ -1206,10 +1215,29 @@ export class FormalService {
   }, user?: any) {
     const { kelasId, mataPelajaranId, tahunAjaran, semester, data } = payload;
 
+    const studentIds = data.map(item => item.studentId);
+    const [siswaGrupList, keaktifanList] = await Promise.all([
+      this.prisma.student.findMany({
+        where: { id: { in: studentIds } },
+        select: { id: true, dataDaimi: { select: { grupId: true } } }
+      }),
+      this.prisma.keaktifanMapelGrup.findMany({ where: { mataPelajaranId } })
+    ]);
+    const grupMap = new Map(siswaGrupList.map(s => [s.id, s.dataDaimi?.grupId ?? null]));
+    const keaktifanMap = new Map(keaktifanList.map(k => [k.grupDaimiId, k.isActive]));
+
+    const isAllowed = (studentId: string) => {
+      const grupDaimiId = grupMap.get(studentId);
+      return !!grupDaimiId && keaktifanMap.get(grupDaimiId) === true;
+    };
+
+    const blockedData = data.filter(item => !isAllowed(item.studentId));
+    const allowedData = data.filter(item => isAllowed(item.studentId));
+
     return this.prisma.$transaction(async (tx) => {
       let savedCount = 0;
 
-      for (const item of data) {
+      for (const item of allowedData) {
         let riwayat = await tx.riwayatKelasFormal.findUnique({
           where: {
             studentId_tahunAjaran_semester: {
@@ -1272,10 +1300,11 @@ export class FormalService {
       }
 
       if (user) {
-        await this.auditLogService.log('UPDATE', 'E_RAPOR_NILAI', kelasId, `Entry Nilai e-Rapor ${tahunAjaran} ${semester}`, user, `Menyimpan ${savedCount} nilai mapel ID ${mataPelajaranId}`);
+        const skippedNote = blockedData.length > 0 ? `, ${blockedData.length} siswa dilewati (mapel nonaktif untuk grup daimi)` : '';
+        await this.auditLogService.log('UPDATE', 'E_RAPOR_NILAI', kelasId, `Entry Nilai e-Rapor ${tahunAjaran} ${semester}`, user, `Menyimpan ${savedCount} nilai mapel ID ${mataPelajaranId}${skippedNote}`);
       }
 
-      return { success: true, count: savedCount };
+      return { success: true, count: savedCount, skippedCount: blockedData.length };
     });
   }
 
