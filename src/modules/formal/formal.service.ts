@@ -580,7 +580,7 @@ export class FormalService {
   // --- RIWAYAT NILAI FORMAL (RAPOR) ---
 
   async getNilaiHistoryByStudent(studentId: string) {
-    return this.prisma.nilaiFormal.findMany({
+    const history = await this.prisma.nilaiFormal.findMany({
       where: { studentId },
       include: {
         mataPelajaran: true,
@@ -591,6 +591,40 @@ export class FormalService {
         { semester: 'desc' },
         { mataPelajaran: { kodeMapel: 'asc' } }
       ]
+    });
+
+    if (history.length === 0) return [];
+
+    // Hitung rata-rata kelas per (kelasId, mataPelajaranId, tahunAjaran, semester)
+    const kelasIds = Array.from(new Set(history.map(h => h.kelasId)));
+    const periodeList = Array.from(new Set(history.map(h => `${h.tahunAjaran}||${h.semester}`)))
+      .map(p => { const [tahunAjaran, semester] = p.split('||'); return { tahunAjaran, semester }; });
+
+    const allNilaiKelas = await this.prisma.nilaiFormal.findMany({
+      where: {
+        kelasId: { in: kelasIds },
+        OR: periodeList
+      },
+      select: { kelasId: true, mataPelajaranId: true, tahunAjaran: true, semester: true, nilaiAkhir: true }
+    });
+
+    const avgMap = new Map<string, { sum: number; count: number }>();
+    allNilaiKelas.forEach(n => {
+      if (n.nilaiAkhir === null || n.nilaiAkhir === undefined) return;
+      const key = `${n.kelasId}||${n.mataPelajaranId}||${n.tahunAjaran}||${n.semester}`;
+      const entry = avgMap.get(key) || { sum: 0, count: 0 };
+      entry.sum += n.nilaiAkhir;
+      entry.count += 1;
+      avgMap.set(key, entry);
+    });
+
+    return history.map(h => {
+      const key = `${h.kelasId}||${h.mataPelajaranId}||${h.tahunAjaran}||${h.semester}`;
+      const avg = avgMap.get(key);
+      return {
+        ...h,
+        rataRataKelas: avg && avg.count > 0 ? Math.round((avg.sum / avg.count) * 100) / 100 : null
+      };
     });
   }
 
@@ -1648,7 +1682,7 @@ export class FormalService {
     const total = allMatching.length;
     const pageIds = allMatching.slice((page - 1) * pageSize, page * pageSize).map(s => s.studentId);
 
-    const [siswaList, riwayatList] = await Promise.all([
+    const [siswaList, riwayatList, allMapelActive, nilaiForPage] = await Promise.all([
       this.prisma.siswaFormal.findMany({
         where: { studentId: { in: pageIds } },
         include: {
@@ -1661,14 +1695,39 @@ export class FormalService {
       }),
       this.prisma.riwayatKelasFormal.findMany({
         where: { studentId: { in: allMatching.map(s => s.studentId) }, tahunAjaran, semester }
+      }),
+      this.prisma.mataPelajaran.findMany({
+        where: { isActive: true },
+        include: { keaktifanGrup: true }
+      }),
+      this.prisma.nilaiFormal.findMany({
+        where: { studentId: { in: pageIds }, tahunAjaran, semester }
       })
     ]);
 
     const riwayatMap = new Map(riwayatList.map(r => [r.studentId, r]));
     const sudahCetakCount = riwayatList.filter(r => r.sudahCetak).length;
 
+    // studentId -> Set mataPelajaranId yang sudah ada nilaiAkhir-nya
+    const filledMap = new Map<string, Set<string>>();
+    nilaiForPage.forEach(n => {
+      if (n.nilaiAkhir === null || n.nilaiAkhir === undefined) return;
+      if (!filledMap.has(n.studentId)) filledMap.set(n.studentId, new Set());
+      filledMap.get(n.studentId)!.add(n.mataPelajaranId);
+    });
+
     const data = siswaList.map(s => {
       const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+      const grupDaimiId = s.student.dataDaimi?.grupId ?? null;
+
+      const mapelAktifUntukSiswa = allMapelActive.filter(m => {
+        if (!grupDaimiId) return false;
+        const entry = m.keaktifanGrup.find(k => k.grupDaimiId === grupDaimiId);
+        return entry?.isActive === true;
+      });
+      const filledSet = filledMap.get(s.studentId) || new Set<string>();
+      const mapelBelumDiisi = mapelAktifUntukSiswa.filter(m => !filledSet.has(m.id)).map(m => m.name);
+
       return {
         studentId: s.studentId,
         kelasId: s.kelasId || '',
@@ -1678,7 +1737,9 @@ export class FormalService {
         kelasName: s.kelas?.name || '-',
         cabangName: s.kelas?.cabang?.name || '-',
         jenisGrupDaimi,
-        sudahCetak: riwayatMap.get(s.studentId)?.sudahCetak ?? false
+        sudahCetak: riwayatMap.get(s.studentId)?.sudahCetak ?? false,
+        isLengkap: mapelBelumDiisi.length === 0,
+        mapelBelumDiisi
       };
     });
 
@@ -1783,6 +1844,24 @@ export class FormalService {
       return a.mataPelajaran.kodeMapel.localeCompare(b.mataPelajaran.kodeMapel);
     });
 
+    // Rata-rata kelas per mapel (semua siswa di kelas yang sama, periode yang sama)
+    const rataRataKelasMap = new Map<string, number>();
+    if (kelasRef?.id) {
+      const allNilaiKelas = await this.prisma.nilaiFormal.findMany({
+        where: { kelasId: kelasRef.id, tahunAjaran, semester },
+        select: { mataPelajaranId: true, nilaiAkhir: true }
+      });
+      const sumCount = new Map<string, { sum: number; count: number }>();
+      allNilaiKelas.forEach(n => {
+        if (n.nilaiAkhir === null || n.nilaiAkhir === undefined) return;
+        const entry = sumCount.get(n.mataPelajaranId) || { sum: 0, count: 0 };
+        entry.sum += n.nilaiAkhir;
+        entry.count += 1;
+        sumCount.set(n.mataPelajaranId, entry);
+      });
+      sumCount.forEach((v, k) => rataRataKelasMap.set(k, Math.round((v.sum / v.count) * 100) / 100));
+    }
+
     const jenisGrupDaimi = student.dataDaimi?.grup?.jenis || student.dataDaimi?.grup?.name || student.grupDaimi || '-';
     const isHafizlik = student.dataDaimi?.grup?.jenis === 'HAFIZLIK';
 
@@ -1841,7 +1920,8 @@ export class FormalService {
         namaMapel: n.mataPelajaran.name,
         grupMapel: n.mataPelajaran.grupMapel,
         nilaiAkhir: n.nilaiAkhir,
-        predikat: n.predikat
+        predikat: n.predikat,
+        rataRataKelas: rataRataKelasMap.get(n.mataPelajaranId) ?? null
       })),
       presensi: {
         sakit: riwayat?.sakit ?? 0,
