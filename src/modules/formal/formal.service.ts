@@ -1361,6 +1361,113 @@ export class FormalService {
     });
   }
 
+  // Input/edit nilai lintas mapel untuk SATU siswa pada satu periode (backfill nilai
+  // semester/tahun ajaran lampau, mis. nilai kelas 10 saat siswa sudah di kelas 11)
+  async saveNilaiForStudentPeriod(payload: {
+    studentId: string;
+    kelasId: string;
+    tahunAjaran: string;
+    semester: string;
+    data: Array<{
+      mataPelajaranId: string;
+      nilaiAkhir?: number | null;
+    }>;
+  }, user?: any) {
+    const { studentId, kelasId, tahunAjaran, semester, data } = payload;
+
+    if (!studentId || !kelasId || !tahunAjaran || !semester) {
+      throw new BadRequestException('Parameter studentId, kelasId, tahunAjaran, dan semester wajib diisi');
+    }
+
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      select: { dataDaimi: { select: { grupId: true } } }
+    });
+    const grupDaimiId = student?.dataDaimi?.grupId ?? null;
+
+    const mapelIds = data.map(item => item.mataPelajaranId);
+    const keaktifanList = await this.prisma.keaktifanMapelGrup.findMany({
+      where: { mataPelajaranId: { in: mapelIds } }
+    });
+    const keaktifanMap = new Map(keaktifanList.map(k => [`${k.mataPelajaranId}||${k.grupDaimiId}`, k.isActive]));
+
+    const isAllowed = (mataPelajaranId: string) => {
+      if (!grupDaimiId) return false;
+      return keaktifanMap.get(`${mataPelajaranId}||${grupDaimiId}`) === true;
+    };
+
+    const allowedData = data.filter(item => isAllowed(item.mataPelajaranId));
+    const skippedCount = data.length - allowedData.length;
+
+    return this.prisma.$transaction(async (tx) => {
+      let riwayat = await tx.riwayatKelasFormal.findUnique({
+        where: {
+          studentId_tahunAjaran_semester: { studentId, tahunAjaran, semester }
+        }
+      });
+
+      if (!riwayat) {
+        riwayat = await tx.riwayatKelasFormal.create({
+          data: { studentId, kelasId, tahunAjaran, semester }
+        });
+      } else if (riwayat.kelasId !== kelasId) {
+        riwayat = await tx.riwayatKelasFormal.update({
+          where: { id: riwayat.id },
+          data: { kelasId }
+        });
+      }
+
+      let savedCount = 0;
+      for (const item of allowedData) {
+        const finalScore = item.nilaiAkhir !== undefined && item.nilaiAkhir !== null ? Number(item.nilaiAkhir) : null;
+
+        let predikatVal: string | null = null;
+        if (finalScore !== null && finalScore !== undefined) {
+          if (finalScore >= 90) predikatVal = 'A';
+          else if (finalScore >= 81) predikatVal = 'B+';
+          else if (finalScore >= 76) predikatVal = 'B';
+          else predikatVal = 'C+';
+        }
+
+        await tx.nilaiFormal.upsert({
+          where: {
+            studentId_mataPelajaranId_tahunAjaran_semester: {
+              studentId,
+              mataPelajaranId: item.mataPelajaranId,
+              tahunAjaran,
+              semester
+            }
+          },
+          update: {
+            kelasId,
+            riwayatKelasId: riwayat.id,
+            nilaiAkhir: finalScore,
+            predikat: predikatVal
+          },
+          create: {
+            studentId,
+            mataPelajaranId: item.mataPelajaranId,
+            kelasId,
+            riwayatKelasId: riwayat.id,
+            tahunAjaran,
+            semester,
+            nilaiAkhir: finalScore,
+            predikat: predikatVal
+          }
+        });
+
+        savedCount++;
+      }
+
+      if (user) {
+        const skippedNote = skippedCount > 0 ? `, ${skippedCount} mapel dilewati (nonaktif untuk grup daimi)` : '';
+        await this.auditLogService.log('UPDATE', 'E_RAPOR_NILAI', studentId, `Entry Nilai Riwayat ${tahunAjaran} ${semester}`, user, `Menyimpan ${savedCount} nilai mapel untuk siswa (input riwayat/backfill)${skippedNote}`);
+      }
+
+      return { success: true, count: savedCount, skippedCount };
+    });
+  }
+
   async getERaporPresensiCatatan(kelasId: string, tahunAjaran: string, semester: string) {
     const siswaList = await this.prisma.siswaFormal.findMany({
       where: { kelasId },

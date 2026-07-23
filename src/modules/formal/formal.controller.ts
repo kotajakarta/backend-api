@@ -355,6 +355,14 @@ export class FormalController {
     return this.formalService.saveERaporNilaiBatch(data, req.user);
   }
 
+  // Input/edit nilai lintas mapel untuk SATU siswa pada satu periode (dipakai untuk
+  // backfill nilai riwayat/semester lampau dari tab Riwayat Nilai di profil siswa)
+  @Post('erapor/nilai/student-period')
+  @UseGuards(AccessControlGuard)
+  saveNilaiForStudentPeriod(@Request() req: any, @Body() data: any) {
+    return this.formalService.saveNilaiForStudentPeriod(data, req.user);
+  }
+
   @Get('erapor/presensi-catatan')
   @UseGuards(AccessControlGuard)
   getERaporPresensiCatatan(
