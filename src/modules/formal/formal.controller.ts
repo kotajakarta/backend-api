@@ -5,7 +5,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
-import { RequireDivisi } from '../../common/decorators/access-control.decorator.js';
+import { RequireDivisi, RequireScope } from '../../common/decorators/access-control.decorator.js';
 
 @Controller('formal')
 @RequireDivisi('FORMAL')
@@ -368,6 +368,49 @@ export class FormalController {
   @UseGuards(AccessControlGuard)
   importRiwayatNilai(@Request() req: any, @Body() data: any[]) {
     return this.formalService.importRiwayatNilai(data, req.user);
+  }
+
+  // Template custom untuk import riwayat nilai (opsional) - admin bisa upload file .xlsx
+  // sendiri (sudah diatur dropdown/format kolomnya) untuk menggantikan template otomatis.
+  // Disimpan dengan nama file tetap (selalu menimpa versi sebelumnya), tidak perlu tabel DB.
+  @Post('erapor/nilai/riwayat-import/template')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadRiwayatNilaiTemplate(@UploadedFile() file: any) {
+    if (!file) throw new BadRequestException('File is required');
+
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      throw new BadRequestException('File size exceeds the 5MB limit');
+    }
+
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext !== '.xlsx' && ext !== '.xls') {
+      throw new BadRequestException('Only .xlsx and .xls files are allowed');
+    }
+
+    const uploadDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const filePath = path.join(uploadDir, `riwayat_nilai_custom_template${ext}`);
+    fs.writeFileSync(filePath, file.buffer);
+
+    return { success: true };
+  }
+
+  @Get('erapor/nilai/riwayat-import/template')
+  getRiwayatNilaiTemplate(@Res() res: Response) {
+    const uploadDir = path.join(process.cwd(), 'uploads');
+    for (const ext of ['.xlsx', '.xls']) {
+      const filePath = path.join(uploadDir, `riwayat_nilai_custom_template${ext}`);
+      if (fs.existsSync(filePath)) {
+        return res.download(filePath, `Template_Import_Riwayat_Nilai${ext}`);
+      }
+    }
+    return res.status(404).send('Template belum diupload');
   }
 
   @Get('erapor/presensi-catatan')
