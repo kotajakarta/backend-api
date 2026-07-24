@@ -18,6 +18,7 @@ model GrupDaimi {
   keaktifanMapelGrup KeaktifanMapelGrup[]
   dataDaimi          DataDaimi[]
   kelasDaimi         KelasDaimi[]
+  riwayatKelasFormal RiwayatKelasFormal[]
 
   @@map("grup_daimi")
   @@schema("pesantren")

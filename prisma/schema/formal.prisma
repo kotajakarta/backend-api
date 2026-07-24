@@ -142,12 +142,14 @@ model RiwayatKelasFormal {
   izin             Int?          @default(0)
   alpa             Int?          @default(0)
   sudahCetak       Boolean       @default(false) @map("sudah_cetak")
+  grupDaimiId      String?       @map("grup_daimi_id")
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
 
   kelas            Kelas         @relation(fields: [kelasId], references: [id])
   student          Student       @relation(fields: [studentId], references: [id])
   waliKelas        Staff?        @relation(fields: [waliKelasId], references: [id])
+  grupDaimi        GrupDaimi?    @relation(fields: [grupDaimiId], references: [id])
   nilaiFormal      NilaiFormal[]
 
   @@unique([studentId, tahunAjaran, semester])

@@ -580,7 +580,8 @@ export class FormalService {
       where: { studentId },
       include: {
         mataPelajaran: true,
-        kelas: true
+        kelas: true,
+        riwayatKelas: { select: { grupDaimiId: true } }
       },
       orderBy: [
         { tahunAjaran: 'desc' },
@@ -1332,6 +1333,7 @@ export class FormalService {
       let savedCount = 0;
 
       for (const item of allowedData) {
+        const grupDaimiId = grupMap.get(item.studentId) ?? null;
         let riwayat = await tx.riwayatKelasFormal.findUnique({
           where: {
             studentId_tahunAjaran_semester: {
@@ -1348,15 +1350,16 @@ export class FormalService {
               studentId: item.studentId,
               kelasId,
               tahunAjaran,
-              semester
+              semester,
+              grupDaimiId
             }
           });
-        } else if (riwayat.kelasId !== kelasId) {
+        } else if (riwayat.kelasId !== kelasId || riwayat.grupDaimiId !== grupDaimiId) {
           // Siswa pindah kelas di tengah periode aktif - sinkronkan supaya leger/presensi/
           // cetak rapor tidak nyasar ke kelas lama (bug ditemukan lewat audit logika sesi ini).
           riwayat = await tx.riwayatKelasFormal.update({
             where: { id: riwayat.id },
-            data: { kelasId }
+            data: { kelasId, grupDaimiId }
           });
         }
 
@@ -1468,12 +1471,12 @@ export class FormalService {
 
       if (!riwayat) {
         riwayat = await tx.riwayatKelasFormal.create({
-          data: { studentId, kelasId, tahunAjaran, semester }
+          data: { studentId, kelasId, tahunAjaran, semester, grupDaimiId }
         });
-      } else if (riwayat.kelasId !== kelasId) {
+      } else if (riwayat.kelasId !== kelasId || riwayat.grupDaimiId !== grupDaimiId) {
         riwayat = await tx.riwayatKelasFormal.update({
           where: { id: riwayat.id },
-          data: { kelasId }
+          data: { kelasId, grupDaimiId }
         });
       }
 
