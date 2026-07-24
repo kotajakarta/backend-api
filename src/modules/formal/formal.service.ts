@@ -2087,6 +2087,13 @@ export class FormalService {
   }, user: any) {
     const { kelasId, search, page, pageSize } = params;
 
+    // Periode aktif sekarang (dan apa pun setelahnya) belum "seharusnya" ada isinya - itu
+    // tanggung jawab tab Input Nilai Mapel, bukan laporan riwayat lampau ini. Jadi semester
+    // aktif & yang akan datang pada tingkat siswa SAAT INI tidak boleh ikut ditandai sebagai gap.
+    const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
+    const semesterOrder = (s?: string | null) => (s?.toUpperCase() === 'GENAP' ? 1 : 0);
+    const activeSemesterOrder = semesterOrder(pengaturan?.semesterAktif);
+
     const studentWhere: any = {};
     if (user.scope === 'CABANG' && user.cabangId) {
       studentWhere.cabangId = user.cabangId;
@@ -2172,10 +2179,11 @@ export class FormalService {
         continue;
       }
 
+      const isMasihAktif = !!sf.tingkat && sf.tingkat !== 'LULUS';
       const tingkatMin = Math.min(...tingkatRecorded);
       let tingkatMax: number;
-      if (sf.tingkat && sf.tingkat !== 'LULUS') {
-        const parsed = parseInt(sf.tingkat, 10);
+      if (isMasihAktif) {
+        const parsed = parseInt(sf.tingkat as string, 10);
         tingkatMax = !isNaN(parsed) ? parsed : Math.max(...tingkatRecorded);
       } else {
         tingkatMax = Math.max(12, ...tingkatRecorded);
@@ -2184,6 +2192,10 @@ export class FormalService {
       const gaps: Array<{ tingkat: number | null; semester: string | null; kind: string }> = [];
       for (let t = tingkatMin; t <= tingkatMax; t++) {
         for (const sem of semesterList) {
+          // Untuk tingkat siswa yang sedang berjalan (belum lulus/naik), semester aktif
+          // sekarang dan yang akan datang belum waktunya diisi - jangan tandai sebagai gap.
+          if (isMasihAktif && t === tingkatMax && semesterOrder(sem) >= activeSemesterOrder) continue;
+
           const match = riwayatSiswa.find(r => parseInt(r.kelas?.tingkat || '', 10) === t && r.semester?.toUpperCase() === sem.toUpperCase());
           if (!match) {
             gaps.push({ tingkat: t, semester: sem, kind: 'NO_RIWAYAT' });
