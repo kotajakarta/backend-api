@@ -646,7 +646,8 @@ export class FormalService {
 
     const result = await this.prisma.riwayatKelasFormal.create({ data });
     if (user) {
-      await this.auditLogService.log('CREATE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${data.tahunAjaran}`, user, `Menambahkan riwayat kelas manual untuk siswa ID ${data.studentId}`);
+      const { studentName, kelasName } = await this.getRiwayatKelasLogLabels(result.studentId, result.kelasId);
+      await this.auditLogService.log('CREATE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${studentName} - ${result.tahunAjaran} ${result.semester}`, user, `Menambahkan riwayat kelas siswa "${studentName}" ke ${kelasName} (${result.tahunAjaran} ${result.semester})`);
     }
     return result;
   }
@@ -665,7 +666,8 @@ export class FormalService {
       data
     });
     if (user) {
-      await this.auditLogService.log('UPDATE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${result.tahunAjaran}`, user, `Memperbarui riwayat kelas siswa ID ${result.studentId}`);
+      const { studentName, kelasName } = await this.getRiwayatKelasLogLabels(result.studentId, result.kelasId);
+      await this.auditLogService.log('UPDATE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${studentName} - ${result.tahunAjaran} ${result.semester}`, user, `Memperbarui riwayat kelas siswa "${studentName}" menjadi ${kelasName} (${result.tahunAjaran} ${result.semester})`);
     }
     return result;
   }
@@ -683,9 +685,23 @@ export class FormalService {
       where: { id }
     });
     if (user) {
-      await this.auditLogService.log('DELETE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${result.tahunAjaran}`, user, `Menghapus riwayat kelas siswa ID ${result.studentId}`);
+      const { studentName, kelasName } = await this.getRiwayatKelasLogLabels(result.studentId, result.kelasId);
+      await this.auditLogService.log('DELETE', 'RIWAYAT_KELAS', result.id, `Riwayat Kelas ${studentName} - ${result.tahunAjaran} ${result.semester}`, user, `Menghapus riwayat kelas siswa "${studentName}" dari ${kelasName} (${result.tahunAjaran} ${result.semester})`);
     }
     return result;
+  }
+
+  // Label nama siswa & kelas untuk pesan audit log yang bisa dibaca (bukan raw UUID) -
+  // dipakai oleh create/update/deleteRiwayatKelas.
+  private async getRiwayatKelasLogLabels(studentId: string, kelasId: string) {
+    const [student, kelas] = await Promise.all([
+      this.prisma.student.findUnique({ where: { id: studentId }, select: { biodata: { select: { fullName: true } } } }),
+      this.prisma.kelas.findUnique({ where: { id: kelasId }, select: { name: true } })
+    ]);
+    return {
+      studentName: student?.biodata?.fullName || 'Siswa tidak diketahui',
+      kelasName: kelas?.name || 'Kelas tidak diketahui'
+    };
   }
 
   // Kelas.tingkat/SiswaFormal.tingkat kadang diisi angka ("7") kadang angka Romawi ("VII") -
