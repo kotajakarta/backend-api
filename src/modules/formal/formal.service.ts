@@ -2063,7 +2063,8 @@ export class FormalService {
         orderBy: { student: { biodata: { fullName: 'asc' } } }
       }),
       this.prisma.riwayatKelasFormal.findMany({
-        where: { studentId: { in: allMatching.map(s => s.studentId) }, tahunAjaran, semester }
+        where: { studentId: { in: allMatching.map(s => s.studentId) }, tahunAjaran, semester },
+        include: { grupDaimi: true }
       }),
       this.prisma.mataPelajaran.findMany({
         where: { isActive: true },
@@ -2086,8 +2087,13 @@ export class FormalService {
     });
 
     const data = siswaList.map(s => {
-      const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
-      const grupDaimiId = s.student.dataDaimi?.grupId ?? null;
+      // Utamakan grup daimi yang TERSIMPAN untuk riwayat periode ini (bisa beda dari grup
+      // siswa saat ini kalau dulu berbeda) - baru fallback ke grup daimi siswa sekarang untuk
+      // riwayat lama yang dibuat sebelum grupDaimiId per-periode ada.
+      const riwayatGrup = riwayatMap.get(s.studentId)?.grupDaimi;
+      const grupRef = riwayatGrup || s.student.dataDaimi?.grup;
+      const jenisGrupDaimi = grupRef?.jenis || grupRef?.name || s.student.grupDaimi || '-';
+      const grupDaimiId = riwayatMap.get(s.studentId)?.grupDaimiId || s.student.dataDaimi?.grupId || null;
 
       const mapelAktifUntukSiswa = allMapelActive.filter(m => {
         if (!grupDaimiId) return false;
@@ -2339,7 +2345,8 @@ export class FormalService {
             lembagaMuadalah: true
           }
         },
-        waliKelas: true
+        waliKelas: true,
+        grupDaimi: true
       }
     });
 
@@ -2385,8 +2392,12 @@ export class FormalService {
       sumCount.forEach((v, k) => rataRataKelasMap.set(k, Math.round((v.sum / v.count) * 100) / 100));
     }
 
-    const jenisGrupDaimi = student.dataDaimi?.grup?.jenis || student.dataDaimi?.grup?.name || student.grupDaimi || '-';
-    const isHafizlik = student.dataDaimi?.grup?.jenis === 'HAFIZLIK';
+    // Utamakan grup daimi yang TERSIMPAN untuk periode/riwayat ini (bisa beda dari grup
+    // siswa saat ini kalau dulu berbeda) - baru fallback ke grup daimi siswa sekarang untuk
+    // riwayat lama yang dibuat sebelum grupDaimiId per-periode ada.
+    const grupRef = riwayat?.grupDaimi || student.dataDaimi?.grup;
+    const jenisGrupDaimi = grupRef?.jenis || grupRef?.name || student.grupDaimi || '-';
+    const isHafizlik = grupRef?.jenis === 'HAFIZLIK';
 
     let hafalan: {
       awalPutaran: number | null; awalJuz: number | null;
