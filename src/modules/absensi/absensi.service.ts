@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { ProgramType, KehadiranStatus } from '@prisma/client';
 
@@ -51,7 +51,17 @@ export class AbsensiService {
     });
   }
 
-  async createProgram(data: { name: string; type: ProgramType; date: string }) {
+  // ProgramAbsensi adalah daftar/jadwal bersama lintas cabang (tidak terikat cabangId
+  // tertentu). Menu "Kelola Program Absensi" di frontend memang ditujukan untuk GLOBAL
+  // & WILAYAH (lihat Sidebar.tsx), jadi hanya CABANG (dan scope di bawahnya) yang diblokir.
+  private requireGlobalOrWilayahScope(user: any, action: string) {
+    if (user && user.scope !== 'GLOBAL' && user.scope !== 'WILAYAH') {
+      throw new ForbiddenException(`Anda tidak memiliki akses untuk ${action}.`);
+    }
+  }
+
+  async createProgram(data: { name: string; type: ProgramType; date: string }, user?: any) {
+    this.requireGlobalOrWilayahScope(user, 'menambah program absensi');
     return this.prisma.programAbsensi.create({
       data: {
         name: data.name,
@@ -61,7 +71,8 @@ export class AbsensiService {
     });
   }
 
-  async updateProgram(id: string, data: { name?: string; type?: ProgramType; date?: string; isActive?: boolean }) {
+  async updateProgram(id: string, data: { name?: string; type?: ProgramType; date?: string; isActive?: boolean }, user?: any) {
+    this.requireGlobalOrWilayahScope(user, 'mengubah program absensi');
     const updateData: any = { ...data };
     if (data.date) {
       updateData.date = new Date(data.date);
@@ -72,17 +83,20 @@ export class AbsensiService {
     });
   }
 
-  async deleteProgram(id: string) {
+  async deleteProgram(id: string, user?: any) {
+    this.requireGlobalOrWilayahScope(user, 'menghapus program absensi');
     return this.prisma.programAbsensi.delete({
       where: { id }
     });
   }
 
-  async deleteAllPrograms() {
+  async deleteAllPrograms(user?: any) {
+    this.requireGlobalOrWilayahScope(user, 'menghapus semua program absensi');
     return this.prisma.programAbsensi.deleteMany();
   }
 
-  async generateProgramsBulk(data: { namePrefix: string; dayOfWeek: number; startMonth: string; endMonth: string }) {
+  async generateProgramsBulk(data: { namePrefix: string; dayOfWeek: number; startMonth: string; endMonth: string }, user?: any) {
+    this.requireGlobalOrWilayahScope(user, 'membuat program absensi massal');
     const { namePrefix, dayOfWeek, startMonth, endMonth } = data;
 
     const [startYear, startM] = startMonth.split('-').map(Number);

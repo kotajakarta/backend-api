@@ -22,32 +22,32 @@ export class AbsensiController {
 
   @Post('programs/bulk-generate')
   @UseGuards(AccessControlGuard)
-  generateProgramsBulk(@Body() body: { namePrefix: string; dayOfWeek: number; startMonth: string; endMonth: string }) {
-    return this.absensiService.generateProgramsBulk(body);
+  generateProgramsBulk(@Request() req: any, @Body() body: { namePrefix: string; dayOfWeek: number; startMonth: string; endMonth: string }) {
+    return this.absensiService.generateProgramsBulk(body, req.user);
   }
 
   @Post('programs')
   @UseGuards(AccessControlGuard)
-  createProgram(@Body() data: any) {
-    return this.absensiService.createProgram(data);
+  createProgram(@Request() req: any, @Body() data: any) {
+    return this.absensiService.createProgram(data, req.user);
   }
 
   @Put('programs/:id')
   @UseGuards(AccessControlGuard)
-  updateProgram(@Param('id') id: string, @Body() data: any) {
-    return this.absensiService.updateProgram(id, data);
+  updateProgram(@Request() req: any, @Param('id') id: string, @Body() data: any) {
+    return this.absensiService.updateProgram(id, data, req.user);
   }
 
   @Delete('programs/all')
   @UseGuards(AccessControlGuard)
   deleteAllPrograms(@Request() req: any) {
-    return this.absensiService.deleteAllPrograms();
+    return this.absensiService.deleteAllPrograms(req.user);
   }
 
   @Delete('programs/:id')
   @UseGuards(AccessControlGuard)
-  deleteProgram(@Param('id') id: string) {
-    return this.absensiService.deleteProgram(id);
+  deleteProgram(@Request() req: any, @Param('id') id: string) {
+    return this.absensiService.deleteProgram(id, req.user);
   }
 
   @Get('kehadiran')

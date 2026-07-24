@@ -182,6 +182,7 @@ export class StudentController {
   @UseGuards(AccessControlGuard)
   @UseInterceptors(FileInterceptor('file'))
   uploadDokumenSiswa(
+    @Request() req: any,
     @Param('id') id: string,
     @Param('jenis') jenis: string,
     @UploadedFile() file: Express.Multer.File
@@ -190,7 +191,7 @@ export class StudentController {
       throw new BadRequestException(`Jenis dokumen tidak valid. Pilihan: ${DOKUMEN_JENIS.join(', ')}`);
     }
     if (!file) throw new BadRequestException('File harus dilampirkan');
-    return this.studentService.uploadDokumenSiswa(id, jenis as DokumenJenis, file);
+    return this.studentService.uploadDokumenSiswa(id, jenis as DokumenJenis, file, req.user);
   }
 }
 

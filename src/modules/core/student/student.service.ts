@@ -45,10 +45,27 @@ export class StudentService {
       jenisSiswa, grupDaimi, statusHafidz,
       alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
     } = data;
-    
+
+    // Cabang/wilayah tujuan tidak boleh dipercaya mentah dari client - turunkan dari scope
+    // user yang login, sama seperti updateStudent.
+    let targetCabangId = cabangId;
+    let targetWilayahId = wilayahId;
+    if (user && user.scope === 'CABANG') {
+      targetCabangId = user.cabangId;
+      targetWilayahId = user.wilayahId;
+    } else if (user && user.scope === 'WILAYAH') {
+      targetWilayahId = user.wilayahId;
+      if (targetCabangId) {
+        const targetCabang = await this.prisma.cabang.findUnique({ where: { id: targetCabangId } });
+        if (!targetCabang || targetCabang.wilayahId !== user.wilayahId) {
+          throw new ForbiddenException('Akses ditolak: Cabang tujuan berada di luar wilayah Anda.');
+        }
+      }
+    }
+
     // determine initial pool status
-    const initialStatus = cabangId ? StatusPool.AKTIF_CABANG : StatusPool.TERSEDIA;
-    
+    const initialStatus = targetCabangId ? StatusPool.AKTIF_CABANG : StatusPool.TERSEDIA;
+
     return this.prisma.$transaction(async (tx) => {
       const biodata = await tx.biodata.create({
         data: {
@@ -77,8 +94,8 @@ export class StudentService {
       const student = await tx.student.create({
         data: {
           biodataId: biodata.id,
-          wilayahId,
-          cabangId,
+          wilayahId: targetWilayahId,
+          cabangId: targetCabangId,
           statusPool: initialStatus,
           jenisSiswa: jenisSiswa || null,
           grupDaimi: grupDaimi || null,
@@ -88,11 +105,11 @@ export class StudentService {
 
       await this._processTempAndDocUrls(tx, biodata.id, data);
 
-      if (cabangId) {
+      if (targetCabangId) {
         await tx.riwayatPendidikan.create({
           data: {
             studentId: student.id,
-            cabangId,
+            cabangId: targetCabangId,
             tanggalMasuk: tanggalMasuk ? new Date(tanggalMasuk) : new Date(),
           }
         });
@@ -1194,12 +1211,21 @@ export class StudentService {
 
   // ─── Upload Dokumen Siswa (membutuhkan auth) ───────────────────────────────
 
-  async uploadDokumenSiswa(studentId: string, jenis: DokumenJenis, file: Express.Multer.File) {
+  async uploadDokumenSiswa(studentId: string, jenis: DokumenJenis, file: Express.Multer.File, user?: any) {
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
       include: { biodata: true }
     });
     if (!student) throw new BadRequestException('Siswa tidak ditemukan');
+
+    if (user && user.scope !== 'GLOBAL') {
+      if (user.scope === 'WILAYAH' && student.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Akses ditolak: Siswa berada di luar wilayah Anda.');
+      }
+      if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Akses ditolak: Siswa berada di luar cabang Anda.');
+      }
+    }
 
     return this._simpanDokumenBiodata(student.biodataId, jenis, file);
   }

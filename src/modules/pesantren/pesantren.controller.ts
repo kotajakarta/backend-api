@@ -19,7 +19,7 @@ export class PesantrenController {
     if (req.user.scope === 'CABANG') {
       data.cabangId = req.user.cabangId;
     }
-    return this.pesantrenService.createGrupDaimi(data);
+    return this.pesantrenService.createGrupDaimi(data, req.user);
   }
 
   @Put('grup-daimi/:id')
@@ -27,28 +27,28 @@ export class PesantrenController {
     if (req.user.scope === 'CABANG') {
       data.cabangId = req.user.cabangId;
     }
-    return this.pesantrenService.updateGrupDaimi(id, data);
+    return this.pesantrenService.updateGrupDaimi(id, data, req.user);
   }
 
   @Delete('grup-daimi/:id')
-  deleteGrupDaimi(@Param('id') id: string) {
-    return this.pesantrenService.deleteGrupDaimi(id);
+  deleteGrupDaimi(@Request() req: any, @Param('id') id: string) {
+    return this.pesantrenService.deleteGrupDaimi(id, req.user);
   }
 
   // Student Assignment routes for Daimi Group
   @Get('grup-daimi/:id/students')
-  getStudentsInGrupDaimi(@Param('id') id: string) {
-    return this.pesantrenService.getStudentsInGrupDaimi(id);
+  getStudentsInGrupDaimi(@Request() req: any, @Param('id') id: string) {
+    return this.pesantrenService.getStudentsInGrupDaimi(id, req.user);
   }
 
   @Post('grup-daimi/:id/students')
-  addStudentToGrupDaimi(@Param('id') id: string, @Body() data: { studentId: string }) {
-    return this.pesantrenService.addStudentToGrupDaimi(id, data.studentId);
+  addStudentToGrupDaimi(@Request() req: any, @Param('id') id: string, @Body() data: { studentId: string }) {
+    return this.pesantrenService.addStudentToGrupDaimi(id, data.studentId, req.user);
   }
 
   @Delete('grup-daimi/:id/students/:studentId')
-  removeStudentFromGrupDaimi(@Param('id') id: string, @Param('studentId') studentId: string) {
-    return this.pesantrenService.removeStudentFromGrupDaimi(id, studentId);
+  removeStudentFromGrupDaimi(@Request() req: any, @Param('id') id: string, @Param('studentId') studentId: string) {
+    return this.pesantrenService.removeStudentFromGrupDaimi(id, studentId, req.user);
   }
 
   // Master data "Jenis Grup Daimi" - daftar terkelola untuk field GrupDaimi.jenis,

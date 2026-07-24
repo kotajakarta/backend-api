@@ -333,28 +333,6 @@ export class FormalService {
     });
   }
 
-  async getRapor() {
-    return this.prisma.nilaiFormal.findMany({
-      include: {
-        student: { include: { biodata: true } },
-        mataPelajaran: true,
-        kelas: true
-      }
-    });
-  }
-
-  async createRapor(data: any) {
-    return this.prisma.nilaiFormal.create({ data: data as any });
-  }
-
-  async updateRapor(id: string, data: any) {
-    return this.prisma.nilaiFormal.update({ where: { id }, data: data as any });
-  }
-
-  async deleteRapor(id: string) {
-    return this.prisma.nilaiFormal.delete({ where: { id } });
-  }
-
   async getSiswaFormal(user: any) {
     let whereClause: any = { 
       statusPool: 'AKTIF_CABANG',
@@ -386,6 +364,8 @@ export class FormalService {
   }
 
   async updateSiswaFormal(studentId: string, data: { nis?: string, nisn?: string, kelasId?: string, isVerval?: boolean }, user?: any) {
+    await this.checkStudentScope(studentId, user);
+
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
       select: { biodataId: true }
@@ -557,9 +537,24 @@ export class FormalService {
     }
   }
 
+  private checkKelasScope(user: any, kelas: { cabangId: string | null; cabang?: { wilayahId: string | null } | null }) {
+    if (!user || user.scope === 'GLOBAL') return;
+    if (user.scope === 'WILAYAH') {
+      if (!kelas.cabang || kelas.cabang.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Anda tidak memiliki akses ke kelas di luar wilayah Anda');
+      }
+    }
+    if (user.scope === 'CABANG') {
+      if (kelas.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Anda tidak memiliki akses ke kelas di luar cabang Anda');
+      }
+    }
+  }
+
   // --- RIWAYAT KELAS FORMAL ---
 
-  async getRiwayatKelasByStudent(studentId: string) {
+  async getRiwayatKelasByStudent(studentId: string, user?: any) {
+    await this.checkStudentScope(studentId, user);
     return this.prisma.riwayatKelasFormal.findMany({
       where: { studentId },
       include: {
@@ -579,7 +574,8 @@ export class FormalService {
 
   // --- RIWAYAT NILAI FORMAL (RAPOR) ---
 
-  async getNilaiHistoryByStudent(studentId: string) {
+  async getNilaiHistoryByStudent(studentId: string, user?: any) {
+    await this.checkStudentScope(studentId, user);
     const history = await this.prisma.nilaiFormal.findMany({
       where: { studentId },
       include: {
@@ -691,6 +687,30 @@ export class FormalService {
     return result;
   }
 
+  // Kelas.tingkat/SiswaFormal.tingkat kadang diisi angka ("7") kadang angka Romawi ("VII") -
+  // lihat dashboard.service.ts yang mengecek keduanya. Parse & format ulang harus mendukung
+  // kedua bentuk, supaya kenaikan tingkat tidak diam-diam gagal untuk format Romawi.
+  private static readonly ROMAN_TINGKAT: Record<string, number> = {
+    I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12
+  };
+
+  private parseTingkatToNumber(tingkat: string): number | null {
+    const trimmed = tingkat.trim().toUpperCase();
+    const asNum = parseInt(trimmed, 10);
+    if (!isNaN(asNum)) return asNum;
+    return FormalService.ROMAN_TINGKAT[trimmed] ?? null;
+  }
+
+  private formatTingkatLikeInput(originalTingkat: string, num: number): string {
+    const trimmed = originalTingkat.trim().toUpperCase();
+    const isRomanInput = isNaN(parseInt(trimmed, 10)) && FormalService.ROMAN_TINGKAT[trimmed] !== undefined;
+    if (isRomanInput) {
+      const romanEntry = Object.entries(FormalService.ROMAN_TINGKAT).find(([, v]) => v === num);
+      return romanEntry ? romanEntry[0] : String(num);
+    }
+    return String(num);
+  }
+
   async prosesKenaikanKelasMassal(payload: {
     kelasAsalId: string;
     tahunAjaranLama: string;
@@ -704,6 +724,7 @@ export class FormalService {
   }, user: any) {
     return this.prisma.$transaction(async (tx) => {
       let successCount = 0;
+      const tingkatTidakDikenali: string[] = [];
       const kelasAsal = await tx.kelas.findUnique({ where: { id: payload.kelasAsalId } });
 
       for (const st of payload.students) {
@@ -742,17 +763,21 @@ export class FormalService {
         });
 
         const currentTingkat = siswaFormal?.tingkat || kelasAsal?.tingkat || '7';
-        const currentTingkatNum = parseInt(currentTingkat, 10);
+        const currentTingkatNum = this.parseTingkatToNumber(currentTingkat);
         let nextTingkat = currentTingkat;
         let isLulus = st.statusAkhir === 'LULUS';
 
         if (st.statusAkhir === 'NAIK_KELAS' || st.statusAkhir === 'NAIK_TINGKAT') {
-          if (!isNaN(currentTingkatNum)) {
+          if (currentTingkatNum !== null) {
              if (currentTingkatNum >= 12) {
                 isLulus = true;
              } else {
-                nextTingkat = (currentTingkatNum + 1).toString();
+                nextTingkat = this.formatTingkatLikeInput(currentTingkat, currentTingkatNum + 1);
              }
+          } else {
+            // Format tingkat tidak dikenali (bukan angka atau angka Romawi I-XII) - jangan diam-diam
+            // dianggap berhasil naik, catat supaya admin tahu perlu perbaikan data manual.
+            tingkatTidakDikenali.push(`${st.studentId} (tingkat: "${currentTingkat}")`);
           }
         }
 
@@ -806,16 +831,20 @@ export class FormalService {
         successCount++;
       }
 
+      const warningNote = tingkatTidakDikenali.length > 0
+        ? `, ${tingkatTidakDikenali.length} siswa tingkatnya TIDAK berubah (format tingkat tidak dikenali: ${tingkatTidakDikenali.join(', ')})`
+        : '';
+
       await this.auditLogService.log(
-        'UPDATE', 
-        'KENAIKAN_KELAS', 
-        payload.kelasAsalId, 
-        `Kenaikan Massal ${payload.tahunAjaranLama} -> ${payload.tahunAjaranBaru}`, 
-        user, 
-        `Memproses ${successCount} siswa dari kelas asal ID ${payload.kelasAsalId}`
+        'UPDATE',
+        'KENAIKAN_KELAS',
+        payload.kelasAsalId,
+        `Kenaikan Massal ${payload.tahunAjaranLama} -> ${payload.tahunAjaranBaru}`,
+        user,
+        `Memproses ${successCount} siswa dari kelas asal ID ${payload.kelasAsalId}${warningNote}`
       );
 
-      return { success: true, processed: successCount };
+      return { success: true, processed: successCount, tingkatTidakDikenali };
     });
   }
 
@@ -827,6 +856,7 @@ export class FormalService {
     semesterBaru: string;
   }, user: any) {
     let totalProcessed = 0;
+    const tingkatTidakDikenali: string[] = [];
     for (const kelasId of payload.kelasAsalIds) {
       const students = await this.prisma.siswaFormal.findMany({ where: { kelasId } });
       if (students.length > 0) {
@@ -842,9 +872,10 @@ export class FormalService {
           }))
         }, user);
         totalProcessed += result.processed;
+        tingkatTidakDikenali.push(...result.tingkatTidakDikenali);
       }
     }
-    return { success: true, processed: totalProcessed };
+    return { success: true, processed: totalProcessed, tingkatTidakDikenali };
   }
 
   async getStudentsByKelas(kelasId: string) {
@@ -1132,8 +1163,8 @@ export class FormalService {
     return result;
   }
 
-  async getKelasById(id: string) {
-    return this.prisma.kelas.findUnique({
+  async getKelasById(id: string, user?: any) {
+    const kelas = await this.prisma.kelas.findUnique({
       where: { id },
       include: {
         cabang: { include: { wilayah: true } },
@@ -1142,11 +1173,16 @@ export class FormalService {
         ruang: true
       }
     });
+    if (!kelas) throw new NotFoundException('Kelas tidak ditemukan');
+    this.checkKelasScope(user, kelas);
+    return kelas;
   }
 
-  async addStudentToKelas(kelasId: string, studentId: string) {
-    const kelas = await this.prisma.kelas.findUnique({ where: { id: kelasId } });
+  async addStudentToKelas(kelasId: string, studentId: string, user?: any) {
+    const kelas = await this.prisma.kelas.findUnique({ where: { id: kelasId }, include: { cabang: true } });
     if (!kelas) throw new NotFoundException('Kelas tidak ditemukan');
+    this.checkKelasScope(user, kelas);
+    await this.checkStudentScope(studentId, user);
 
     const existing = await this.prisma.siswaFormal.findUnique({
       where: { studentId }
@@ -1185,7 +1221,12 @@ export class FormalService {
     }
   }
 
-  async removeStudentFromKelas(kelasId: string, studentId: string) {
+  async removeStudentFromKelas(kelasId: string, studentId: string, user?: any) {
+    const kelas = await this.prisma.kelas.findUnique({ where: { id: kelasId }, include: { cabang: true } });
+    if (!kelas) throw new NotFoundException('Kelas tidak ditemukan');
+    this.checkKelasScope(user, kelas);
+    await this.checkStudentScope(studentId, user);
+
     const existing = await this.prisma.siswaFormal.findUnique({
       where: { studentId }
     });
@@ -1310,10 +1351,17 @@ export class FormalService {
               semester
             }
           });
+        } else if (riwayat.kelasId !== kelasId) {
+          // Siswa pindah kelas di tengah periode aktif - sinkronkan supaya leger/presensi/
+          // cetak rapor tidak nyasar ke kelas lama (bug ditemukan lewat audit logika sesi ini).
+          riwayat = await tx.riwayatKelasFormal.update({
+            where: { id: riwayat.id },
+            data: { kelasId }
+          });
         }
 
         const finalScore = item.nilaiAkhir !== undefined && item.nilaiAkhir !== null ? Number(item.nilaiAkhir) : null;
-        
+
         let predikatVal = item.predikat;
         if (finalScore !== null && finalScore !== undefined) {
           if (finalScore >= 90) predikatVal = 'A';

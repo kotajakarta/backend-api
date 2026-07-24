@@ -1,14 +1,44 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 
 @Injectable()
 export class PesantrenService {
   constructor(@Inject(PrismaService) private prisma: PrismaService) {}
 
+  private async checkGrupDaimiScope(user: any, grup: { cabangId: string | null }) {
+    if (!user || user.scope === 'GLOBAL') return;
+    if (user.scope === 'CABANG') {
+      if (grup.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Akses ditolak: Grup Daimi di luar cabang Anda.');
+      }
+      return;
+    }
+    if (user.scope === 'WILAYAH') {
+      const cabang = grup.cabangId ? await this.prisma.cabang.findUnique({ where: { id: grup.cabangId }, select: { wilayahId: true } }) : null;
+      if (!cabang || cabang.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Akses ditolak: Grup Daimi di luar wilayah Anda.');
+      }
+    }
+  }
+
+  private async checkStudentInScope(user: any, studentId: string) {
+    if (!user || user.scope === 'GLOBAL') return;
+    const student = await this.prisma.student.findUnique({ where: { id: studentId }, select: { cabangId: true, wilayahId: true } });
+    if (!student) throw new NotFoundException('Siswa tidak ditemukan');
+    if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+      throw new ForbiddenException('Akses ditolak: siswa di luar cabang Anda.');
+    }
+    if (user.scope === 'WILAYAH' && student.wilayahId !== user.wilayahId) {
+      throw new ForbiddenException('Akses ditolak: siswa di luar wilayah Anda.');
+    }
+  }
+
   async getGrupDaimi(user?: any) {
     const where: any = {};
     if (user?.scope === 'CABANG') {
       where.cabangId = user.cabangId;
+    } else if (user?.scope === 'WILAYAH') {
+      where.cabang = { wilayahId: user.wilayahId };
     }
 
     return this.prisma.grupDaimi.findMany({
@@ -34,19 +64,10 @@ export class PesantrenService {
     });
   }
 
-  async createGrupDaimi(data: { name: string; jenis?: string; ketuaId?: string; cabangId?: string }) {
-    return this.prisma.grupDaimi.create({
-      data: {
-        name: data.name,
-        jenis: data.jenis || null,
-        ketuaId: data.ketuaId || null,
-        cabangId: data.cabangId || null,
-      }
-    });
-  }
-
-  async updateGrupDaimi(id: string, data: { name: string; jenis?: string; ketuaId?: string; cabangId?: string }) {
+  async updateGrupDaimi(id: string, data: { name: string; jenis?: string; ketuaId?: string; cabangId?: string }, user?: any) {
     const existing = await this.prisma.grupDaimi.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Grup Daimi tidak ditemukan');
+    await this.checkGrupDaimiScope(user, existing);
     const result = await this.prisma.grupDaimi.update({
       where: { id },
       data: {
@@ -73,7 +94,10 @@ export class PesantrenService {
     return result;
   }
 
-  async deleteGrupDaimi(id: string) {
+  async deleteGrupDaimi(id: string, user?: any) {
+    const existing = await this.prisma.grupDaimi.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Grup Daimi tidak ditemukan');
+    await this.checkGrupDaimiScope(user, existing);
     return this.prisma.grupDaimi.delete({
       where: { id }
     });
@@ -96,8 +120,30 @@ export class PesantrenService {
     return this.prisma.jenisGrupDaimi.delete({ where: { id } });
   }
 
+  async createGrupDaimi(data: { name: string; jenis?: string; ketuaId?: string; cabangId?: string }, user?: any) {
+    if (user && user.scope === 'WILAYAH' && data.cabangId) {
+      const cabang = await this.prisma.cabang.findUnique({ where: { id: data.cabangId }, select: { wilayahId: true } });
+      if (!cabang || cabang.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Cabang di luar wilayah Anda.');
+      }
+    }
+    return this.prisma.grupDaimi.create({
+      data: {
+        name: data.name,
+        jenis: data.jenis || null,
+        ketuaId: data.ketuaId || null,
+        cabangId: data.cabangId || null,
+      }
+    });
+  }
+
   // Student Assignment APIs for Daimi Group
-  async getStudentsInGrupDaimi(grupId: string) {
+  async getStudentsInGrupDaimi(grupId: string, user?: any) {
+    if (user) {
+      const grup = await this.prisma.grupDaimi.findUnique({ where: { id: grupId } });
+      if (!grup) throw new NotFoundException('Grup Daimi tidak ditemukan');
+      await this.checkGrupDaimiScope(user, grup);
+    }
     const dataDaimiList = await this.prisma.dataDaimi.findMany({
       where: { grupId },
       include: {
@@ -112,9 +158,11 @@ export class PesantrenService {
     return dataDaimiList.map(dd => dd.student);
   }
 
-  async addStudentToGrupDaimi(grupId: string, studentId: string) {
+  async addStudentToGrupDaimi(grupId: string, studentId: string, user?: any) {
     const grup = await this.prisma.grupDaimi.findUnique({ where: { id: grupId } });
     if (!grup) throw new NotFoundException('Grup Daimi tidak ditemukan');
+    await this.checkGrupDaimiScope(user, grup);
+    await this.checkStudentInScope(user, studentId);
 
     const existing = await this.prisma.dataDaimi.findUnique({
       where: { studentId }
@@ -139,7 +187,12 @@ export class PesantrenService {
     return { success: true };
   }
 
-  async removeStudentFromGrupDaimi(grupId: string, studentId: string) {
+  async removeStudentFromGrupDaimi(grupId: string, studentId: string, user?: any) {
+    const grup = await this.prisma.grupDaimi.findUnique({ where: { id: grupId } });
+    if (!grup) throw new NotFoundException('Grup Daimi tidak ditemukan');
+    await this.checkGrupDaimiScope(user, grup);
+    await this.checkStudentInScope(user, studentId);
+
     const existing = await this.prisma.dataDaimi.findUnique({
       where: { studentId }
     });

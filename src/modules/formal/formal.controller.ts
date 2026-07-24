@@ -79,50 +79,26 @@ export class FormalController {
 
   @Get('kelas/:id')
   @UseGuards(AccessControlGuard)
-  getKelasById(@Param('id') id: string) {
-    return this.formalService.getKelasById(id);
+  getKelasById(@Request() req: any, @Param('id') id: string) {
+    return this.formalService.getKelasById(id, req.user);
   }
 
   @Post('kelas/:id/students')
   @UseGuards(AccessControlGuard)
-  addStudentToKelas(@Param('id') id: string, @Body() body: { studentId: string }) {
-    return this.formalService.addStudentToKelas(id, body.studentId);
+  addStudentToKelas(@Request() req: any, @Param('id') id: string, @Body() body: { studentId: string }) {
+    return this.formalService.addStudentToKelas(id, body.studentId, req.user);
   }
 
   @Delete('kelas/:id/students/:studentId')
   @UseGuards(AccessControlGuard)
-  removeStudentFromKelas(@Param('id') id: string, @Param('studentId') studentId: string) {
-    return this.formalService.removeStudentFromKelas(id, studentId);
+  removeStudentFromKelas(@Request() req: any, @Param('id') id: string, @Param('studentId') studentId: string) {
+    return this.formalService.removeStudentFromKelas(id, studentId, req.user);
   }
 
   @Delete('kelas/:id')
   @UseGuards(AccessControlGuard)
   deleteKelas(@Request() req: any, @Param('id') id: string) {
     return this.formalService.deleteKelas(id, req.user);
-  }
-
-  @Get('rapor')
-  @UseGuards(AccessControlGuard)
-  getRapor() {
-    return this.formalService.getRapor();
-  }
-
-  @Post('rapor')
-  @UseGuards(AccessControlGuard)
-  createRapor(@Body() data: any) {
-    return this.formalService.createRapor(data);
-  }
-
-  @Put('rapor/:id')
-  @UseGuards(AccessControlGuard)
-  updateRapor(@Param('id') id: string, @Body() data: any) {
-    return this.formalService.updateRapor(id, data);
-  }
-
-  @Delete('rapor/:id')
-  @UseGuards(AccessControlGuard)
-  deleteRapor(@Param('id') id: string) {
-    return this.formalService.deleteRapor(id);
   }
 
   @Get('siswa')
@@ -181,8 +157,8 @@ export class FormalController {
   
   @Get('riwayat-kelas/student/:studentId')
   @UseGuards(AccessControlGuard)
-  getRiwayatKelasByStudent(@Param('studentId') studentId: string) {
-    return this.formalService.getRiwayatKelasByStudent(studentId);
+  getRiwayatKelasByStudent(@Request() req: any, @Param('studentId') studentId: string) {
+    return this.formalService.getRiwayatKelasByStudent(studentId, req.user);
   }
 
   @Post('riwayat-kelas')
@@ -207,8 +183,8 @@ export class FormalController {
 
   @Get('nilai/student/:studentId')
   @UseGuards(AccessControlGuard)
-  getNilaiHistoryByStudent(@Param('studentId') studentId: string) {
-    return this.formalService.getNilaiHistoryByStudent(studentId);
+  getNilaiHistoryByStudent(@Request() req: any, @Param('studentId') studentId: string) {
+    return this.formalService.getNilaiHistoryByStudent(studentId, req.user);
   }
 
   @Post('kelas/naik-kelas-massal')
@@ -296,6 +272,7 @@ export class FormalController {
   }
 
   @Get('muadalah/uploads/:filename')
+  @UseGuards(AccessControlGuard)
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
     const uploadDir = path.join(process.cwd(), 'uploads');
@@ -402,6 +379,7 @@ export class FormalController {
   }
 
   @Get('erapor/nilai/riwayat-import/template')
+  @UseGuards(AccessControlGuard)
   getRiwayatNilaiTemplate(@Res() res: Response) {
     const uploadDir = path.join(process.cwd(), 'uploads');
     for (const ext of ['.xlsx', '.xls']) {

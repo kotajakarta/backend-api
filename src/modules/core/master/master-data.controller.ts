@@ -99,7 +99,7 @@ export class MasterDataController {
   @Get('cabang/:id/profile')
   @UseGuards(AccessControlGuard)
   getCabangProfile(@Request() req: any) {
-    return this.masterDataService.getCabangProfile(req.params.id);
+    return this.masterDataService.getCabangProfile(req.params.id, req.user);
   }
 
   @Put('cabang/:id/profile')
@@ -151,6 +151,7 @@ export class MasterDataController {
   }
 
   @Get('countries')
+  @UseGuards(AccessControlGuard)
   getCountries() {
     return this.masterDataService.getCountries();
   }

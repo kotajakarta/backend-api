@@ -7,6 +7,19 @@ import * as path from 'path';
 export class KegiatanService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
+  // CABANG hanya boleh akses BAP kegiatan cabangnya sendiri, WILAYAH hanya di wilayahnya
+  private async checkKegiatanScope(user: any, kegiatan: { cabangId: string }) {
+    if (user?.scope === 'CABANG' && kegiatan.cabangId !== user.cabangId) {
+      throw new BadRequestException('Anda tidak memiliki akses ke BAP kegiatan ini.');
+    }
+    if (user?.scope === 'WILAYAH') {
+      const cabang = await this.prisma.cabang.findUnique({ where: { id: kegiatan.cabangId }, select: { wilayahId: true } });
+      if (!cabang || cabang.wilayahId !== user.wilayahId) {
+        throw new BadRequestException('Anda tidak memiliki akses ke BAP kegiatan ini.');
+      }
+    }
+  }
+
   // === CRUD JENIS KEGIATAN ===
 
   async findJenisAll() {
@@ -244,6 +257,8 @@ export class KegiatanService {
     const whereClause: any = {};
     if (user?.scope === 'CABANG') {
       whereClause.cabangId = user.cabangId;
+    } else if (user?.scope === 'WILAYAH') {
+      whereClause.cabang = { wilayahId: user.wilayahId };
     }
 
     return this.prisma.kegiatan.findMany({
@@ -317,9 +332,7 @@ export class KegiatanService {
 
     if (!kegiatan) throw new NotFoundException('Laporan BAP kegiatan tidak ditemukan');
 
-    if (user?.scope === 'CABANG' && kegiatan.cabangId !== user.cabangId) {
-      throw new BadRequestException('You do not have access to this BAP');
-    }
+    await this.checkKegiatanScope(user, kegiatan);
 
     return kegiatan;
   }
@@ -328,9 +341,7 @@ export class KegiatanService {
     const kegiatan = await this.prisma.kegiatan.findUnique({ where: { id } });
     if (!kegiatan) throw new NotFoundException('Laporan BAP kegiatan tidak ditemukan');
 
-    if (user?.scope === 'CABANG' && kegiatan.cabangId !== user.cabangId) {
-      throw new BadRequestException('You do not have access to modify this BAP');
-    }
+    await this.checkKegiatanScope(user, kegiatan);
 
     if (user?.scope === 'CABANG' && kegiatan.isConfirmed) {
       throw new ForbiddenException('Laporan BAP yang telah diterima/disetujui oleh Pusat tidak dapat diubah lagi oleh Cabang.');
@@ -400,9 +411,7 @@ export class KegiatanService {
     const kegiatan = await this.prisma.kegiatan.findUnique({ where: { id } });
     if (!kegiatan) throw new NotFoundException('Laporan BAP kegiatan tidak ditemukan');
 
-    if (user?.scope === 'CABANG' && kegiatan.cabangId !== user.cabangId) {
-      throw new BadRequestException('You do not have access to delete this BAP');
-    }
+    await this.checkKegiatanScope(user, kegiatan);
 
     if (user?.scope === 'CABANG' && kegiatan.isConfirmed) {
       throw new ForbiddenException('Laporan BAP yang telah diterima/disetujui oleh Pusat tidak dapat dihapus.');
@@ -418,14 +427,9 @@ export class KegiatanService {
     });
     if (!doc) throw new NotFoundException('Dokumen tidak ditemukan.');
 
-    // Cabang users can only delete their own documents; GLOBAL can delete any
-    if (user.scope === 'CABANG') {
-      if (doc.kegiatan.cabangId !== user.cabangId) {
-        throw new ForbiddenException('Tidak diizinkan menghapus dokumen cabang lain.');
-      }
-      if (doc.kegiatan.isConfirmed) {
-        throw new ForbiddenException('Dokumen BAP yang telah diterima/disetujui oleh Pusat tidak dapat dihapus.');
-      }
+    await this.checkKegiatanScope(user, doc.kegiatan);
+    if (user.scope === 'CABANG' && doc.kegiatan.isConfirmed) {
+      throw new ForbiddenException('Dokumen BAP yang telah diterima/disetujui oleh Pusat tidak dapat dihapus.');
     }
 
     // Try to remove the physical file

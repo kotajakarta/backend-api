@@ -180,6 +180,7 @@ export class KegiatanController {
   }
 
   @Get('uploads/:filename')
+  @UseGuards(AccessControlGuard)
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
     const filePath = path.join(uploadDir, safeFilename);

@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
 
@@ -8,6 +8,29 @@ export class MasterDataService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuditLogService) private readonly auditLogService: AuditLogService
   ) {}
+
+  // Guru (Staff) selalu terikat cabang/wilayah - CABANG hanya boleh akses gurunya sendiri,
+  // WILAYAH hanya guru di wilayahnya.
+  private checkStaffScope(user: any, staff: { cabangId: string | null; wilayahId: string | null }) {
+    if (user.scope === 'CABANG' && staff.cabangId !== user.cabangId) {
+      throw new ForbiddenException('Akses ditolak: guru di luar cabang Anda.');
+    }
+    if (user.scope === 'WILAYAH' && staff.wilayahId !== user.wilayahId) {
+      throw new ForbiddenException('Akses ditolak: guru di luar wilayah Anda.');
+    }
+  }
+
+  private async checkCabangAccess(cabangId: string, user: any) {
+    const cabang = await this.prisma.cabang.findUnique({ where: { id: cabangId } });
+    if (!cabang) throw new NotFoundException('Cabang tidak ditemukan');
+    if (user.scope === 'CABANG' && user.cabangId !== cabangId) {
+      throw new ForbiddenException('Akses ditolak: cabang di luar scope Anda.');
+    }
+    if (user.scope === 'WILAYAH' && user.wilayahId !== cabang.wilayahId) {
+      throw new ForbiddenException('Akses ditolak: cabang di luar wilayah Anda.');
+    }
+    return cabang;
+  }
 
   async getGuru(user: any) {
     let whereClause: any = { statusPool: 'AKTIF_CABANG' };
@@ -273,6 +296,20 @@ export class MasterDataService {
   }
 
   async createGuru(data: { name: string, position: string, wilayahId?: string, grupDaimiId?: string, ifadahUrl?: string, ktpUrl?: string, phone?: string, cabangId?: string, mapelUmum?: string[], waliKelas?: string }, user?: any) {
+    if (user) {
+      if (user.scope === 'CABANG') {
+        data.cabangId = user.cabangId;
+        data.wilayahId = user.wilayahId;
+      } else if (user.scope === 'WILAYAH') {
+        data.wilayahId = user.wilayahId;
+        if (data.cabangId) {
+          const cabang = await this.prisma.cabang.findUnique({ where: { id: data.cabangId } });
+          if (!cabang || cabang.wilayahId !== user.wilayahId) {
+            throw new ForbiddenException('Cabang di luar wilayah Anda.');
+          }
+        }
+      }
+    }
     const isCabangActive = data.cabangId && data.cabangId !== '';
     const statusPool = isCabangActive ? 'AKTIF_CABANG' : 'TERSEDIA';
     const result = await this.prisma.staff.create({
@@ -298,6 +335,22 @@ export class MasterDataService {
 
   async updateGuru(id: string, data: { name: string, position: string, wilayahId?: string, grupDaimiId?: string, ifadahUrl?: string, ktpUrl?: string, phone?: string, cabangId?: string, mapelUmum?: string[], waliKelas?: string }, user?: any) {
     const existing = await this.prisma.staff.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Guru tidak ditemukan');
+    if (user) {
+      this.checkStaffScope(user, existing);
+      if (user.scope === 'CABANG') {
+        data.cabangId = user.cabangId;
+        data.wilayahId = user.wilayahId;
+      } else if (user.scope === 'WILAYAH') {
+        data.wilayahId = user.wilayahId;
+        if (data.cabangId) {
+          const cabang = await this.prisma.cabang.findUnique({ where: { id: data.cabangId } });
+          if (!cabang || cabang.wilayahId !== user.wilayahId) {
+            throw new ForbiddenException('Cabang di luar wilayah Anda.');
+          }
+        }
+      }
+    }
     const isCabangActive = data.cabangId && data.cabangId !== '';
     const statusPool = isCabangActive ? 'AKTIF_CABANG' : 'TERSEDIA';
     const result = await this.prisma.staff.update({
@@ -358,6 +411,9 @@ export class MasterDataService {
   }
 
   async deleteGuru(id: string, user?: any) {
+    const existing = await this.prisma.staff.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Guru tidak ditemukan');
+    if (user) this.checkStaffScope(user, existing);
     const deleted = await this.prisma.staff.delete({ where: { id } });
     if (user) {
       await this.auditLogService.log('DELETE', 'TEACHER', id, deleted.name, user, `Menghapus guru "${deleted.name}"`);
@@ -466,7 +522,15 @@ export class MasterDataService {
   }
 
   async createCabang(data: any, user?: any) {
-    const result = await this.prisma.cabang.create({ 
+    if (user) {
+      if (user.scope === 'CABANG') {
+        throw new ForbiddenException('Anda tidak memiliki akses untuk menambah cabang.');
+      }
+      if (user.scope === 'WILAYAH') {
+        data.wilayahId = user.wilayahId;
+      }
+    }
+    const result = await this.prisma.cabang.create({
       data: {
         name: data.name,
         wilayahId: data.wilayahId || null,
@@ -498,8 +562,13 @@ export class MasterDataService {
   }
 
   async updateCabang(id: string, data: any, user?: any) {
-    const result = await this.prisma.cabang.update({ 
-      where: { id }, 
+    if (user) {
+      const existingCabang = await this.checkCabangAccess(id, user);
+      if (user.scope === 'WILAYAH') data.wilayahId = user.wilayahId;
+      if (user.scope === 'CABANG') data.wilayahId = existingCabang.wilayahId;
+    }
+    const result = await this.prisma.cabang.update({
+      where: { id },
       data: {
         name: data.name,
         wilayahId: data.wilayahId || null,
@@ -531,6 +600,12 @@ export class MasterDataService {
   }
 
   async deleteCabang(id: string, user?: any) {
+    if (user) {
+      if (user.scope === 'CABANG') {
+        throw new ForbiddenException('Anda tidak memiliki akses untuk menghapus cabang.');
+      }
+      await this.checkCabangAccess(id, user);
+    }
     const result = await this.prisma.cabang.delete({ where: { id } });
     if (user) {
       await this.auditLogService.log('DELETE', 'CABANG', result.id, result.name, user, `Menghapus cabang "${result.name}"`);
@@ -567,6 +642,9 @@ export class MasterDataService {
   }
 
   async createWilayah(data: { name: string }, user?: any) {
+    if (user && user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin global yang dapat menambah wilayah.');
+    }
     const result = await this.prisma.wilayah.create({ data });
     if (user) {
       await this.auditLogService.log('CREATE', 'WILAYAH', result.id, result.name, user, `Menambahkan wilayah baru "${result.name}"`);
@@ -575,6 +653,9 @@ export class MasterDataService {
   }
 
   async updateWilayah(id: string, data: { name: string }, user?: any) {
+    if (user && user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin global yang dapat mengubah wilayah.');
+    }
     const result = await this.prisma.wilayah.update({ where: { id }, data });
     if (user) {
       await this.auditLogService.log('UPDATE', 'WILAYAH', result.id, result.name, user, `Memperbarui data wilayah "${result.name}"`);
@@ -583,6 +664,9 @@ export class MasterDataService {
   }
 
   async deleteWilayah(id: string, user?: any) {
+    if (user && user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin global yang dapat menghapus wilayah.');
+    }
     const result = await this.prisma.wilayah.delete({ where: { id } });
     if (user) {
       await this.auditLogService.log('DELETE', 'WILAYAH', result.id, result.name, user, `Menghapus wilayah "${result.name}"`);
@@ -612,7 +696,8 @@ export class MasterDataService {
     });
   }
 
-  async getCabangProfile(id: string) {
+  async getCabangProfile(id: string, user?: any) {
+    if (user) await this.checkCabangAccess(id, user);
     const cabang = await this.prisma.cabang.findUnique({
       where: { id }
     });
@@ -671,6 +756,7 @@ export class MasterDataService {
   }
 
   async updateCabangProfile(id: string, data: any, user?: any) {
+    if (user) await this.checkCabangAccess(id, user);
     const result = await this.prisma.cabang.update({
       where: { id },
       data: {
@@ -714,7 +800,7 @@ export class MasterDataService {
     try {
       const response = await fetch(
         'https://api.restcountries.com/countries/v5?q=indonesia',
-        { headers: { 'Authorization': 'Bearer rc_live_a9e86719eb5a4f1598832ea9db912de1' } }
+        { headers: { 'Authorization': `Bearer ${process.env.RESTCOUNTRIES_API_KEY || ''}` } }
       );
       if (!response.ok) {
         throw new Error('Failed to fetch countries');
