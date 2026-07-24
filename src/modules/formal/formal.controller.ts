@@ -494,6 +494,24 @@ export class FormalController {
     return this.formalService.toggleSudahCetak(data, req.user);
   }
 
+  // Laporan kelengkapan riwayat belajar & nilai per siswa (deteksi gap lintas semester)
+  @Get('erapor/riwayat-continuity')
+  @UseGuards(AccessControlGuard)
+  getRiwayatContinuity(
+    @Request() req: any,
+    @Query('kelasId') kelasId: string,
+    @Query('search') search: string,
+    @Query('page') page: string,
+    @Query('pageSize') pageSize: string
+  ) {
+    return this.formalService.getRiwayatContinuity({
+      kelasId: kelasId || undefined,
+      search: search || undefined,
+      page: page ? parseInt(page, 10) : 1,
+      pageSize: pageSize ? parseInt(pageSize, 10) : 20
+    }, req.user);
+  }
+
   @Get('erapor/cetak/:studentId')
   @UseGuards(AccessControlGuard)
   getERaporCetak(

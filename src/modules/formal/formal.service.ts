@@ -2075,6 +2075,148 @@ export class FormalService {
     };
   }
 
+  // Laporan kelengkapan riwayat belajar & nilai per siswa: memindai semua siswa formal
+  // (dalam scope cabang/wilayah/global) dan menandai tingkat+semester mana yang riwayat
+  // kelasnya (RiwayatKelasFormal) dan/atau nilainya (NilaiFormal) masih kosong, dari tingkat
+  // pertama yang tercatat sampai tingkat siswa saat ini.
+  async getRiwayatContinuity(params: {
+    kelasId?: string;
+    search?: string;
+    page: number;
+    pageSize: number;
+  }, user: any) {
+    const { kelasId, search, page, pageSize } = params;
+
+    const studentWhere: any = {};
+    if (user.scope === 'CABANG' && user.cabangId) {
+      studentWhere.cabangId = user.cabangId;
+    } else if (user.scope === 'WILAYAH' && user.wilayahId) {
+      studentWhere.wilayahId = user.wilayahId;
+    }
+    if (search?.trim()) {
+      studentWhere.biodata = { fullName: { contains: search.trim(), mode: 'insensitive' } };
+    }
+
+    const whereClause: any = {
+      student: studentWhere,
+      ...(kelasId ? { kelasId } : {})
+    };
+
+    const allMatching = await this.prisma.siswaFormal.findMany({
+      where: whereClause,
+      select: { studentId: true }
+    });
+    const totalSiswaFormal = allMatching.length;
+    const allStudentIds = allMatching.map(s => s.studentId);
+
+    // Ambil riwayat & nilai untuk SEMUA siswa yang cocok filter (bukan cuma satu halaman) -
+    // status lengkap/bermasalah harus dihitung menyeluruh dulu, baru hasil siswa BERMASALAH
+    // yang dipaginasi.
+    const [siswaFormalList, riwayatList, nilaiList] = await Promise.all([
+      this.prisma.siswaFormal.findMany({
+        where: { studentId: { in: allStudentIds } },
+        include: {
+          student: { include: { biodata: true } },
+          kelas: true
+        }
+      }),
+      this.prisma.riwayatKelasFormal.findMany({
+        where: { studentId: { in: allStudentIds } },
+        include: { kelas: { select: { tingkat: true } } }
+      }),
+      this.prisma.nilaiFormal.findMany({
+        where: { studentId: { in: allStudentIds } },
+        select: { riwayatKelasId: true }
+      })
+    ]);
+
+    const riwayatByStudent = new Map<string, typeof riwayatList>();
+    riwayatList.forEach(r => {
+      if (!riwayatByStudent.has(r.studentId)) riwayatByStudent.set(r.studentId, []);
+      riwayatByStudent.get(r.studentId)!.push(r);
+    });
+
+    const riwayatIdsWithNilai = new Set(nilaiList.filter(n => n.riwayatKelasId).map(n => n.riwayatKelasId as string));
+    const semesterList = ['Ganjil', 'Genap'];
+
+    const results: Array<{
+      studentId: string; fullName: string; nis: string; nisn: string;
+      kelasName: string; tingkatSaatIni: string;
+      gaps: Array<{ tingkat: number | null; semester: string | null; kind: string }>;
+    }> = [];
+    let siswaLengkap = 0;
+
+    for (const sf of siswaFormalList) {
+      const riwayatSiswa = riwayatByStudent.get(sf.studentId) || [];
+      const baseInfo = {
+        studentId: sf.studentId,
+        fullName: sf.student.biodata?.fullName || 'Siswa',
+        nis: sf.nis || sf.student.biodata?.nisLokal || '',
+        nisn: sf.nisn || sf.student.biodata?.nisn || '',
+        kelasName: sf.kelas?.name || '-',
+        tingkatSaatIni: sf.tingkat || '-'
+      };
+
+      if (riwayatSiswa.length === 0) {
+        results.push({ ...baseInfo, gaps: [{ tingkat: null, semester: null, kind: 'NO_RIWAYAT_SAMA_SEKALI' }] });
+        continue;
+      }
+
+      const tingkatRecorded = riwayatSiswa
+        .map(r => parseInt(r.kelas?.tingkat || '', 10))
+        .filter(t => !isNaN(t));
+
+      if (tingkatRecorded.length === 0) {
+        // Semua riwayat kelasnya tidak punya tingkat tercatat - tidak bisa dianalisa
+        siswaLengkap++;
+        continue;
+      }
+
+      const tingkatMin = Math.min(...tingkatRecorded);
+      let tingkatMax: number;
+      if (sf.tingkat && sf.tingkat !== 'LULUS') {
+        const parsed = parseInt(sf.tingkat, 10);
+        tingkatMax = !isNaN(parsed) ? parsed : Math.max(...tingkatRecorded);
+      } else {
+        tingkatMax = Math.max(12, ...tingkatRecorded);
+      }
+
+      const gaps: Array<{ tingkat: number | null; semester: string | null; kind: string }> = [];
+      for (let t = tingkatMin; t <= tingkatMax; t++) {
+        for (const sem of semesterList) {
+          const match = riwayatSiswa.find(r => parseInt(r.kelas?.tingkat || '', 10) === t && r.semester?.toUpperCase() === sem.toUpperCase());
+          if (!match) {
+            gaps.push({ tingkat: t, semester: sem, kind: 'NO_RIWAYAT' });
+          } else if (!riwayatIdsWithNilai.has(match.id)) {
+            gaps.push({ tingkat: t, semester: sem, kind: 'NO_NILAI' });
+          }
+        }
+      }
+
+      if (gaps.length === 0) {
+        siswaLengkap++;
+      } else {
+        results.push({ ...baseInfo, gaps });
+      }
+    }
+
+    const total = results.length;
+    const pageData = results.slice((page - 1) * pageSize, page * pageSize);
+
+    return {
+      data: pageData,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      summary: {
+        totalSiswaFormal,
+        siswaLengkap,
+        siswaBermasalah: total
+      }
+    };
+  }
+
   async toggleSudahCetak(data: { studentId: string; kelasId: string; tahunAjaran: string; semester: string; sudahCetak: boolean }, user?: any) {
     const { studentId, kelasId, tahunAjaran, semester, sudahCetak } = data;
 
