@@ -186,6 +186,52 @@ export class DashboardService {
       author: log.actorName || 'Sistem'
     }));
 
+    // Progres Cetak Rapor Muadalah untuk TA/Semester aktif (hanya relevan bagi divisi Formal)
+    let raporCetakProgress: {
+      tahunAjaran: string;
+      semester: string;
+      sudahCetak: number;
+      total: number;
+      percent: number;
+    } | null = null;
+
+    if (user.divisi === 'FORMAL' || user.divisi === 'ALL') {
+      const pengaturanAkademik = await this.prisma.pengaturanAkademik.findFirst();
+      if (pengaturanAkademik?.tahunAjaran && pengaturanAkademik?.semesterAktif) {
+        const taAktif = pengaturanAkademik.tahunAjaran;
+        const semAktif = pengaturanAkademik.semesterAktif;
+
+        let kelasWhereRapor: any = {};
+        if (user.scope === 'CABANG' && user.cabangId) {
+          kelasWhereRapor = { cabangId: user.cabangId };
+        } else if (user.scope === 'WILAYAH' && user.wilayahId) {
+          kelasWhereRapor = { cabang: { wilayahId: user.wilayahId } };
+        }
+
+        const siswaFormalIds = await this.prisma.siswaFormal.findMany({
+          where: { kelas: kelasWhereRapor },
+          select: { studentId: true }
+        });
+        const totalRapor = siswaFormalIds.length;
+        const sudahCetakCount = totalRapor === 0 ? 0 : await this.prisma.riwayatKelasFormal.count({
+          where: {
+            studentId: { in: siswaFormalIds.map(s => s.studentId) },
+            tahunAjaran: taAktif,
+            semester: semAktif,
+            sudahCetak: true
+          }
+        });
+
+        raporCetakProgress = {
+          tahunAjaran: taAktif,
+          semester: semAktif,
+          sudahCetak: sudahCetakCount,
+          total: totalRapor,
+          percent: totalRapor > 0 ? Math.round((sudahCetakCount / totalRapor) * 100) : 0
+        };
+      }
+    }
+
     return {
       totalSantri,
       totalKelas,
@@ -193,7 +239,8 @@ export class DashboardService {
       ketersediaanGuru,
       chartGrupDaimi,
       chartKelas: chartStatistikTambahan,
-      activities
+      activities,
+      raporCetakProgress
     };
   }
 
