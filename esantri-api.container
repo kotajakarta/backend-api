@@ -4,7 +4,7 @@ After=network-online.target
 
 [Container]
 # Menggunakan image Node.js
-Image=docker.io/library/node:20-alpine
+Image=docker.io/library/node:22-alpine
 WorkingDir=/app
 
 # Mengeset nama container agar bisa dipanggil oleh cloudflared tunnel
