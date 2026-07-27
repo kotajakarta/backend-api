@@ -278,14 +278,17 @@ export class PembelajaranService {
     const kelasIds = kelasList.map(k => k.id);
     const tingkatSet = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
 
-    // Silabus: ambil semua section dengan tanggal target dalam rentang, lalu terapkan
-    // ke tiap kelas yang tingkatnya cocok (section yang belum pernah disentuh user cabang
-    // dianggap PENDING, tetap masuk pembagi persentase).
+    // Mode 'semester' cocokkan silabus lewat label tahunAjaran+semester persis seperti Kontrol
+    // Silabus (getPelaksanaan) — bukan lewat rentang tanggalTarget, supaya tidak "putus" kalau
+    // Pengaturan Akademik telat diperbarui terhadap tanggal kalender riil. Mode weekly/monthly
+    // memang butuh jendela tanggal karena tidak ada label periode eksplisit untuk dicocokkan.
     const silabusList = await this.prisma.silabusMapel.findMany({
       where: {
         tingkat: { in: tingkatSet },
-        tanggalTarget: dateRange,
         isActive: true,
+        ...(filters.mode === 'semester'
+          ? { tahunAjaran: filters.tahunAjaran, semester: filters.semester }
+          : { tanggalTarget: dateRange }),
         ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
       }
     });
@@ -294,10 +297,13 @@ export class PembelajaranService {
     });
     const pelaksanaanMap = new Map(pelaksanaanList.map(p => [`${p.silabusId}__${p.kelasId}`, p]));
 
+    // AbsensiMapel tidak punya kolom tahunAjaran/semester (hanya tanggal mentah), jadi untuk
+    // mode 'semester' kita hitung semua catatan yang ada di kelas terkait (tanpa batas tanggal)
+    // supaya selalu terhubung dengan apa yang sudah diinput di tab Absensi Mapel.
     const absensiList = await this.prisma.absensiMapel.findMany({
       where: {
         kelasId: { in: kelasIds },
-        tanggal: dateRange,
+        ...(filters.mode === 'semester' ? {} : { tanggal: dateRange }),
         ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
       }
     });
@@ -415,8 +421,6 @@ export class PembelajaranService {
     };
     if (!tahunAjaran || !semester) return empty;
 
-    const dateRange = this.resolveDateRange('semester', { tahunAjaran, semester });
-
     let kelasWhere: any = {};
     if (scopeLevel === 'WILAYAH' && user.wilayahId) {
       kelasWhere = { cabang: { wilayahId: user.wilayahId } };
@@ -432,8 +436,12 @@ export class PembelajaranService {
     const kelasById = new Map(kelasList.map(k => [k.id, k]));
     const tingkatSet = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
 
+    // Cocokkan silabus lewat label tahunAjaran+semester (persis seperti Kontrol Silabus /
+    // getPelaksanaan), bukan lewat rentang tanggalTarget — supaya Dashboard selalu konsisten
+    // dengan apa yang tampil & bisa ditandai di tab Kontrol Silabus, walau Pengaturan Akademik
+    // telat diperbarui terhadap tanggal kalender riil.
     const silabusList = tingkatSet.length > 0 ? await this.prisma.silabusMapel.findMany({
-      where: { tingkat: { in: tingkatSet }, tanggalTarget: dateRange, isActive: true },
+      where: { tingkat: { in: tingkatSet }, tahunAjaran, semester, isActive: true },
       include: { mataPelajaran: true }
     }) : [];
     const pelaksanaanList = await this.prisma.pelaksanaanSilabus.findMany({
@@ -441,8 +449,11 @@ export class PembelajaranService {
     });
     const pelaksanaanMap = new Map(pelaksanaanList.map(p => [`${p.silabusId}__${p.kelasId}`, p]));
 
+    // AbsensiMapel tidak punya kolom tahunAjaran/semester (hanya tanggal mentah), jadi seluruh
+    // catatan pada kelas yang berada di lingkup RBAC ini dihitung apa adanya — tetap terhubung
+    // dengan apa yang sudah diinput di tab Absensi Mapel tanpa syarat rentang tanggal tersembunyi.
     const absensiList = await this.prisma.absensiMapel.findMany({
-      where: { kelasId: { in: kelasIds }, tanggal: dateRange }
+      where: { kelasId: { in: kelasIds } }
     });
 
     type KelasT = (typeof kelasList)[number];
