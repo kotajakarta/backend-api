@@ -129,7 +129,7 @@ export class FormalController {
 
   @Put('mapel/:id')
   @UseGuards(AccessControlGuard)
-  updateMapel(@Request() req: any, @Param('id') id: string, @Body() data: { kodeMapel?: string, name?: string, grupMapel?: string, isActive?: boolean }) {
+  updateMapel(@Request() req: any, @Param('id') id: string, @Body() data: { kodeMapel?: string, name?: string, grupMapel?: string, isActive?: boolean, aktifPembelajaran?: boolean }) {
     return this.formalService.updateMapel(id, data, req.user);
   }
 

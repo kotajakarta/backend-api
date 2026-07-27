@@ -73,6 +73,7 @@ model MataPelajaran {
   name           String
   grupMapel      String               @map("grup_mapel")
   isActive       Boolean              @default(true) @map("is_active")
+  aktifPembelajaran Boolean           @default(true) @map("aktif_pembelajaran")
   kodeMapel      String               @unique @map("kode_mapel")
   guruMapelKelas GuruMapelKelas[]
   keaktifanGrup  KeaktifanMapelGrup[]

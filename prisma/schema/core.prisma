@@ -209,6 +209,7 @@ model Staff {
   grupDaimiKetua   GrupDaimi[]          @relation("GrupDaimiKetua")
   wilayah          Wilayah?             @relation(fields: [wilayahId], references: [id])
   guruMapelKelas   GuruMapelKelas[]
+  pelaksanaanSilabus PelaksanaanSilabus[]
   riwayatWaliKelas RiwayatKelasFormal[]
   kelasWali        Kelas[]              @relation("KelasWali")
   panitia          Panitia[]

@@ -79,12 +79,30 @@ export class PembelajaranService {
     });
 
     const pelaksanaanList = await this.prisma.pelaksanaanSilabus.findMany({
-      where: { kelasId, silabusId: { in: silabusList.map(s => s.id) } }
+      where: { kelasId, silabusId: { in: silabusList.map(s => s.id) } },
+      include: { guru: true }
     });
     const pelaksanaanMap = new Map(pelaksanaanList.map(p => [p.silabusId, p]));
 
-    return silabusList.map(s => {
+    // Guru default per mapel: siapa yang ditugaskan mengajar mapel ini di kelas ini
+    // (dari Penugasan Guru / GuruMapelKelas) — dipakai kalau belum ada pengajar tersimpan.
+    const mapelIds = Array.from(new Set(silabusList.map(s => s.mataPelajaranId)));
+    const guruMapelKelasList = mapelIds.length > 0 ? await this.prisma.guruMapelKelas.findMany({
+      where: { kelasId, mataPelajaranId: { in: mapelIds } },
+      include: { staff: true }
+    }) : [];
+    const defaultGuruMap = new Map(guruMapelKelasList.map(g => [g.mataPelajaranId, g.staff]));
+
+    // Opsi pengganti: guru aktif di cabang yang sama dengan kelas ini.
+    const guruOptions = kelas.cabangId ? await this.prisma.staff.findMany({
+      where: { cabangId: kelas.cabangId, statusPool: 'AKTIF_CABANG' },
+      select: { id: true, name: true, position: true },
+      orderBy: { name: 'asc' }
+    }) : [];
+
+    const items = silabusList.map(s => {
       const p = pelaksanaanMap.get(s.id);
+      const defaultGuru = defaultGuruMap.get(s.mataPelajaranId);
       return {
         silabusId: s.id,
         mataPelajaranId: s.mataPelajaranId,
@@ -94,14 +112,18 @@ export class PembelajaranService {
         tanggalTarget: s.tanggalTarget,
         status: p?.status || 'PENDING',
         tanggalDiajar: p?.tanggalDiajar || null,
-        catatan: p?.catatan || ''
+        catatan: p?.catatan || '',
+        guruId: p?.guruId || defaultGuru?.id || null,
+        guruName: p?.guru?.name || defaultGuru?.name || null
       };
     });
+
+    return { items, guruOptions };
   }
 
   async savePelaksanaanBulk(
     kelasId: string,
-    logs: Array<{ silabusId: string; status: StatusSilabus; tanggalDiajar?: string; catatan?: string }>,
+    logs: Array<{ silabusId: string; status: StatusSilabus; tanggalDiajar?: string; catatan?: string; guruId?: string | null }>,
     userId?: string
   ) {
     return this.prisma.$transaction(
@@ -112,6 +134,7 @@ export class PembelajaranService {
             status: log.status,
             tanggalDiajar: log.tanggalDiajar ? new Date(log.tanggalDiajar) : null,
             catatan: log.catatan || null,
+            guruId: log.guruId || null,
             updatedById: userId || null
           },
           create: {
@@ -120,6 +143,7 @@ export class PembelajaranService {
             status: log.status,
             tanggalDiajar: log.tanggalDiajar ? new Date(log.tanggalDiajar) : null,
             catatan: log.catatan || null,
+            guruId: log.guruId || null,
             updatedById: userId || null
           }
         })

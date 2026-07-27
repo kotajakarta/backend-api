@@ -42,6 +42,7 @@ model PelaksanaanSilabus {
   id            String        @id @default(uuid())
   silabusId     String        @map("silabus_id")
   kelasId       String        @map("kelas_id")
+  guruId        String?       @map("guru_id")
   status        StatusSilabus @default(PENDING)
   tanggalDiajar DateTime?     @map("tanggal_diajar") @db.Date
   catatan       String?
@@ -51,6 +52,7 @@ model PelaksanaanSilabus {
 
   silabus SilabusMapel @relation(fields: [silabusId], references: [id], onDelete: Cascade)
   kelas   Kelas        @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  guru    Staff?       @relation(fields: [guruId], references: [id])
 
   @@unique([silabusId, kelasId])
   @@map("pelaksanaan_silabus")

@@ -446,7 +446,7 @@ export class FormalService {
     return result;
   }
 
-  async updateMapel(id: string, data: { kodeMapel?: string, name?: string, grupMapel?: string, isActive?: boolean, activeGrupIds?: string[] }, user?: any) {
+  async updateMapel(id: string, data: { kodeMapel?: string, name?: string, grupMapel?: string, isActive?: boolean, aktifPembelajaran?: boolean, activeGrupIds?: string[] }, user?: any) {
     const existing = await this.prisma.mataPelajaran.findUnique({ where: { id } });
     const { activeGrupIds, ...mapelData } = data;
     const result = await this.prisma.mataPelajaran.update({
