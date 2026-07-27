@@ -1,0 +1,78 @@
+enum StatusSilabus {
+  PENDING
+  COMPLETED
+  LIBUR
+
+  @@schema("formal")
+}
+
+enum StatusKehadiranMapel {
+  HADIR
+  SAKIT
+  IZIN
+  ALPA
+
+  @@schema("formal")
+}
+
+model SilabusMapel {
+  id              String   @id @default(uuid())
+  mataPelajaranId String   @map("mata_pelajaran_id")
+  tingkat         String
+  tahunAjaran     String   @map("tahun_ajaran")
+  semester        String
+  bab             String
+  urutanBab       Int      @map("urutan_bab")
+  section         String
+  urutanSection   Int      @map("urutan_section")
+  tanggalTarget   DateTime @map("tanggal_target") @db.Date
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  mataPelajaran MataPelajaran        @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  pelaksanaan   PelaksanaanSilabus[]
+
+  @@unique([mataPelajaranId, tingkat, tahunAjaran, semester, urutanBab, urutanSection])
+  @@map("silabus_mapel")
+  @@schema("formal")
+}
+
+model PelaksanaanSilabus {
+  id            String        @id @default(uuid())
+  silabusId     String        @map("silabus_id")
+  kelasId       String        @map("kelas_id")
+  status        StatusSilabus @default(PENDING)
+  tanggalDiajar DateTime?     @map("tanggal_diajar") @db.Date
+  catatan       String?
+  updatedById   String?       @map("updated_by_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  silabus SilabusMapel @relation(fields: [silabusId], references: [id], onDelete: Cascade)
+  kelas   Kelas        @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+
+  @@unique([silabusId, kelasId])
+  @@map("pelaksanaan_silabus")
+  @@schema("formal")
+}
+
+model AbsensiMapel {
+  id              String               @id @default(uuid())
+  mataPelajaranId String               @map("mata_pelajaran_id")
+  kelasId         String               @map("kelas_id")
+  studentId       String               @map("student_id")
+  tanggal         DateTime             @db.Date
+  status          StatusKehadiranMapel @default(HADIR)
+  catatan         String?
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  mataPelajaran MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  kelas         Kelas         @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([mataPelajaranId, kelasId, studentId, tanggal])
+  @@map("absensi_mapel")
+  @@schema("formal")
+}

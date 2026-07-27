@@ -170,6 +170,7 @@ model Student {
   dataDaimi          DataDaimi?
   nilaiFormal        NilaiFormal[]
   hafalanAlQuran     HafalanAlQuran[]
+  absensiMapel       AbsensiMapel[]
 
   @@map("students")
   @@schema("core")

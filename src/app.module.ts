@@ -17,6 +17,7 @@ import { FaqModule } from './modules/faq/faq.module.js';
 import { SearchModule } from './modules/search/search.module.js';
 import { SarprasModule } from './modules/sarpras/sarpras.module.js';
 import { KegiatanModule } from './modules/kegiatan/kegiatan.module.js';
+import { PembelajaranModule } from './modules/pembelajaran/pembelajaran.module.js';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { KegiatanModule } from './modules/kegiatan/kegiatan.module.js';
     SearchModule,
     SarprasModule,
     KegiatanModule,
+    PembelajaranModule,
     ScheduleModule.forRoot()
   ],
   controllers: [],

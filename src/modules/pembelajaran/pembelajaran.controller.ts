@@ -1,0 +1,108 @@
+import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Request, Inject, BadRequestException } from '@nestjs/common';
+import { PembelajaranService } from './pembelajaran.service.js';
+import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
+import { RequireDivisi, RequireScope } from '../../common/decorators/access-control.decorator.js';
+
+@Controller('pembelajaran')
+@RequireDivisi('FORMAL')
+export class PembelajaranController {
+  constructor(@Inject(PembelajaranService) private readonly pembelajaranService: PembelajaranService) {}
+
+  // --- Silabus (Admin Pusat) ---
+
+  @Get('silabus')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  getSilabus(
+    @Query('mataPelajaranId') mataPelajaranId: string,
+    @Query('tingkat') tingkat: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string
+  ) {
+    if (!mataPelajaranId || !tingkat || !tahunAjaran || !semester) {
+      throw new BadRequestException('mataPelajaranId, tingkat, tahunAjaran, dan semester wajib diisi');
+    }
+    return this.pembelajaranService.getSilabus({ mataPelajaranId, tingkat, tahunAjaran, semester });
+  }
+
+  @Post('silabus/bulk')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  saveSilabusBulk(@Body() data: any) {
+    return this.pembelajaranService.saveSilabusBulk(data);
+  }
+
+  @Delete('silabus/:id')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  deleteSilabus(@Param('id') id: string) {
+    return this.pembelajaranService.deleteSilabus(id);
+  }
+
+  // --- Kontrol Silabus (User Cabang) ---
+
+  @Get('pelaksanaan')
+  @UseGuards(AccessControlGuard)
+  getPelaksanaan(
+    @Query('kelasId') kelasId: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string
+  ) {
+    if (!kelasId || !tahunAjaran || !semester) {
+      throw new BadRequestException('kelasId, tahunAjaran, dan semester wajib diisi');
+    }
+    return this.pembelajaranService.getPelaksanaan(kelasId, tahunAjaran, semester);
+  }
+
+  @Post('pelaksanaan/bulk')
+  @UseGuards(AccessControlGuard)
+  savePelaksanaanBulk(@Body() body: { kelasId: string; logs: any[] }, @Request() req: any) {
+    return this.pembelajaranService.savePelaksanaanBulk(body.kelasId, body.logs, req.user?.id);
+  }
+
+  // --- Absensi Mapel (User Cabang) ---
+
+  @Get('absensi-mapel')
+  @UseGuards(AccessControlGuard)
+  getAbsensiMapel(
+    @Query('kelasId') kelasId: string,
+    @Query('mataPelajaranId') mataPelajaranId: string,
+    @Query('tanggal') tanggal: string
+  ) {
+    if (!kelasId || !mataPelajaranId || !tanggal) {
+      throw new BadRequestException('kelasId, mataPelajaranId, dan tanggal wajib diisi');
+    }
+    return this.pembelajaranService.getAbsensiMapel(kelasId, mataPelajaranId, tanggal);
+  }
+
+  @Post('absensi-mapel/bulk')
+  @UseGuards(AccessControlGuard)
+  saveAbsensiMapelBulk(@Body() body: { kelasId: string; mataPelajaranId: string; tanggal: string; logs: any[] }) {
+    return this.pembelajaranService.saveAbsensiMapelBulk(body.kelasId, body.mataPelajaranId, body.tanggal, body.logs);
+  }
+
+  // --- Laporan (Admin Pusat / Wilayah) ---
+
+  @Get('laporan')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
+  getLaporan(
+    @Query('wilayahId') wilayahId: string | undefined,
+    @Query('cabangId') cabangId: string | undefined,
+    @Query('mataPelajaranId') mataPelajaranId: string | undefined,
+    @Query('mode') mode: 'weekly' | 'monthly' | 'semester',
+    @Query('weekStart') weekStart: string | undefined,
+    @Query('month') month: string | undefined,
+    @Query('tahunAjaran') tahunAjaran: string | undefined,
+    @Query('semester') semester: string | undefined,
+    @Request() req: any
+  ) {
+    if (!mode) {
+      throw new BadRequestException('mode wajib diisi (weekly|monthly|semester)');
+    }
+    return this.pembelajaranService.getLaporan(
+      { wilayahId, cabangId, mataPelajaranId, mode, weekStart, month, tahunAjaran, semester },
+      req.user
+    );
+  }
+}

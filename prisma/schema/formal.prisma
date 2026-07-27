@@ -36,6 +36,8 @@ model Kelas {
   siswaFormal        SiswaFormal[]
   nilaiFormal        NilaiFormal[]
   hafalanAlQuran     HafalanAlQuran[]
+  pelaksanaanSilabus PelaksanaanSilabus[]
+  absensiMapel       AbsensiMapel[]
 
   @@map("kelas")
   @@schema("formal")
@@ -75,6 +77,8 @@ model MataPelajaran {
   guruMapelKelas GuruMapelKelas[]
   keaktifanGrup  KeaktifanMapelGrup[]
   nilaiFormal    NilaiFormal[]
+  silabusMapel   SilabusMapel[]
+  absensiMapel   AbsensiMapel[]
 
   @@map("mata_pelajaran")
   @@schema("formal")
