@@ -100,6 +100,15 @@ export class PembelajaranService {
       orderBy: { name: 'asc' }
     }) : [];
 
+    // Section yang sudah punya minimal satu catatan AbsensiMapel di kelas ini dianggap "sudah absensi".
+    const absensiSilabusIds = new Set(
+      (await this.prisma.absensiMapel.findMany({
+        where: { kelasId, silabusId: { in: silabusList.map(s => s.id) } },
+        select: { silabusId: true },
+        distinct: ['silabusId']
+      })).map(a => a.silabusId)
+    );
+
     const items = silabusList.map(s => {
       const p = pelaksanaanMap.get(s.id);
       const defaultGuru = defaultGuruMap.get(s.mataPelajaranId);
@@ -114,7 +123,8 @@ export class PembelajaranService {
         tanggalDiajar: p?.tanggalDiajar || null,
         catatan: p?.catatan || '',
         guruId: p?.guruId || defaultGuru?.id || null,
-        guruName: p?.guru?.name || defaultGuru?.name || null
+        guruName: p?.guru?.name || defaultGuru?.name || null,
+        hasAbsensi: absensiSilabusIds.has(s.id)
       };
     });
 
@@ -432,6 +442,11 @@ export class PembelajaranService {
       }>,
       breakdownTotal: 0,
       mapelBreakdown: [] as Array<{ mataPelajaranId: string; mataPelajaranName: string; persenSilabus: number; silabusCompleted: number; silabusTotal: number }>,
+      pemantauanAbsensi: [] as Array<{
+        kelasId: string; kelasName: string;
+        mapel: Array<{ mataPelajaranId: string; mataPelajaranName: string; weeks: Array<{ hadir: number; total: number }> }>;
+      }>,
+      periodeAbsensiMingguan: '',
       aktivitasTerbaru: [] as Array<{
         id: string; kelasName: string; mataPelajaranName: string; bab: string; section: string;
         guruName: string | null; updatedAt: Date;
@@ -591,7 +606,59 @@ export class PembelajaranService {
         silabusTotal: m.total
       }))
       .sort((a, b) => a.persenSilabus - b.persenSilabus)
-      .slice(0, 8);
+      .slice(0, 12);
+
+    // Pemantauan Absensi mingguan (kelas × mapel × minggu-dalam-bulan-berjalan) — hanya untuk
+    // scope CABANG, karena jumlah kelasnya kecil & inilah audiens yang butuh detail sedetail ini.
+    // Untuk WILAYAH/GLOBAL, panel "breakdown" per unit di atas sudah cukup mewakili tanpa
+    // membanjiri layar dengan ratusan baris kelas.
+    type WeekCell = { hadir: number; total: number };
+    type MapelWeekRow = { mataPelajaranId: string; mataPelajaranName: string; weeks: WeekCell[] };
+    let pemantauanAbsensi: Array<{ kelasId: string; kelasName: string; mapel: MapelWeekRow[] }> = [];
+    let periodeAbsensiMingguan = '';
+
+    if (scopeLevel === 'CABANG' && kelasIds.length > 0) {
+      const now = new Date();
+      const year = now.getUTCFullYear();
+      const monthIdx = now.getUTCMonth();
+      const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+      const weekCount = Math.ceil(daysInMonth / 7);
+      const monthStart = new Date(Date.UTC(year, monthIdx, 1));
+      const monthEnd = new Date(Date.UTC(year, monthIdx, daysInMonth, 23, 59, 59, 999));
+      periodeAbsensiMingguan = now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+      const absensiBulanIni = await this.prisma.absensiMapel.findMany({
+        where: { kelasId: { in: kelasIds }, tanggal: { gte: monthStart, lte: monthEnd } },
+        include: { mataPelajaran: true }
+      });
+
+      const kelasBlockMap = new Map<string, { kelasName: string; mapelMap: Map<string, MapelWeekRow> }>();
+      absensiBulanIni.forEach(a => {
+        const weekIdx = Math.min(weekCount - 1, Math.floor((a.tanggal.getUTCDate() - 1) / 7));
+        if (!kelasBlockMap.has(a.kelasId)) {
+          kelasBlockMap.set(a.kelasId, { kelasName: kelasById.get(a.kelasId)?.name || '-', mapelMap: new Map() });
+        }
+        const block = kelasBlockMap.get(a.kelasId)!;
+        if (!block.mapelMap.has(a.mataPelajaranId)) {
+          block.mapelMap.set(a.mataPelajaranId, {
+            mataPelajaranId: a.mataPelajaranId,
+            mataPelajaranName: a.mataPelajaran.name,
+            weeks: Array.from({ length: weekCount }, () => ({ hadir: 0, total: 0 }))
+          });
+        }
+        const mapelAcc = block.mapelMap.get(a.mataPelajaranId)!;
+        mapelAcc.weeks[weekIdx].total++;
+        if (a.status === 'HADIR') mapelAcc.weeks[weekIdx].hadir++;
+      });
+
+      pemantauanAbsensi = Array.from(kelasBlockMap.entries())
+        .map(([kelasId, block]) => ({
+          kelasId,
+          kelasName: block.kelasName,
+          mapel: Array.from(block.mapelMap.values()).sort((a, b) => a.mataPelajaranName.localeCompare(b.mataPelajaranName))
+        }))
+        .sort((a, b) => a.kelasName.localeCompare(b.kelasName));
+    }
 
     const recentPelaksanaan = await this.prisma.pelaksanaanSilabus.findMany({
       where: { status: 'COMPLETED', kelas: kelasWhere },
@@ -620,6 +687,8 @@ export class PembelajaranService {
       breakdown: breakdownFull.slice(0, 12),
       breakdownTotal: breakdownFull.length,
       mapelBreakdown,
+      pemantauanAbsensi,
+      periodeAbsensiMingguan,
       aktivitasTerbaru: recentPelaksanaan.map(p => ({
         id: p.id,
         kelasName: p.kelas.name,
