@@ -369,49 +369,200 @@ export class PembelajaranService {
     };
   }
 
-  // ===== E. Ringkasan (Dashboard) — semua scope, terpotong ke lingkup masing-masing =====
+  // ===== E. Ringkasan (Dashboard) — semua scope, unit pemantauan menyesuaikan level RBAC =====
+  //   GLOBAL  -> breakdown per Wilayah (pandangan makro nasional)
+  //   WILAYAH -> breakdown per Cabang (di dalam wilayahnya)
+  //   CABANG  -> breakdown per Kelas (di cabangnya sendiri, supaya tetap informatif meski cuma 1 cabang)
+
+  private statusForPercent(pct: number): 'Optimal' | 'Sesuai Jalur' | 'Berisiko' {
+    return pct >= 90 ? 'Optimal' : pct >= 70 ? 'Sesuai Jalur' : 'Berisiko';
+  }
 
   async getRingkasan(user: any) {
     const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
     const tahunAjaran = pengaturan?.tahunAjaran || '';
     const semester = pengaturan?.semesterAktif || '';
 
+    const scopeLevel: 'GLOBAL' | 'WILAYAH' | 'CABANG' =
+      user?.scope === 'CABANG' ? 'CABANG' : user?.scope === 'WILAYAH' ? 'WILAYAH' : 'GLOBAL';
+    const unitLabel = scopeLevel === 'GLOBAL' ? 'Wilayah' : scopeLevel === 'WILAYAH' ? 'Cabang' : 'Kelas';
+
     const empty = {
       tahunAjaran,
       semester,
+      scopeLevel,
+      unitLabel,
       totalSilabusCompleted: 0,
       totalSilabusTarget: 0,
       persenSilabus: 0,
       hadir: 0,
       totalAbsensi: 0,
       persenKehadiran: 0,
-      cabangCount: 0,
-      rekap: [] as Awaited<ReturnType<PembelajaranService['getLaporan']>>['rekap'],
+      belumMulai: 0,
+      statusDistribution: { optimal: 0, sesuaiJalur: 0, berisiko: 0 },
+      breakdown: [] as Array<{
+        id: string; name: string; subtitle: string;
+        persenSilabus: number; silabusCompleted: number; silabusTotal: number;
+        persenKehadiran: number; hadir: number; totalAbsensi: number;
+        status: 'Optimal' | 'Sesuai Jalur' | 'Berisiko';
+      }>,
+      breakdownTotal: 0,
+      mapelBreakdown: [] as Array<{ mataPelajaranId: string; mataPelajaranName: string; persenSilabus: number; silabusCompleted: number; silabusTotal: number }>,
       aktivitasTerbaru: [] as Array<{
-        id: string;
-        kelasName: string;
-        mataPelajaranName: string;
-        bab: string;
-        section: string;
-        guruName: string | null;
-        updatedAt: Date;
+        id: string; kelasName: string; mataPelajaranName: string; bab: string; section: string;
+        guruName: string | null; updatedAt: Date;
       }>
     };
     if (!tahunAjaran || !semester) return empty;
 
-    const { rekap } = await this.getLaporan({ mode: 'semester', tahunAjaran, semester }, user);
-
-    const totalSilabusCompleted = rekap.reduce((s, r) => s + r.silabusCompleted, 0);
-    const totalSilabusTarget = rekap.reduce((s, r) => s + r.silabusTotal, 0);
-    const hadir = rekap.reduce((s, r) => s + r.hadir, 0);
-    const totalAbsensi = rekap.reduce((s, r) => s + r.totalAbsensi, 0);
+    const dateRange = this.resolveDateRange('semester', { tahunAjaran, semester });
 
     let kelasWhere: any = {};
-    if (user?.scope === 'CABANG' && user.cabangId) {
-      kelasWhere = { cabangId: user.cabangId };
-    } else if (user?.scope === 'WILAYAH' && user.wilayahId) {
+    if (scopeLevel === 'WILAYAH' && user.wilayahId) {
       kelasWhere = { cabang: { wilayahId: user.wilayahId } };
+    } else if (scopeLevel === 'CABANG' && user.cabangId) {
+      kelasWhere = { cabangId: user.cabangId };
     }
+
+    const kelasList = await this.prisma.kelas.findMany({
+      where: kelasWhere,
+      include: { cabang: { include: { wilayah: true } } }
+    });
+    const kelasIds = kelasList.map(k => k.id);
+    const kelasById = new Map(kelasList.map(k => [k.id, k]));
+    const tingkatSet = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
+
+    const silabusList = tingkatSet.length > 0 ? await this.prisma.silabusMapel.findMany({
+      where: { tingkat: { in: tingkatSet }, tanggalTarget: dateRange, isActive: true },
+      include: { mataPelajaran: true }
+    }) : [];
+    const pelaksanaanList = await this.prisma.pelaksanaanSilabus.findMany({
+      where: { kelasId: { in: kelasIds }, silabusId: { in: silabusList.map(s => s.id) } }
+    });
+    const pelaksanaanMap = new Map(pelaksanaanList.map(p => [`${p.silabusId}__${p.kelasId}`, p]));
+
+    const absensiList = await this.prisma.absensiMapel.findMany({
+      where: { kelasId: { in: kelasIds }, tanggal: dateRange }
+    });
+
+    type KelasT = (typeof kelasList)[number];
+    type UnitAgg = {
+      id: string; name: string; tingkat: string | null;
+      silabusCompleted: number; silabusTotal: number; hadir: number; totalAbsensi: number;
+      cabangIds: Set<string>; kelasIds: Set<string>;
+    };
+    const unitMap = new Map<string, UnitAgg>();
+    const unitKeyOf = (kelas: KelasT): { id: string; name: string } => {
+      if (scopeLevel === 'GLOBAL') return { id: kelas.cabang?.wilayahId || 'unknown', name: kelas.cabang?.wilayah?.name || 'Tanpa Wilayah' };
+      if (scopeLevel === 'WILAYAH') return { id: kelas.cabangId || 'unknown', name: kelas.cabang?.name || 'Tanpa Cabang' };
+      return { id: kelas.id, name: kelas.name };
+    };
+    const ensureUnit = (kelas: KelasT) => {
+      const key = unitKeyOf(kelas);
+      if (!unitMap.has(key.id)) {
+        unitMap.set(key.id, {
+          id: key.id, name: key.name, tingkat: kelas.tingkat,
+          silabusCompleted: 0, silabusTotal: 0, hadir: 0, totalAbsensi: 0,
+          cabangIds: new Set(), kelasIds: new Set()
+        });
+      }
+      const u = unitMap.get(key.id)!;
+      if (kelas.cabangId) u.cabangIds.add(kelas.cabangId);
+      u.kelasIds.add(kelas.id);
+      return u;
+    };
+
+    type MapelAgg = { id: string; name: string; completed: number; total: number };
+    const mapelMap = new Map<string, MapelAgg>();
+    const ensureMapel = (id: string, name: string) => {
+      if (!mapelMap.has(id)) mapelMap.set(id, { id, name, completed: 0, total: 0 });
+      return mapelMap.get(id)!;
+    };
+
+    let totalSilabusCompleted = 0;
+    let totalSilabusTarget = 0;
+    let belumMulai = 0;
+
+    kelasList.forEach(kelas => {
+      if (!kelas.tingkat) return;
+      const applicable = silabusList.filter(s => s.tingkat === kelas.tingkat);
+      if (applicable.length === 0) return;
+      let anyRecord = false;
+      applicable.forEach(s => {
+        const p = pelaksanaanMap.get(`${s.id}__${kelas.id}`);
+        if (p) anyRecord = true;
+        const status = p?.status || 'PENDING';
+        if (status === 'LIBUR') return;
+        const u = ensureUnit(kelas);
+        u.silabusTotal++;
+        totalSilabusTarget++;
+        const m = ensureMapel(s.mataPelajaranId, s.mataPelajaran.name);
+        m.total++;
+        if (status === 'COMPLETED') {
+          u.silabusCompleted++;
+          totalSilabusCompleted++;
+          m.completed++;
+        }
+      });
+      if (!anyRecord) belumMulai++;
+    });
+
+    let hadir = 0;
+    let totalAbsensi = 0;
+    absensiList.forEach(a => {
+      const kelas = kelasById.get(a.kelasId);
+      if (!kelas) return;
+      const u = ensureUnit(kelas);
+      u.totalAbsensi++;
+      totalAbsensi++;
+      if (a.status === 'HADIR') {
+        u.hadir++;
+        hadir++;
+      }
+    });
+
+    const breakdownFull = Array.from(unitMap.values())
+      .map(u => {
+        const persenSilabus = u.silabusTotal > 0 ? Math.round((u.silabusCompleted / u.silabusTotal) * 100) : 0;
+        const persenKehadiran = u.totalAbsensi > 0 ? Math.round((u.hadir / u.totalAbsensi) * 100) : 0;
+        return {
+          id: u.id,
+          name: u.name,
+          subtitle:
+            scopeLevel === 'GLOBAL' ? `${u.cabangIds.size} cabang`
+              : scopeLevel === 'WILAYAH' ? `${u.kelasIds.size} kelas`
+                : `Tingkat ${u.tingkat || '-'}`,
+          persenSilabus,
+          silabusCompleted: u.silabusCompleted,
+          silabusTotal: u.silabusTotal,
+          persenKehadiran,
+          hadir: u.hadir,
+          totalAbsensi: u.totalAbsensi,
+          status: this.statusForPercent(persenSilabus)
+        };
+      })
+      .sort((a, b) => a.persenSilabus - b.persenSilabus);
+
+    const statusDistribution = breakdownFull.reduce(
+      (acc, r) => {
+        if (r.status === 'Optimal') acc.optimal++;
+        else if (r.status === 'Sesuai Jalur') acc.sesuaiJalur++;
+        else acc.berisiko++;
+        return acc;
+      },
+      { optimal: 0, sesuaiJalur: 0, berisiko: 0 }
+    );
+
+    const mapelBreakdown = Array.from(mapelMap.values())
+      .map(m => ({
+        mataPelajaranId: m.id,
+        mataPelajaranName: m.name,
+        persenSilabus: m.total > 0 ? Math.round((m.completed / m.total) * 100) : 0,
+        silabusCompleted: m.completed,
+        silabusTotal: m.total
+      }))
+      .sort((a, b) => a.persenSilabus - b.persenSilabus)
+      .slice(0, 8);
 
     const recentPelaksanaan = await this.prisma.pelaksanaanSilabus.findMany({
       where: { status: 'COMPLETED', kelas: kelasWhere },
@@ -427,14 +578,19 @@ export class PembelajaranService {
     return {
       tahunAjaran,
       semester,
+      scopeLevel,
+      unitLabel,
       totalSilabusCompleted,
       totalSilabusTarget,
       persenSilabus: totalSilabusTarget > 0 ? Math.round((totalSilabusCompleted / totalSilabusTarget) * 100) : 0,
       hadir,
       totalAbsensi,
       persenKehadiran: totalAbsensi > 0 ? Math.round((hadir / totalAbsensi) * 100) : 0,
-      cabangCount: rekap.length,
-      rekap,
+      belumMulai,
+      statusDistribution,
+      breakdown: breakdownFull.slice(0, 12),
+      breakdownTotal: breakdownFull.length,
+      mapelBreakdown,
       aktivitasTerbaru: recentPelaksanaan.map(p => ({
         id: p.id,
         kelasName: p.kelas.name,
