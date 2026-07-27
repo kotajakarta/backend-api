@@ -151,54 +151,72 @@ export class PembelajaranService {
     );
   }
 
-  // ===== C. Absensi Siswa per Mapel (User Cabang) =====
+  // ===== C. Absensi Siswa per Mapel (User Cabang) — direkam per baris silabus/materi =====
 
-  async getAbsensiMapel(kelasId: string, mataPelajaranId: string, tanggal: string) {
+  async getAbsensiMapel(kelasId: string, silabusId: string) {
+    const silabus = await this.prisma.silabusMapel.findUnique({
+      where: { id: silabusId },
+      include: { mataPelajaran: true }
+    });
+    if (!silabus) throw new NotFoundException('Section silabus tidak ditemukan');
+
+    const pelaksanaan = await this.prisma.pelaksanaanSilabus.findUnique({
+      where: { silabusId_kelasId: { silabusId, kelasId } }
+    });
+
     const students = await this.prisma.student.findMany({
       where: { isActive: true, siswaFormal: { kelasId } },
       include: { biodata: { select: { fullName: true, nisLokal: true } } },
       orderBy: { biodata: { fullName: 'asc' } }
     });
 
-    const date = new Date(tanggal);
     const existingLogs = await this.prisma.absensiMapel.findMany({
-      where: { kelasId, mataPelajaranId, tanggal: date, studentId: { in: students.map(s => s.id) } }
+      where: { silabusId, kelasId, studentId: { in: students.map(s => s.id) } }
     });
     const logMap = new Map(existingLogs.map(l => [l.studentId, l]));
 
-    return students.map(student => {
-      const log = logMap.get(student.id);
-      return {
-        studentId: student.id,
-        fullName: student.biodata.fullName,
-        nisLokal: student.biodata.nisLokal,
-        status: log?.status || 'HADIR',
-        catatan: log?.catatan || ''
-      };
-    });
+    return {
+      mataPelajaranName: silabus.mataPelajaran.name,
+      bab: silabus.bab,
+      section: silabus.section,
+      tanggalDefault: pelaksanaan?.tanggalDiajar || null,
+      students: students.map(student => {
+        const log = logMap.get(student.id);
+        return {
+          studentId: student.id,
+          fullName: student.biodata.fullName,
+          nisLokal: student.biodata.nisLokal,
+          status: log?.status || 'HADIR',
+          catatan: log?.catatan || ''
+        };
+      })
+    };
   }
 
   async saveAbsensiMapelBulk(
     kelasId: string,
-    mataPelajaranId: string,
+    silabusId: string,
     tanggal: string,
     logs: Array<{ studentId: string; status: StatusKehadiranMapel; catatan?: string }>
   ) {
+    const silabus = await this.prisma.silabusMapel.findUnique({ where: { id: silabusId } });
+    if (!silabus) throw new NotFoundException('Section silabus tidak ditemukan');
+
     const date = new Date(tanggal);
     return this.prisma.$transaction(
       logs.map(log =>
         this.prisma.absensiMapel.upsert({
           where: {
-            mataPelajaranId_kelasId_studentId_tanggal: {
-              mataPelajaranId,
+            silabusId_kelasId_studentId: {
+              silabusId,
               kelasId,
-              studentId: log.studentId,
-              tanggal: date
+              studentId: log.studentId
             }
           },
-          update: { status: log.status, catatan: log.catatan || null },
+          update: { tanggal: date, status: log.status, catatan: log.catatan || null },
           create: {
-            mataPelajaranId,
+            silabusId,
+            mataPelajaranId: silabus.mataPelajaranId,
             kelasId,
             studentId: log.studentId,
             tanggal: date,

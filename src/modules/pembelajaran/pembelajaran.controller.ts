@@ -66,19 +66,18 @@ export class PembelajaranController {
   @UseGuards(AccessControlGuard)
   getAbsensiMapel(
     @Query('kelasId') kelasId: string,
-    @Query('mataPelajaranId') mataPelajaranId: string,
-    @Query('tanggal') tanggal: string
+    @Query('silabusId') silabusId: string
   ) {
-    if (!kelasId || !mataPelajaranId || !tanggal) {
-      throw new BadRequestException('kelasId, mataPelajaranId, dan tanggal wajib diisi');
+    if (!kelasId || !silabusId) {
+      throw new BadRequestException('kelasId dan silabusId wajib diisi');
     }
-    return this.pembelajaranService.getAbsensiMapel(kelasId, mataPelajaranId, tanggal);
+    return this.pembelajaranService.getAbsensiMapel(kelasId, silabusId);
   }
 
   @Post('absensi-mapel/bulk')
   @UseGuards(AccessControlGuard)
-  saveAbsensiMapelBulk(@Body() body: { kelasId: string; mataPelajaranId: string; tanggal: string; logs: any[] }) {
-    return this.pembelajaranService.saveAbsensiMapelBulk(body.kelasId, body.mataPelajaranId, body.tanggal, body.logs);
+  saveAbsensiMapelBulk(@Body() body: { kelasId: string; silabusId: string; tanggal: string; logs: any[] }) {
+    return this.pembelajaranService.saveAbsensiMapelBulk(body.kelasId, body.silabusId, body.tanggal, body.logs);
   }
 
   // --- Laporan (Admin Pusat / Wilayah) ---
