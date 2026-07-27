@@ -258,6 +258,8 @@ export class PembelajaranService {
     let effectiveCabangId = filters.cabangId;
     if (user?.scope === 'WILAYAH') {
       effectiveWilayahId = user.wilayahId;
+    } else if (user?.scope === 'CABANG') {
+      effectiveCabangId = user.cabangId;
     }
 
     const dateRange = this.resolveDateRange(filters.mode, filters);
@@ -364,6 +366,84 @@ export class PembelajaranService {
     return {
       periode: { gte: dateRange.gte, lte: dateRange.lte },
       rekap: rekap.sort((a, b) => a.cabangName.localeCompare(b.cabangName))
+    };
+  }
+
+  // ===== E. Ringkasan (Dashboard) — semua scope, terpotong ke lingkup masing-masing =====
+
+  async getRingkasan(user: any) {
+    const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
+    const tahunAjaran = pengaturan?.tahunAjaran || '';
+    const semester = pengaturan?.semesterAktif || '';
+
+    const empty = {
+      tahunAjaran,
+      semester,
+      totalSilabusCompleted: 0,
+      totalSilabusTarget: 0,
+      persenSilabus: 0,
+      hadir: 0,
+      totalAbsensi: 0,
+      persenKehadiran: 0,
+      cabangCount: 0,
+      rekap: [] as Awaited<ReturnType<PembelajaranService['getLaporan']>>['rekap'],
+      aktivitasTerbaru: [] as Array<{
+        id: string;
+        kelasName: string;
+        mataPelajaranName: string;
+        bab: string;
+        section: string;
+        guruName: string | null;
+        updatedAt: Date;
+      }>
+    };
+    if (!tahunAjaran || !semester) return empty;
+
+    const { rekap } = await this.getLaporan({ mode: 'semester', tahunAjaran, semester }, user);
+
+    const totalSilabusCompleted = rekap.reduce((s, r) => s + r.silabusCompleted, 0);
+    const totalSilabusTarget = rekap.reduce((s, r) => s + r.silabusTotal, 0);
+    const hadir = rekap.reduce((s, r) => s + r.hadir, 0);
+    const totalAbsensi = rekap.reduce((s, r) => s + r.totalAbsensi, 0);
+
+    let kelasWhere: any = {};
+    if (user?.scope === 'CABANG' && user.cabangId) {
+      kelasWhere = { cabangId: user.cabangId };
+    } else if (user?.scope === 'WILAYAH' && user.wilayahId) {
+      kelasWhere = { cabang: { wilayahId: user.wilayahId } };
+    }
+
+    const recentPelaksanaan = await this.prisma.pelaksanaanSilabus.findMany({
+      where: { status: 'COMPLETED', kelas: kelasWhere },
+      orderBy: { updatedAt: 'desc' },
+      take: 8,
+      include: {
+        silabus: { include: { mataPelajaran: true } },
+        kelas: true,
+        guru: true
+      }
+    });
+
+    return {
+      tahunAjaran,
+      semester,
+      totalSilabusCompleted,
+      totalSilabusTarget,
+      persenSilabus: totalSilabusTarget > 0 ? Math.round((totalSilabusCompleted / totalSilabusTarget) * 100) : 0,
+      hadir,
+      totalAbsensi,
+      persenKehadiran: totalAbsensi > 0 ? Math.round((hadir / totalAbsensi) * 100) : 0,
+      cabangCount: rekap.length,
+      rekap,
+      aktivitasTerbaru: recentPelaksanaan.map(p => ({
+        id: p.id,
+        kelasName: p.kelas.name,
+        mataPelajaranName: p.silabus.mataPelajaran.name,
+        bab: p.silabus.bab,
+        section: p.silabus.section,
+        guruName: p.guru?.name || null,
+        updatedAt: p.updatedAt
+      }))
     };
   }
 }

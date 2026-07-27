@@ -105,4 +105,12 @@ export class PembelajaranController {
       req.user
     );
   }
+
+  // --- Ringkasan (Dashboard) — semua scope ---
+
+  @Get('ringkasan')
+  @UseGuards(AccessControlGuard)
+  getRingkasan(@Request() req: any) {
+    return this.pembelajaranService.getRingkasan(req.user);
+  }
 }
