@@ -80,6 +80,7 @@ model MataPelajaran {
   nilaiFormal    NilaiFormal[]
   silabusMapel   SilabusMapel[]
   absensiMapel   AbsensiMapel[]
+  pelaksanaanLibur PelaksanaanSilabus[]
 
   @@map("mata_pelajaran")
   @@schema("formal")

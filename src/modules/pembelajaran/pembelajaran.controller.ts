@@ -60,6 +60,24 @@ export class PembelajaranController {
     return this.pembelajaranService.savePelaksanaanBulk(body.kelasId, body.logs, req.user?.id);
   }
 
+  @Post('pelaksanaan/libur')
+  @UseGuards(AccessControlGuard)
+  setLibur(@Body() body: { kelasId: string; mataPelajaranId: string; tanggal: string }, @Request() req: any) {
+    if (!body.kelasId || !body.mataPelajaranId || !body.tanggal) {
+      throw new BadRequestException('kelasId, mataPelajaranId, dan tanggal wajib diisi');
+    }
+    return this.pembelajaranService.setLiburTanggal(body.kelasId, body.mataPelajaranId, body.tanggal, req.user?.id);
+  }
+
+  @Post('pelaksanaan/libur/clear')
+  @UseGuards(AccessControlGuard)
+  clearLibur(@Body() body: { kelasId: string; mataPelajaranId: string; tanggal: string }) {
+    if (!body.kelasId || !body.mataPelajaranId || !body.tanggal) {
+      throw new BadRequestException('kelasId, mataPelajaranId, dan tanggal wajib diisi');
+    }
+    return this.pembelajaranService.clearLiburTanggal(body.kelasId, body.mataPelajaranId, body.tanggal);
+  }
+
   // --- Absensi Mapel (User Cabang) ---
 
   @Get('absensi-mapel')

@@ -128,7 +128,42 @@ export class PembelajaranService {
       };
     });
 
-    return { items, guruOptions };
+    // Penanda "Libur" tanpa materi — tanggal yang ditandai libur untuk satu mapel di kelas ini,
+    // tidak terikat ke section manapun (mis. libur nasional/tidak ada sesi sama sekali).
+    const liburMarkers = mapelIds.length > 0 ? await this.prisma.pelaksanaanSilabus.findMany({
+      where: { kelasId, silabusId: null, mataPelajaranId: { in: mapelIds } },
+      orderBy: { tanggalDiajar: 'asc' }
+    }) : [];
+
+    return {
+      items,
+      guruOptions,
+      liburMarkers: liburMarkers.map(l => ({
+        id: l.id,
+        mataPelajaranId: l.mataPelajaranId as string,
+        tanggalDiajar: l.tanggalDiajar
+      }))
+    };
+  }
+
+  // Tandai satu tanggal sebagai Libur tanpa memilih materi apapun (mis. libur nasional).
+  async setLiburTanggal(kelasId: string, mataPelajaranId: string, tanggal: string, userId?: string) {
+    const date = new Date(tanggal);
+    const existing = await this.prisma.pelaksanaanSilabus.findFirst({
+      where: { kelasId, mataPelajaranId, tanggalDiajar: date, silabusId: null }
+    });
+    if (existing) return existing;
+    return this.prisma.pelaksanaanSilabus.create({
+      data: { kelasId, mataPelajaranId, tanggalDiajar: date, status: 'LIBUR', updatedById: userId || null }
+    });
+  }
+
+  // Batalkan penanda Libur tanpa materi pada satu tanggal.
+  async clearLiburTanggal(kelasId: string, mataPelajaranId: string, tanggal: string) {
+    const date = new Date(tanggal);
+    return this.prisma.pelaksanaanSilabus.deleteMany({
+      where: { kelasId, mataPelajaranId, tanggalDiajar: date, silabusId: null }
+    });
   }
 
   async savePelaksanaanBulk(
@@ -136,12 +171,21 @@ export class PembelajaranService {
     logs: Array<{ silabusId: string; status: StatusSilabus; tanggalDiajar?: string; catatan?: string; guruId?: string | null }>,
     userId?: string
   ) {
+    // Ikut isi mataPelajaranId (denormalisasi dari silabus) supaya konsisten dengan penanda
+    // Libur tanpa materi, yang juga menyimpan mataPelajaranId langsung di baris ini.
+    const silabusRows = await this.prisma.silabusMapel.findMany({
+      where: { id: { in: logs.map(l => l.silabusId) } },
+      select: { id: true, mataPelajaranId: true }
+    });
+    const mapelIdBySilabus = new Map(silabusRows.map(s => [s.id, s.mataPelajaranId]));
+
     return this.prisma.$transaction(
       logs.map(log =>
         this.prisma.pelaksanaanSilabus.upsert({
           where: { silabusId_kelasId: { silabusId: log.silabusId, kelasId } },
           update: {
             status: log.status,
+            mataPelajaranId: mapelIdBySilabus.get(log.silabusId) || null,
             tanggalDiajar: log.tanggalDiajar ? new Date(log.tanggalDiajar) : null,
             catatan: log.catatan || null,
             guruId: log.guruId || null,
@@ -149,6 +193,7 @@ export class PembelajaranService {
           },
           create: {
             silabusId: log.silabusId,
+            mataPelajaranId: mapelIdBySilabus.get(log.silabusId) || null,
             kelasId,
             status: log.status,
             tanggalDiajar: log.tanggalDiajar ? new Date(log.tanggalDiajar) : null,
@@ -683,14 +728,19 @@ export class PembelajaranService {
         else if (a.status === 'ALPA') cell.alpa++;
       });
 
+      // include langsung ke mataPelajaran (bukan lewat silabus) supaya penanda Libur tanpa
+      // materi (silabusId null) tetap ikut terhitung di grid mingguan ini.
       const pelaksanaanBulanIni = await this.prisma.pelaksanaanSilabus.findMany({
         where: { kelasId: { in: kelasIds }, tanggalDiajar: { gte: monthStart, lte: monthEnd } },
-        include: { silabus: { include: { mataPelajaran: true } } }
+        include: { silabus: { include: { mataPelajaran: true } }, mataPelajaran: true }
       });
       pelaksanaanBulanIni.forEach(p => {
         if (!p.tanggalDiajar) return;
+        const mapelId = p.mataPelajaranId || p.silabus?.mataPelajaranId;
+        const mapelName = p.mataPelajaran?.name || p.silabus?.mataPelajaran.name;
+        if (!mapelId || !mapelName) return;
         const weekIdx = Math.min(weekCount - 1, Math.floor((p.tanggalDiajar.getUTCDate() - 1) / 7));
-        const mapelAcc = ensureMapelRow(p.kelasId, p.silabus.mataPelajaranId, p.silabus.mataPelajaran.name);
+        const mapelAcc = ensureMapelRow(p.kelasId, mapelId, mapelName);
         mapelAcc.weeks[weekIdx].status = p.status;
       });
 
@@ -705,7 +755,7 @@ export class PembelajaranService {
     }
 
     const recentPelaksanaan = await this.prisma.pelaksanaanSilabus.findMany({
-      where: { status: 'COMPLETED', kelas: kelasWhere },
+      where: { status: 'COMPLETED', silabusId: { not: null }, kelas: kelasWhere },
       orderBy: { updatedAt: 'desc' },
       take: 15,
       include: {
@@ -733,15 +783,17 @@ export class PembelajaranService {
       kelasMapelBreakdown,
       pemantauanAbsensi,
       periodeAbsensiMingguan,
-      aktivitasTerbaru: recentPelaksanaan.map(p => ({
-        id: p.id,
-        kelasName: p.kelas.name,
-        mataPelajaranName: p.silabus.mataPelajaran.name,
-        bab: p.silabus.bab,
-        section: p.silabus.section,
-        guruName: p.guru?.name || null,
-        updatedAt: p.updatedAt
-      }))
+      aktivitasTerbaru: recentPelaksanaan
+        .filter((p): p is typeof p & { silabus: NonNullable<(typeof p)['silabus']> } => !!p.silabus)
+        .map(p => ({
+          id: p.id,
+          kelasName: p.kelas.name,
+          mataPelajaranName: p.silabus.mataPelajaran.name,
+          bab: p.silabus.bab,
+          section: p.silabus.section,
+          guruName: p.guru?.name || null,
+          updatedAt: p.updatedAt
+        }))
     };
   }
 }
