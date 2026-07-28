@@ -72,8 +72,10 @@ export class PembelajaranService {
       throw new BadRequestException('Kelas ini belum memiliki tingkat, silabus tidak bisa dimuat.');
     }
 
+    // Hormati toggle di tab Pengaturan: mapel yang dinonaktifkan tidak ikut muncul di sini
+    // (konsisten dengan Kelola Silabus, Dashboard, dan Laporan).
     const silabusList = await this.prisma.silabusMapel.findMany({
-      where: { tingkat: kelas.tingkat, tahunAjaran, semester, isActive: true },
+      where: { tingkat: kelas.tingkat, tahunAjaran, semester, isActive: true, mataPelajaran: { aktifPembelajaran: true } },
       include: { mataPelajaran: true },
       orderBy: [{ mataPelajaranId: 'asc' }, { urutanBab: 'asc' }, { urutanSection: 'asc' }]
     });
@@ -359,6 +361,7 @@ export class PembelajaranService {
       where: {
         tingkat: { in: tingkatSet },
         isActive: true,
+        mataPelajaran: { aktifPembelajaran: true },
         ...(filters.mode === 'semester'
           ? { tahunAjaran: filters.tahunAjaran, semester: filters.semester }
           : { tanggalTarget: dateRange }),
@@ -376,6 +379,7 @@ export class PembelajaranService {
     const absensiList = await this.prisma.absensiMapel.findMany({
       where: {
         kelasId: { in: kelasIds },
+        mataPelajaran: { aktifPembelajaran: true },
         ...(filters.mode === 'semester' ? {} : { tanggal: dateRange }),
         ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
       }
@@ -521,7 +525,7 @@ export class PembelajaranService {
     // dengan apa yang tampil & bisa ditandai di tab Kontrol Silabus, walau Pengaturan Akademik
     // telat diperbarui terhadap tanggal kalender riil.
     const silabusList = tingkatSet.length > 0 ? await this.prisma.silabusMapel.findMany({
-      where: { tingkat: { in: tingkatSet }, tahunAjaran, semester, isActive: true },
+      where: { tingkat: { in: tingkatSet }, tahunAjaran, semester, isActive: true, mataPelajaran: { aktifPembelajaran: true } },
       include: { mataPelajaran: true }
     }) : [];
     const pelaksanaanList = await this.prisma.pelaksanaanSilabus.findMany({
@@ -602,11 +606,11 @@ export class PembelajaranService {
 
     const [absensiBulanIni, absensiBulanLalu, pelaksanaanBulanIni] = await Promise.all([
       this.prisma.absensiMapel.findMany({
-        where: { kelasId: { in: kelasIds }, tanggal: { gte: monthStart, lte: monthEnd } },
+        where: { kelasId: { in: kelasIds }, tanggal: { gte: monthStart, lte: monthEnd }, mataPelajaran: { aktifPembelajaran: true } },
         include: { mataPelajaran: true }
       }),
       this.prisma.absensiMapel.findMany({
-        where: { kelasId: { in: kelasIds }, tanggal: { gte: prevMonthStart, lte: prevMonthEnd } },
+        where: { kelasId: { in: kelasIds }, tanggal: { gte: prevMonthStart, lte: prevMonthEnd }, mataPelajaran: { aktifPembelajaran: true } },
         select: { status: true }
       }),
       // include langsung ke mataPelajaran (bukan lewat silabus) supaya penanda Libur tanpa
@@ -625,7 +629,12 @@ export class PembelajaranService {
     const persenKehadiranBulanLalu = absensiBulanLalu.length > 0 ? Math.round((hadirBulanLalu / absensiBulanLalu.length) * 100) : 0;
     const kehadiranDelta = absensiBulanLalu.length > 0 ? persenKehadiran - persenKehadiranBulanLalu : 0;
 
-    const pelaksanaanNonLibur = pelaksanaanBulanIni.filter(p => p.status !== 'LIBUR');
+    // Relasi mapel di sini nullable (silabusId/mataPelajaranId opsional demi penanda Libur tanpa
+    // materi), jadi filter aktifPembelajaran dilakukan di memori — bukan lewat where clause.
+    const pelaksanaanAktif = pelaksanaanBulanIni.filter(
+      p => p.mataPelajaran?.aktifPembelajaran ?? p.silabus?.mataPelajaran.aktifPembelajaran ?? false
+    );
+    const pelaksanaanNonLibur = pelaksanaanAktif.filter(p => p.status !== 'LIBUR');
     const persenPelajaranTerlaksana = pelaksanaanNonLibur.length > 0
       ? Math.round((pelaksanaanNonLibur.filter(p => p.status === 'COMPLETED').length / pelaksanaanNonLibur.length) * 100)
       : 0;
@@ -662,7 +671,7 @@ export class PembelajaranService {
     // selesai, seluruh sel dianggap belum selesai (PENDING) — baru dianggap Dikerjakan kalau
     // semua kelas yang punya sesi minggu itu sudah Dikerjakan (LIBUR tidak menghalangi).
     const STATUS_PRIORITY: Record<string, number> = { PENDING: 2, COMPLETED: 1, LIBUR: 0 };
-    pelaksanaanBulanIni.forEach(p => {
+    pelaksanaanAktif.forEach(p => {
       if (!p.tanggalDiajar) return;
       const mapelId = p.mataPelajaranId || p.silabus?.mataPelajaranId;
       const mapelName = p.mataPelajaran?.name || p.silabus?.mataPelajaran.name;
