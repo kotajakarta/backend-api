@@ -84,12 +84,13 @@ export class PembelajaranController {
   @UseGuards(AccessControlGuard)
   getAbsensiMapel(
     @Query('kelasId') kelasId: string,
-    @Query('silabusId') silabusId: string
+    @Query('silabusId') silabusId: string,
+    @Query('tanggal') tanggal?: string
   ) {
     if (!kelasId || !silabusId) {
       throw new BadRequestException('kelasId dan silabusId wajib diisi');
     }
-    return this.pembelajaranService.getAbsensiMapel(kelasId, silabusId);
+    return this.pembelajaranService.getAbsensiMapel(kelasId, silabusId, tanggal);
   }
 
   @Post('absensi-mapel/bulk')

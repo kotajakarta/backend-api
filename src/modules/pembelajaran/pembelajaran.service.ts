@@ -80,15 +80,14 @@ export class PembelajaranService {
       orderBy: [{ mataPelajaranId: 'asc' }, { urutanBab: 'asc' }, { urutanSection: 'asc' }]
     });
 
-    const pelaksanaanList = await this.prisma.pelaksanaanSilabus.findMany({
-      where: { kelasId, silabusId: { in: silabusList.map(s => s.id) } },
+    const mapelIds = Array.from(new Set(silabusList.map(s => s.mataPelajaranId)));
+
+    const executionsRaw = mapelIds.length > 0 ? await this.prisma.pelaksanaanSilabus.findMany({
+      where: { kelasId, mataPelajaranId: { in: mapelIds }, NOT: { tanggalDiajar: null } },
       include: { guru: true }
-    });
-    const pelaksanaanMap = new Map(pelaksanaanList.map(p => [p.silabusId, p]));
+    }) : [];
 
     // Guru default per mapel: siapa yang ditugaskan mengajar mapel ini di kelas ini
-    // (dari Penugasan Guru / GuruMapelKelas) — dipakai kalau belum ada pengajar tersimpan.
-    const mapelIds = Array.from(new Set(silabusList.map(s => s.mataPelajaranId)));
     const guruMapelKelasList = mapelIds.length > 0 ? await this.prisma.guruMapelKelas.findMany({
       where: { kelasId, mataPelajaranId: { in: mapelIds } },
       include: { staff: true }
@@ -102,17 +101,30 @@ export class PembelajaranService {
       orderBy: { name: 'asc' }
     }) : [];
 
-    // Section yang sudah punya minimal satu catatan AbsensiMapel di kelas ini dianggap "sudah absensi".
-    const absensiSilabusIds = new Set(
-      (await this.prisma.absensiMapel.findMany({
-        where: { kelasId, silabusId: { in: silabusList.map(s => s.id) } },
-        select: { silabusId: true },
-        distinct: ['silabusId']
-      })).map(a => a.silabusId)
-    );
+    // Catatan absensi terikat pada (silabusId + tanggal)
+    const absensiList = mapelIds.length > 0 ? await this.prisma.absensiMapel.findMany({
+      where: { kelasId, mataPelajaranId: { in: mapelIds } },
+      select: { silabusId: true, tanggal: true }
+    }) : [];
+    const absensiSet = new Set(absensiList.map(a => `${a.silabusId}__${a.tanggal.toISOString().slice(0, 10)}`));
+
+    const executions = executionsRaw.map(p => {
+      const defaultGuru = p.mataPelajaranId ? defaultGuruMap.get(p.mataPelajaranId) : null;
+      const tglStr = p.tanggalDiajar ? p.tanggalDiajar.toISOString().slice(0, 10) : null;
+      return {
+        id: p.id,
+        silabusId: p.silabusId,
+        mataPelajaranId: p.mataPelajaranId as string,
+        status: p.status,
+        tanggalDiajar: tglStr,
+        catatan: p.catatan || '',
+        guruId: p.guruId || defaultGuru?.id || null,
+        guruName: p.guru?.name || defaultGuru?.name || null,
+        hasAbsensi: p.silabusId && tglStr ? absensiSet.has(`${p.silabusId}__${tglStr}`) : false
+      };
+    });
 
     const items = silabusList.map(s => {
-      const p = pelaksanaanMap.get(s.id);
       const defaultGuru = defaultGuruMap.get(s.mataPelajaranId);
       return {
         silabusId: s.id,
@@ -120,18 +132,13 @@ export class PembelajaranService {
         mataPelajaranName: s.mataPelajaran.name,
         bab: s.bab,
         section: s.section,
-        tanggalTarget: s.tanggalTarget,
-        status: p?.status || 'PENDING',
-        tanggalDiajar: p?.tanggalDiajar || null,
-        catatan: p?.catatan || '',
-        guruId: p?.guruId || defaultGuru?.id || null,
-        guruName: p?.guru?.name || defaultGuru?.name || null,
-        hasAbsensi: absensiSilabusIds.has(s.id)
+        tanggalTarget: s.tanggalTarget ? s.tanggalTarget.toISOString().slice(0, 10) : '',
+        defaultGuruId: defaultGuru?.id || null,
+        defaultGuruName: defaultGuru?.name || null
       };
     });
 
-    // Penanda "Libur" tanpa materi — tanggal yang ditandai libur untuk satu mapel di kelas ini,
-    // tidak terikat ke section manapun (mis. libur nasional/tidak ada sesi sama sekali).
+    // Penanda "Libur" tanpa materi — tanggal yang ditandai libur untuk satu mapel di kelas ini.
     const liburMarkers = mapelIds.length > 0 ? await this.prisma.pelaksanaanSilabus.findMany({
       where: { kelasId, silabusId: null, mataPelajaranId: { in: mapelIds } },
       orderBy: { tanggalDiajar: 'asc' }
@@ -139,6 +146,7 @@ export class PembelajaranService {
 
     return {
       items,
+      executions,
       guruOptions,
       liburMarkers: liburMarkers.map(l => ({
         id: l.id,
@@ -170,55 +178,58 @@ export class PembelajaranService {
 
   async savePelaksanaanBulk(
     kelasId: string,
-    logs: Array<{ silabusId: string; status: StatusSilabus; tanggalDiajar?: string; catatan?: string; guruId?: string | null }>,
+    logs: Array<{ silabusId?: string | null; mataPelajaranId: string; status: StatusSilabus; tanggalDiajar: string; catatan?: string; guruId?: string | null }>,
     userId?: string
   ) {
-    // Ikut isi mataPelajaranId (denormalisasi dari silabus) supaya konsisten dengan penanda
-    // Libur tanpa materi, yang juga menyimpan mataPelajaranId langsung di baris ini.
-    const silabusRows = await this.prisma.silabusMapel.findMany({
-      where: { id: { in: logs.map(l => l.silabusId) } },
-      select: { id: true, mataPelajaranId: true }
-    });
-    const mapelIdBySilabus = new Map(silabusRows.map(s => [s.id, s.mataPelajaranId]));
+    return this.prisma.$transaction(async (tx) => {
+      const results = [];
+      for (const log of logs) {
+        if (!log.tanggalDiajar || !log.mataPelajaranId) continue;
+        const date = new Date(log.tanggalDiajar);
 
-    return this.prisma.$transaction(
-      logs.map(log =>
-        this.prisma.pelaksanaanSilabus.upsert({
-          where: { silabusId_kelasId: { silabusId: log.silabusId, kelasId } },
-          update: {
-            status: log.status,
-            mataPelajaranId: mapelIdBySilabus.get(log.silabusId) || null,
-            tanggalDiajar: log.tanggalDiajar ? new Date(log.tanggalDiajar) : null,
-            catatan: log.catatan || null,
-            guruId: log.guruId || null,
-            updatedById: userId || null
-          },
+        if (!log.silabusId && log.status !== 'LIBUR') {
+          // Unassigned: hapus pelaksanaan di tanggal tersebut jika ada
+          await tx.pelaksanaanSilabus.deleteMany({
+            where: { kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date }
+          });
+          continue;
+        }
+
+        const dataPayload = {
+          silabusId: log.silabusId || null,
+          status: log.status,
+          catatan: log.catatan || null,
+          guruId: log.guruId || null,
+          updatedById: userId || null
+        };
+
+        results.push(await tx.pelaksanaanSilabus.upsert({
+          where: { kelasId_mataPelajaranId_tanggalDiajar: { kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date } },
+          update: dataPayload,
           create: {
-            silabusId: log.silabusId,
-            mataPelajaranId: mapelIdBySilabus.get(log.silabusId) || null,
             kelasId,
-            status: log.status,
-            tanggalDiajar: log.tanggalDiajar ? new Date(log.tanggalDiajar) : null,
-            catatan: log.catatan || null,
-            guruId: log.guruId || null,
-            updatedById: userId || null
+            mataPelajaranId: log.mataPelajaranId,
+            tanggalDiajar: date,
+            ...dataPayload
           }
-        })
-      )
-    );
+        }));
+      }
+      return results;
+    });
   }
 
   // ===== C. Absensi Siswa per Mapel (User Cabang) — direkam per baris silabus/materi =====
 
-  async getAbsensiMapel(kelasId: string, silabusId: string) {
+  async getAbsensiMapel(kelasId: string, silabusId: string, tanggal?: string) {
     const silabus = await this.prisma.silabusMapel.findUnique({
       where: { id: silabusId },
       include: { mataPelajaran: true }
     });
     if (!silabus) throw new NotFoundException('Section silabus tidak ditemukan');
 
-    const pelaksanaan = await this.prisma.pelaksanaanSilabus.findUnique({
-      where: { silabusId_kelasId: { silabusId, kelasId } }
+    const targetDate = tanggal ? new Date(tanggal) : undefined;
+    const pelaksanaan = await this.prisma.pelaksanaanSilabus.findFirst({
+      where: { silabusId, kelasId, ...(targetDate ? { tanggalDiajar: targetDate } : {}) }
     });
 
     const students = await this.prisma.student.findMany({
@@ -228,7 +239,7 @@ export class PembelajaranService {
     });
 
     const existingLogs = await this.prisma.absensiMapel.findMany({
-      where: { silabusId, kelasId, studentId: { in: students.map(s => s.id) } }
+      where: { silabusId, kelasId, studentId: { in: students.map(s => s.id) }, ...(targetDate ? { tanggal: targetDate } : {}) }
     });
     const logMap = new Map(existingLogs.map(l => [l.studentId, l]));
 
@@ -236,7 +247,7 @@ export class PembelajaranService {
       mataPelajaranName: silabus.mataPelajaran.name,
       bab: silabus.bab,
       section: silabus.section,
-      tanggalDefault: pelaksanaan?.tanggalDiajar || null,
+      tanggalDefault: targetDate ? targetDate.toISOString().slice(0, 10) : (pelaksanaan?.tanggalDiajar ? pelaksanaan.tanggalDiajar.toISOString().slice(0, 10) : null),
       students: students.map(student => {
         const log = logMap.get(student.id);
         return {
@@ -264,13 +275,14 @@ export class PembelajaranService {
       logs.map(log =>
         this.prisma.absensiMapel.upsert({
           where: {
-            silabusId_kelasId_studentId: {
+            silabusId_kelasId_studentId_tanggal: {
               silabusId,
               kelasId,
-              studentId: log.studentId
+              studentId: log.studentId,
+              tanggal: date
             }
           },
-          update: { tanggal: date, status: log.status, catatan: log.catatan || null },
+          update: { status: log.status, catatan: log.catatan || null },
           create: {
             silabusId,
             mataPelajaranId: silabus.mataPelajaranId,
