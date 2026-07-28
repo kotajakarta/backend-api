@@ -441,9 +441,13 @@ export class PembelajaranService {
         status: 'Optimal' | 'Sesuai Jalur' | 'Berisiko';
       }>,
       breakdownTotal: 0,
-      mapelBreakdown: [] as Array<{ mataPelajaranId: string; mataPelajaranName: string; persenSilabus: number; silabusCompleted: number; silabusTotal: number }>,
+      kelasMapelBreakdown: [] as Array<{
+        kelasId: string; kelasName: string; mataPelajaranId: string; mataPelajaranName: string;
+        persenSilabus: number; silabusCompleted: number; silabusTotal: number;
+        status: 'Optimal' | 'Sesuai Jalur' | 'Berisiko';
+      }>,
       pemantauanAbsensi: [] as Array<{
-        kelasId: string; kelasName: string;
+        kelasId: string; kelasName: string; ruangName: string | null;
         mapel: Array<{
           mataPelajaranId: string; mataPelajaranName: string;
           weeks: Array<{ hadir: number; izin: number; sakit: number; alpa: number; total: number; status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null }>;
@@ -466,7 +470,7 @@ export class PembelajaranService {
 
     const kelasList = await this.prisma.kelas.findMany({
       where: kelasWhere,
-      include: { cabang: { include: { wilayah: true } } }
+      include: { cabang: { include: { wilayah: true } }, ruang: true }
     });
     const kelasIds = kelasList.map(k => k.id);
     const kelasById = new Map(kelasList.map(k => [k.id, k]));
@@ -519,11 +523,17 @@ export class PembelajaranService {
       return u;
     };
 
-    type MapelAgg = { id: string; name: string; completed: number; total: number };
-    const mapelMap = new Map<string, MapelAgg>();
-    const ensureMapel = (id: string, name: string) => {
-      if (!mapelMap.has(id)) mapelMap.set(id, { id, name, completed: 0, total: 0 });
-      return mapelMap.get(id)!;
+    // Progres per pasangan Kelas × Mapel (bukan agregat mapel semua kelas) — inilah yang
+    // dipakai panel "Progres Silabus Per Mapel", supaya benar-benar bisa menunjuk kelas mana
+    // yang tertinggal untuk mapel apa, bukan cuma rata-rata nasional per mapel.
+    type KelasMapelAgg = { kelasId: string; kelasName: string; mataPelajaranId: string; mataPelajaranName: string; completed: number; total: number };
+    const kelasMapelMap = new Map<string, KelasMapelAgg>();
+    const ensureKelasMapel = (kelas: KelasT, mataPelajaranId: string, mataPelajaranName: string) => {
+      const key = `${kelas.id}__${mataPelajaranId}`;
+      if (!kelasMapelMap.has(key)) {
+        kelasMapelMap.set(key, { kelasId: kelas.id, kelasName: kelas.name, mataPelajaranId, mataPelajaranName, completed: 0, total: 0 });
+      }
+      return kelasMapelMap.get(key)!;
     };
 
     let totalSilabusCompleted = 0;
@@ -543,7 +553,7 @@ export class PembelajaranService {
         const u = ensureUnit(kelas);
         u.silabusTotal++;
         totalSilabusTarget++;
-        const m = ensureMapel(s.mataPelajaranId, s.mataPelajaran.name);
+        const m = ensureKelasMapel(kelas, s.mataPelajaranId, s.mataPelajaran.name);
         m.total++;
         if (status === 'COMPLETED') {
           u.silabusCompleted++;
@@ -600,16 +610,22 @@ export class PembelajaranService {
       { optimal: 0, sesuaiJalur: 0, berisiko: 0 }
     );
 
-    const mapelBreakdown = Array.from(mapelMap.values())
-      .map(m => ({
-        mataPelajaranId: m.id,
-        mataPelajaranName: m.name,
-        persenSilabus: m.total > 0 ? Math.round((m.completed / m.total) * 100) : 0,
-        silabusCompleted: m.completed,
-        silabusTotal: m.total
-      }))
+    const kelasMapelBreakdown = Array.from(kelasMapelMap.values())
+      .map(m => {
+        const persenSilabus = m.total > 0 ? Math.round((m.completed / m.total) * 100) : 0;
+        return {
+          kelasId: m.kelasId,
+          kelasName: m.kelasName,
+          mataPelajaranId: m.mataPelajaranId,
+          mataPelajaranName: m.mataPelajaranName,
+          persenSilabus,
+          silabusCompleted: m.completed,
+          silabusTotal: m.total,
+          status: this.statusForPercent(persenSilabus)
+        };
+      })
       .sort((a, b) => a.persenSilabus - b.persenSilabus)
-      .slice(0, 12);
+      .slice(0, 20);
 
     // Pemantauan Absensi mingguan (kelas × mapel × minggu-dalam-bulan-berjalan) — hanya untuk
     // scope CABANG, karena jumlah kelasnya kecil & inilah audiens yang butuh detail sedetail ini.
@@ -621,7 +637,7 @@ export class PembelajaranService {
       status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null;
     };
     type MapelWeekRow = { mataPelajaranId: string; mataPelajaranName: string; weeks: WeekCell[] };
-    let pemantauanAbsensi: Array<{ kelasId: string; kelasName: string; mapel: MapelWeekRow[] }> = [];
+    let pemantauanAbsensi: Array<{ kelasId: string; kelasName: string; ruangName: string | null; mapel: MapelWeekRow[] }> = [];
     let periodeAbsensiMingguan = '';
 
     if (scopeLevel === 'CABANG' && kelasIds.length > 0) {
@@ -635,10 +651,11 @@ export class PembelajaranService {
       periodeAbsensiMingguan = now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
       const emptyWeekCell = (): WeekCell => ({ hadir: 0, izin: 0, sakit: 0, alpa: 0, total: 0, status: null });
-      const kelasBlockMap = new Map<string, { kelasName: string; mapelMap: Map<string, MapelWeekRow> }>();
+      const kelasBlockMap = new Map<string, { kelasName: string; ruangName: string | null; mapelMap: Map<string, MapelWeekRow> }>();
       const ensureMapelRow = (kelasId: string, mataPelajaranId: string, mataPelajaranName: string) => {
         if (!kelasBlockMap.has(kelasId)) {
-          kelasBlockMap.set(kelasId, { kelasName: kelasById.get(kelasId)?.name || '-', mapelMap: new Map() });
+          const kelas = kelasById.get(kelasId);
+          kelasBlockMap.set(kelasId, { kelasName: kelas?.name || '-', ruangName: kelas?.ruang?.nama || null, mapelMap: new Map() });
         }
         const block = kelasBlockMap.get(kelasId)!;
         if (!block.mapelMap.has(mataPelajaranId)) {
@@ -681,6 +698,7 @@ export class PembelajaranService {
         .map(([kelasId, block]) => ({
           kelasId,
           kelasName: block.kelasName,
+          ruangName: block.ruangName,
           mapel: Array.from(block.mapelMap.values()).sort((a, b) => a.mataPelajaranName.localeCompare(b.mataPelajaranName))
         }))
         .sort((a, b) => a.kelasName.localeCompare(b.kelasName));
@@ -689,7 +707,7 @@ export class PembelajaranService {
     const recentPelaksanaan = await this.prisma.pelaksanaanSilabus.findMany({
       where: { status: 'COMPLETED', kelas: kelasWhere },
       orderBy: { updatedAt: 'desc' },
-      take: 8,
+      take: 15,
       include: {
         silabus: { include: { mataPelajaran: true } },
         kelas: true,
@@ -712,7 +730,7 @@ export class PembelajaranService {
       statusDistribution,
       breakdown: breakdownFull.slice(0, 12),
       breakdownTotal: breakdownFull.length,
-      mapelBreakdown,
+      kelasMapelBreakdown,
       pemantauanAbsensi,
       periodeAbsensiMingguan,
       aktivitasTerbaru: recentPelaksanaan.map(p => ({
