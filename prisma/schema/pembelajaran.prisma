@@ -25,7 +25,7 @@ model SilabusMapel {
   urutanBab       Int      @map("urutan_bab")
   section         String
   urutanSection   Int      @map("urutan_section")
-  tanggalTarget   DateTime @map("tanggal_target") @db.Date
+  tanggalTarget   DateTime? @map("tanggal_target") @db.Date
   isActive        Boolean  @default(true) @map("is_active")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

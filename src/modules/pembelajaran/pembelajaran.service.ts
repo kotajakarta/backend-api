@@ -23,7 +23,7 @@ export class PembelajaranService {
     tingkat: string;
     tahunAjaran: string;
     semester: string;
-    items: Array<{ id?: string; bab: string; urutanBab: number; section: string; urutanSection: number; tanggalTarget: string }>;
+    items: Array<{ id?: string; bab: string; urutanBab: number; section: string; urutanSection: number; tanggalTarget?: string | null }>;
   }) {
     const { mataPelajaranId, tingkat, tahunAjaran, semester, items } = data;
     if (!mataPelajaranId || !tingkat || !tahunAjaran || !semester) {
@@ -43,7 +43,7 @@ export class PembelajaranService {
           urutanBab: item.urutanBab,
           section: item.section,
           urutanSection: item.urutanSection,
-          tanggalTarget: new Date(item.tanggalTarget)
+          tanggalTarget: item.tanggalTarget ? new Date(item.tanggalTarget) : null
         };
         if (item.id) {
           results.push(await tx.silabusMapel.update({ where: { id: item.id }, data: payload }));
