@@ -1042,8 +1042,13 @@ export class StudentService {
         throw new BadRequestException('Siswa tidak ditemukan');
       }
       
-      if (user.scope !== 'GLOBAL' && student.cabangId !== user.cabangId) {
-        throw new BadRequestException('Tidak memiliki akses');
+      if (user && user.scope !== 'GLOBAL') {
+        if (user.scope === 'WILAYAH' && student.wilayahId !== user.wilayahId) {
+          throw new ForbiddenException('Akses ditolak: Siswa berada di luar wilayah Anda.');
+        }
+        if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+          throw new ForbiddenException('Akses ditolak: Siswa berada di luar cabang Anda.');
+        }
       }
 
       // Update current riwayat
@@ -1102,8 +1107,13 @@ export class StudentService {
       }
 
       for (const student of students) {
-        if (user.scope !== 'GLOBAL' && student.cabangId !== user.cabangId) {
-          throw new BadRequestException(`Tidak memiliki akses untuk siswa ${student.id}`);
+        if (user && user.scope !== 'GLOBAL') {
+          if (user.scope === 'WILAYAH' && student.wilayahId !== user.wilayahId) {
+            throw new ForbiddenException(`Akses ditolak: Siswa ${student.id} berada di luar wilayah Anda.`);
+          }
+          if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+            throw new ForbiddenException(`Akses ditolak: Siswa ${student.id} berada di luar cabang Anda.`);
+          }
         }
 
         // Update current riwayat
