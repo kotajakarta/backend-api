@@ -461,7 +461,7 @@ export class PembelajaranService {
     return pct >= 90 ? 'Optimal' : pct >= 70 ? 'Sesuai Jalur' : 'Berisiko';
   }
 
-  async getRingkasan(user: any, month?: string) {
+  async getRingkasan(user: any, month?: string, kelasId?: string) {
     const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
     const tahunAjaran = pengaturan?.tahunAjaran || '';
     const semester = pengaturan?.semesterAktif || '';
@@ -495,6 +495,8 @@ export class PembelajaranService {
       belumMulai: 0,
       statusDistribution: { optimal: 0, sesuaiJalur: 0, berisiko: 0 },
       breakdownTotal: 0,
+      kelasOptions: [] as Array<{ id: string; name: string }>,
+      selectedKelasId: null as string | null,
       pemantauanMingguan: [] as Array<{
         mataPelajaranId: string; mataPelajaranName: string;
         weeks: Array<{
@@ -604,19 +606,29 @@ export class PembelajaranService {
     const prevMonthStart = new Date(Date.UTC(prevYear, prevMonthIdx, 1));
     const prevMonthEnd = new Date(Date.UTC(prevYear, prevMonthIdx, prevDaysInMonth, 23, 59, 59, 999));
 
+    // Filter Kelas di Dashboard: statistik "besar" (Total Kelas, Progres Silabus, Kelas
+    // Berisiko) tetap merepresentasikan seluruh lingkup RBAC. Hanya bagian bulanan (Kehadiran
+    // Siswa, Pelajaran Terlaksana, grid mingguan) yang menyempit ke satu kelas — supaya operator
+    // bisa memverifikasi input kelasnya sendiri tanpa tenggelam di agregat lintas kelas lain.
+    const kelasOptions = kelasList
+      .map(k => ({ id: k.id, name: k.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const selectedKelasId = kelasId && kelasIds.includes(kelasId) ? kelasId : null;
+    const gridKelasIds = selectedKelasId ? [selectedKelasId] : kelasIds;
+
     const [absensiBulanIni, absensiBulanLalu, pelaksanaanBulanIni] = await Promise.all([
       this.prisma.absensiMapel.findMany({
-        where: { kelasId: { in: kelasIds }, tanggal: { gte: monthStart, lte: monthEnd }, mataPelajaran: { aktifPembelajaran: true } },
+        where: { kelasId: { in: gridKelasIds }, tanggal: { gte: monthStart, lte: monthEnd }, mataPelajaran: { aktifPembelajaran: true } },
         include: { mataPelajaran: true }
       }),
       this.prisma.absensiMapel.findMany({
-        where: { kelasId: { in: kelasIds }, tanggal: { gte: prevMonthStart, lte: prevMonthEnd }, mataPelajaran: { aktifPembelajaran: true } },
+        where: { kelasId: { in: gridKelasIds }, tanggal: { gte: prevMonthStart, lte: prevMonthEnd }, mataPelajaran: { aktifPembelajaran: true } },
         select: { status: true }
       }),
       // include langsung ke mataPelajaran (bukan lewat silabus) supaya penanda Libur tanpa
       // materi (silabusId null) tetap ikut terhitung.
       this.prisma.pelaksanaanSilabus.findMany({
-        where: { kelasId: { in: kelasIds }, tanggalDiajar: { gte: monthStart, lte: monthEnd } },
+        where: { kelasId: { in: gridKelasIds }, tanggalDiajar: { gte: monthStart, lte: monthEnd } },
         include: { silabus: { include: { mataPelajaran: true } }, mataPelajaran: true, guru: true }
       })
     ]);
@@ -704,6 +716,8 @@ export class PembelajaranService {
       belumMulai,
       statusDistribution,
       breakdownTotal: unitMap.size,
+      kelasOptions,
+      selectedKelasId,
       pemantauanMingguan
     };
   }

@@ -127,7 +127,11 @@ export class PembelajaranController {
 
   @Get('ringkasan')
   @UseGuards(AccessControlGuard)
-  getRingkasan(@Query('month') month: string | undefined, @Request() req: any) {
-    return this.pembelajaranService.getRingkasan(req.user, month);
+  getRingkasan(
+    @Query('month') month: string | undefined,
+    @Query('kelasId') kelasId: string | undefined,
+    @Request() req: any
+  ) {
+    return this.pembelajaranService.getRingkasan(req.user, month, kelasId);
   }
 }
