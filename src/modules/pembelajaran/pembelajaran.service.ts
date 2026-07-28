@@ -6,6 +6,12 @@ import { StatusSilabus, StatusKehadiranMapel } from '@prisma/client';
 export class PembelajaranService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
+  // Silabus hanya boleh diisi untuk tanggal hari ini atau sebelumnya.
+  private isFutureDate(dateStr: string): boolean {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    return dateStr.slice(0, 10) > todayStr;
+  }
+
   // ===== A. Kelola Silabus (Admin Pusat) =====
 
   async getSilabus(params: { mataPelajaranId: string; tingkat: string; tahunAjaran: string; semester: string }) {
@@ -158,6 +164,9 @@ export class PembelajaranService {
 
   // Tandai satu tanggal sebagai Libur tanpa memilih materi apapun (mis. libur nasional).
   async setLiburTanggal(kelasId: string, mataPelajaranId: string, tanggal: string, userId?: string) {
+    if (this.isFutureDate(tanggal)) {
+      throw new BadRequestException('Tidak dapat menandai Libur untuk tanggal mendatang');
+    }
     const date = new Date(tanggal);
     const existing = await this.prisma.pelaksanaanSilabus.findFirst({
       where: { kelasId, mataPelajaranId, tanggalDiajar: date, silabusId: null }
@@ -194,6 +203,9 @@ export class PembelajaranService {
           });
           continue;
         }
+
+        // Silabus hanya boleh diisi/diperbarui untuk tanggal hari ini atau sebelumnya.
+        if (this.isFutureDate(log.tanggalDiajar)) continue;
 
         const dataPayload = {
           silabusId: log.silabusId || null,
