@@ -56,6 +56,12 @@ export class StudentController {
     return this.studentService.getPoolStudents(req.user);
   }
 
+  @Get('daftar-ulang/list')
+  @UseGuards(AccessControlGuard)
+  getDaftarUlangList(@Request() req: any) {
+    return this.studentService.getDaftarUlangList(req.user);
+  }
+
   @Get('permintaan-tarik/pending-count')
   @UseGuards(AccessControlGuard)
   getPendingPermintaanCount() {

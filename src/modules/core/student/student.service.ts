@@ -100,6 +100,10 @@ export class StudentService {
           jenisSiswa: jenisSiswa || null,
           grupDaimi: grupDaimi || null,
           statusHafidz: statusHafidz || null,
+          daftarUlangAt: data.daftarUlangAt || null,
+          daftarUlangJenis: data.daftarUlangJenis || null,
+          daftarUlangTahunAjaran: data.daftarUlangTahunAjaran || null,
+          daftarUlangSemester: data.daftarUlangSemester || null,
         }
       });
 
@@ -513,7 +517,11 @@ export class StudentService {
           jenisSiswa: data.jenisSiswa !== undefined ? (data.jenisSiswa || null) : student.jenisSiswa,
           grupDaimi: data.grupDaimi !== undefined ? (data.grupDaimi || null) : student.grupDaimi,
           statusHafidz: data.statusHafidz !== undefined ? (data.statusHafidz || null) : student.statusHafidz,
-          isActive: data.isActive !== undefined ? data.isActive : student.isActive
+          isActive: data.isActive !== undefined ? data.isActive : student.isActive,
+          daftarUlangAt: data.daftarUlangAt !== undefined ? data.daftarUlangAt : student.daftarUlangAt,
+          daftarUlangJenis: data.daftarUlangJenis !== undefined ? data.daftarUlangJenis : student.daftarUlangJenis,
+          daftarUlangTahunAjaran: data.daftarUlangTahunAjaran !== undefined ? data.daftarUlangTahunAjaran : student.daftarUlangTahunAjaran,
+          daftarUlangSemester: data.daftarUlangSemester !== undefined ? data.daftarUlangSemester : student.daftarUlangSemester
         }
       });
 
@@ -1194,19 +1202,50 @@ export class StudentService {
 
   async submitDaftarUlang(data: any) {
     const { kodeDaftarUlang, studentId, ...studentData } = data;
-    
+
     const setting = await this.prisma.pengaturanAkademik.findFirst();
     if (!setting || !setting.kodeDaftarUlang || setting.kodeDaftarUlang.toUpperCase() !== kodeDaftarUlang?.toUpperCase()) {
       throw new BadRequestException('Kode daftar ulang salah atau tidak tersedia');
     }
 
+    // Tandai submission ini supaya muncul di menu Santri > Daftar Ulang.
+    const daftarUlangStamp = {
+      daftarUlangAt: new Date(),
+      daftarUlangJenis: studentId ? 'PEMBARUAN' : 'BARU',
+      daftarUlangTahunAjaran: setting.tahunAjaran,
+      daftarUlangSemester: setting.semesterAktif
+    };
+
     if (studentId) {
       // Re-registration of existing student
-      return this.updateStudent(studentId, studentData, null);
+      return this.updateStudent(studentId, { ...studentData, ...daftarUlangStamp }, null);
     } else {
       // New student registration
-      return this.createStudent(null, studentData);
+      return this.createStudent(null, { ...studentData, ...daftarUlangStamp });
     }
+  }
+
+  async getDaftarUlangList(user: any) {
+    const { scope, wilayahId, cabangId } = user;
+    const whereClause: any = { daftarUlangAt: { not: null } };
+
+    // Sama seperti Pool Siswa: siswa yang belum ditempatkan (TERSEDIA) tetap
+    // terlihat oleh Wilayah/Cabang lain supaya bisa ditriase.
+    if (scope === 'WILAYAH' && wilayahId) {
+      whereClause.OR = [{ wilayahId }, { statusPool: StatusPool.TERSEDIA }];
+    } else if (scope === 'CABANG' && cabangId) {
+      whereClause.OR = [{ cabangId }, { statusPool: StatusPool.TERSEDIA }];
+    }
+
+    return this.prisma.student.findMany({
+      where: whereClause,
+      include: {
+        biodata: true,
+        wilayah: true,
+        cabang: true
+      },
+      orderBy: { daftarUlangAt: 'desc' }
+    });
   }
 
   // ─── Upload Dokumen Siswa (membutuhkan auth) ───────────────────────────────

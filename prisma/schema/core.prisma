@@ -159,6 +159,10 @@ model Student {
   jenisSiswa         JenisSiswa?           @map("jenis_siswa")
   grupDaimi          String?               @map("grup_daimi")
   statusHafidz       StatusHafidz?         @map("status_hafidz")
+  daftarUlangAt          DateTime? @map("daftar_ulang_at")
+  daftarUlangJenis       String?   @map("daftar_ulang_jenis")
+  daftarUlangTahunAjaran String?   @map("daftar_ulang_tahun_ajaran")
+  daftarUlangSemester    String?   @map("daftar_ulang_semester")
   kehadiran          Kehadiran[]
   permintaanTarik    PermintaanTarikData[]
   riwayatPendidikan  RiwayatPendidikan[]
