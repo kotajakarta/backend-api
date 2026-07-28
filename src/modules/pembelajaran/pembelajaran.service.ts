@@ -457,7 +457,7 @@ export class PembelajaranService {
     return pct >= 90 ? 'Optimal' : pct >= 70 ? 'Sesuai Jalur' : 'Berisiko';
   }
 
-  async getRingkasan(user: any) {
+  async getRingkasan(user: any, month?: string) {
     const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
     const tahunAjaran = pengaturan?.tahunAjaran || '';
     const semester = pengaturan?.semesterAktif || '';
@@ -466,42 +466,37 @@ export class PembelajaranService {
       user?.scope === 'CABANG' ? 'CABANG' : user?.scope === 'WILAYAH' ? 'WILAYAH' : 'GLOBAL';
     const unitLabel = scopeLevel === 'GLOBAL' ? 'Wilayah' : scopeLevel === 'WILAYAH' ? 'Cabang' : 'Kelas';
 
+    const now = new Date();
+    const validMonth = month && /^\d{4}-\d{2}$/.test(month);
+    const selYear = validMonth ? parseInt(month!.slice(0, 4)) : now.getUTCFullYear();
+    const selMonthIdx = validMonth ? parseInt(month!.slice(5, 7)) - 1 : now.getUTCMonth();
+    const selectedMonth = `${selYear}-${String(selMonthIdx + 1).padStart(2, '0')}`;
+    const periodeLabel = new Date(Date.UTC(selYear, selMonthIdx, 1)).toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
     const empty = {
       tahunAjaran,
       semester,
       scopeLevel,
       unitLabel,
+      selectedMonth,
+      periodeLabel,
       totalSilabusCompleted: 0,
       totalSilabusTarget: 0,
       persenSilabus: 0,
       hadir: 0,
       totalAbsensi: 0,
       persenKehadiran: 0,
+      kehadiranDelta: 0,
+      persenPelajaranTerlaksana: 0,
       belumMulai: 0,
       statusDistribution: { optimal: 0, sesuaiJalur: 0, berisiko: 0 },
-      breakdown: [] as Array<{
-        id: string; name: string; subtitle: string;
-        persenSilabus: number; silabusCompleted: number; silabusTotal: number;
-        persenKehadiran: number; hadir: number; totalAbsensi: number;
-        status: 'Optimal' | 'Sesuai Jalur' | 'Berisiko';
-      }>,
       breakdownTotal: 0,
-      kelasMapelBreakdown: [] as Array<{
-        kelasId: string; kelasName: string; mataPelajaranId: string; mataPelajaranName: string;
-        persenSilabus: number; silabusCompleted: number; silabusTotal: number;
-        status: 'Optimal' | 'Sesuai Jalur' | 'Berisiko';
-      }>,
-      pemantauanAbsensi: [] as Array<{
-        kelasId: string; kelasName: string; ruangName: string | null;
-        mapel: Array<{
-          mataPelajaranId: string; mataPelajaranName: string;
-          weeks: Array<{ hadir: number; izin: number; sakit: number; alpa: number; total: number; status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null }>;
+      pemantauanMingguan: [] as Array<{
+        mataPelajaranId: string; mataPelajaranName: string;
+        weeks: Array<{
+          hadir: number; sakit: number; izin: number; alpa: number; total: number;
+          status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[];
         }>;
-      }>,
-      periodeAbsensiMingguan: '',
-      aktivitasTerbaru: [] as Array<{
-        id: string; kelasName: string; mataPelajaranName: string; bab: string; section: string;
-        guruName: string | null; updatedAt: Date;
       }>
     };
     if (!tahunAjaran || !semester) return empty;
@@ -534,18 +529,10 @@ export class PembelajaranService {
     });
     const pelaksanaanMap = new Map(pelaksanaanList.map(p => [`${p.silabusId}__${p.kelasId}`, p]));
 
-    // AbsensiMapel tidak punya kolom tahunAjaran/semester (hanya tanggal mentah), jadi seluruh
-    // catatan pada kelas yang berada di lingkup RBAC ini dihitung apa adanya — tetap terhubung
-    // dengan apa yang sudah diinput di tab Absensi Mapel tanpa syarat rentang tanggal tersembunyi.
-    const absensiList = await this.prisma.absensiMapel.findMany({
-      where: { kelasId: { in: kelasIds } }
-    });
-
     type KelasT = (typeof kelasList)[number];
     type UnitAgg = {
-      id: string; name: string; tingkat: string | null;
-      silabusCompleted: number; silabusTotal: number; hadir: number; totalAbsensi: number;
-      cabangIds: Set<string>; kelasIds: Set<string>;
+      id: string; name: string;
+      silabusCompleted: number; silabusTotal: number;
     };
     const unitMap = new Map<string, UnitAgg>();
     const unitKeyOf = (kelas: KelasT): { id: string; name: string } => {
@@ -556,31 +543,14 @@ export class PembelajaranService {
     const ensureUnit = (kelas: KelasT) => {
       const key = unitKeyOf(kelas);
       if (!unitMap.has(key.id)) {
-        unitMap.set(key.id, {
-          id: key.id, name: key.name, tingkat: kelas.tingkat,
-          silabusCompleted: 0, silabusTotal: 0, hadir: 0, totalAbsensi: 0,
-          cabangIds: new Set(), kelasIds: new Set()
-        });
+        unitMap.set(key.id, { id: key.id, name: key.name, silabusCompleted: 0, silabusTotal: 0 });
       }
-      const u = unitMap.get(key.id)!;
-      if (kelas.cabangId) u.cabangIds.add(kelas.cabangId);
-      u.kelasIds.add(kelas.id);
-      return u;
+      return unitMap.get(key.id)!;
     };
 
-    // Progres per pasangan Kelas × Mapel (bukan agregat mapel semua kelas) — inilah yang
-    // dipakai panel "Progres Silabus Per Mapel", supaya benar-benar bisa menunjuk kelas mana
-    // yang tertinggal untuk mapel apa, bukan cuma rata-rata nasional per mapel.
-    type KelasMapelAgg = { kelasId: string; kelasName: string; mataPelajaranId: string; mataPelajaranName: string; completed: number; total: number };
-    const kelasMapelMap = new Map<string, KelasMapelAgg>();
-    const ensureKelasMapel = (kelas: KelasT, mataPelajaranId: string, mataPelajaranName: string) => {
-      const key = `${kelas.id}__${mataPelajaranId}`;
-      if (!kelasMapelMap.has(key)) {
-        kelasMapelMap.set(key, { kelasId: kelas.id, kelasName: kelas.name, mataPelajaranId, mataPelajaranName, completed: 0, total: 0 });
-      }
-      return kelasMapelMap.get(key)!;
-    };
-
+    // Progres silabus dihitung semester penuh (bukan dibatasi bulan yang difilter) — "Kelas
+    // Berisiko" & "Progres Silabus" adalah ukuran kesehatan kurikulum keseluruhan, bukan cuma
+    // satu bulan tayang.
     let totalSilabusCompleted = 0;
     let totalSilabusTarget = 0;
     let belumMulai = 0;
@@ -598,202 +568,134 @@ export class PembelajaranService {
         const u = ensureUnit(kelas);
         u.silabusTotal++;
         totalSilabusTarget++;
-        const m = ensureKelasMapel(kelas, s.mataPelajaranId, s.mataPelajaran.name);
-        m.total++;
         if (status === 'COMPLETED') {
           u.silabusCompleted++;
           totalSilabusCompleted++;
-          m.completed++;
         }
       });
       if (!anyRecord) belumMulai++;
     });
 
-    let hadir = 0;
-    let totalAbsensi = 0;
-    absensiList.forEach(a => {
-      const kelas = kelasById.get(a.kelasId);
-      if (!kelas) return;
-      const u = ensureUnit(kelas);
-      u.totalAbsensi++;
-      totalAbsensi++;
-      if (a.status === 'HADIR') {
-        u.hadir++;
-        hadir++;
-      }
-    });
+    const statusDistribution = Array.from(unitMap.values())
+      .map(u => this.statusForPercent(u.silabusTotal > 0 ? Math.round((u.silabusCompleted / u.silabusTotal) * 100) : 0))
+      .reduce(
+        (acc, status) => {
+          if (status === 'Optimal') acc.optimal++;
+          else if (status === 'Sesuai Jalur') acc.sesuaiJalur++;
+          else acc.berisiko++;
+          return acc;
+        },
+        { optimal: 0, sesuaiJalur: 0, berisiko: 0 }
+      );
 
-    const breakdownFull = Array.from(unitMap.values())
-      .map(u => {
-        const persenSilabus = u.silabusTotal > 0 ? Math.round((u.silabusCompleted / u.silabusTotal) * 100) : 0;
-        const persenKehadiran = u.totalAbsensi > 0 ? Math.round((u.hadir / u.totalAbsensi) * 100) : 0;
-        return {
-          id: u.id,
-          name: u.name,
-          subtitle:
-            scopeLevel === 'GLOBAL' ? `${u.cabangIds.size} cabang`
-              : scopeLevel === 'WILAYAH' ? `${u.kelasIds.size} kelas`
-                : `Tingkat ${u.tingkat || '-'}`,
-          persenSilabus,
-          silabusCompleted: u.silabusCompleted,
-          silabusTotal: u.silabusTotal,
-          persenKehadiran,
-          hadir: u.hadir,
-          totalAbsensi: u.totalAbsensi,
-          status: this.statusForPercent(persenSilabus)
-        };
-      })
-      .sort((a, b) => a.persenSilabus - b.persenSilabus);
+    // ===== Bagian yang mengikuti filter bulan (Filter Bulan di Dashboard) =====
+    const daysInMonth = new Date(Date.UTC(selYear, selMonthIdx + 1, 0)).getUTCDate();
+    const weekCount = Math.ceil(daysInMonth / 7);
+    const monthStart = new Date(Date.UTC(selYear, selMonthIdx, 1));
+    const monthEnd = new Date(Date.UTC(selYear, selMonthIdx, daysInMonth, 23, 59, 59, 999));
 
-    const statusDistribution = breakdownFull.reduce(
-      (acc, r) => {
-        if (r.status === 'Optimal') acc.optimal++;
-        else if (r.status === 'Sesuai Jalur') acc.sesuaiJalur++;
-        else acc.berisiko++;
-        return acc;
-      },
-      { optimal: 0, sesuaiJalur: 0, berisiko: 0 }
-    );
+    const prevMonthIdx = selMonthIdx === 0 ? 11 : selMonthIdx - 1;
+    const prevYear = selMonthIdx === 0 ? selYear - 1 : selYear;
+    const prevDaysInMonth = new Date(Date.UTC(prevYear, prevMonthIdx + 1, 0)).getUTCDate();
+    const prevMonthStart = new Date(Date.UTC(prevYear, prevMonthIdx, 1));
+    const prevMonthEnd = new Date(Date.UTC(prevYear, prevMonthIdx, prevDaysInMonth, 23, 59, 59, 999));
 
-    const kelasMapelBreakdown = Array.from(kelasMapelMap.values())
-      .map(m => {
-        const persenSilabus = m.total > 0 ? Math.round((m.completed / m.total) * 100) : 0;
-        return {
-          kelasId: m.kelasId,
-          kelasName: m.kelasName,
-          mataPelajaranId: m.mataPelajaranId,
-          mataPelajaranName: m.mataPelajaranName,
-          persenSilabus,
-          silabusCompleted: m.completed,
-          silabusTotal: m.total,
-          status: this.statusForPercent(persenSilabus)
-        };
-      })
-      .sort((a, b) => a.persenSilabus - b.persenSilabus)
-      .slice(0, 20);
-
-    // Pemantauan Absensi mingguan (kelas × mapel × minggu-dalam-bulan-berjalan) — hanya untuk
-    // scope CABANG, karena jumlah kelasnya kecil & inilah audiens yang butuh detail sedetail ini.
-    // Untuk WILAYAH/GLOBAL, panel "breakdown" per unit di atas sudah cukup mewakili tanpa
-    // membanjiri layar dengan ratusan baris kelas. Setiap minggu memuat rincian H/I/S/A dan
-    // status "dikerjakan" dari sesi (PelaksanaanSilabus) yang tanggalDiajar-nya jatuh di minggu itu.
-    type WeekCell = {
-      hadir: number; izin: number; sakit: number; alpa: number; total: number;
-      status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null;
-    };
-    type MapelWeekRow = { mataPelajaranId: string; mataPelajaranName: string; weeks: WeekCell[] };
-    let pemantauanAbsensi: Array<{ kelasId: string; kelasName: string; ruangName: string | null; mapel: MapelWeekRow[] }> = [];
-    let periodeAbsensiMingguan = '';
-
-    if (scopeLevel === 'CABANG' && kelasIds.length > 0) {
-      const now = new Date();
-      const year = now.getUTCFullYear();
-      const monthIdx = now.getUTCMonth();
-      const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
-      const weekCount = Math.ceil(daysInMonth / 7);
-      const monthStart = new Date(Date.UTC(year, monthIdx, 1));
-      const monthEnd = new Date(Date.UTC(year, monthIdx, daysInMonth, 23, 59, 59, 999));
-      periodeAbsensiMingguan = now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-
-      const emptyWeekCell = (): WeekCell => ({ hadir: 0, izin: 0, sakit: 0, alpa: 0, total: 0, status: null });
-      const kelasBlockMap = new Map<string, { kelasName: string; ruangName: string | null; mapelMap: Map<string, MapelWeekRow> }>();
-      const ensureMapelRow = (kelasId: string, mataPelajaranId: string, mataPelajaranName: string) => {
-        if (!kelasBlockMap.has(kelasId)) {
-          const kelas = kelasById.get(kelasId);
-          kelasBlockMap.set(kelasId, { kelasName: kelas?.name || '-', ruangName: kelas?.ruang?.nama || null, mapelMap: new Map() });
-        }
-        const block = kelasBlockMap.get(kelasId)!;
-        if (!block.mapelMap.has(mataPelajaranId)) {
-          block.mapelMap.set(mataPelajaranId, {
-            mataPelajaranId,
-            mataPelajaranName,
-            weeks: Array.from({ length: weekCount }, emptyWeekCell)
-          });
-        }
-        return block.mapelMap.get(mataPelajaranId)!;
-      };
-
-      const absensiBulanIni = await this.prisma.absensiMapel.findMany({
+    const [absensiBulanIni, absensiBulanLalu, pelaksanaanBulanIni] = await Promise.all([
+      this.prisma.absensiMapel.findMany({
         where: { kelasId: { in: kelasIds }, tanggal: { gte: monthStart, lte: monthEnd } },
         include: { mataPelajaran: true }
-      });
-      absensiBulanIni.forEach(a => {
-        const weekIdx = Math.min(weekCount - 1, Math.floor((a.tanggal.getUTCDate() - 1) / 7));
-        const mapelAcc = ensureMapelRow(a.kelasId, a.mataPelajaranId, a.mataPelajaran.name);
-        const cell = mapelAcc.weeks[weekIdx];
-        cell.total++;
-        if (a.status === 'HADIR') cell.hadir++;
-        else if (a.status === 'IZIN') cell.izin++;
-        else if (a.status === 'SAKIT') cell.sakit++;
-        else if (a.status === 'ALPA') cell.alpa++;
-      });
-
+      }),
+      this.prisma.absensiMapel.findMany({
+        where: { kelasId: { in: kelasIds }, tanggal: { gte: prevMonthStart, lte: prevMonthEnd } },
+        select: { status: true }
+      }),
       // include langsung ke mataPelajaran (bukan lewat silabus) supaya penanda Libur tanpa
-      // materi (silabusId null) tetap ikut terhitung di grid mingguan ini.
-      const pelaksanaanBulanIni = await this.prisma.pelaksanaanSilabus.findMany({
+      // materi (silabusId null) tetap ikut terhitung.
+      this.prisma.pelaksanaanSilabus.findMany({
         where: { kelasId: { in: kelasIds }, tanggalDiajar: { gte: monthStart, lte: monthEnd } },
-        include: { silabus: { include: { mataPelajaran: true } }, mataPelajaran: true }
-      });
-      pelaksanaanBulanIni.forEach(p => {
-        if (!p.tanggalDiajar) return;
-        const mapelId = p.mataPelajaranId || p.silabus?.mataPelajaranId;
-        const mapelName = p.mataPelajaran?.name || p.silabus?.mataPelajaran.name;
-        if (!mapelId || !mapelName) return;
-        const weekIdx = Math.min(weekCount - 1, Math.floor((p.tanggalDiajar.getUTCDate() - 1) / 7));
-        const mapelAcc = ensureMapelRow(p.kelasId, mapelId, mapelName);
-        mapelAcc.weeks[weekIdx].status = p.status;
-      });
+        include: { silabus: { include: { mataPelajaran: true } }, mataPelajaran: true, guru: true }
+      })
+    ]);
 
-      pemantauanAbsensi = Array.from(kelasBlockMap.entries())
-        .map(([kelasId, block]) => ({
-          kelasId,
-          kelasName: block.kelasName,
-          ruangName: block.ruangName,
-          mapel: Array.from(block.mapelMap.values()).sort((a, b) => a.mataPelajaranName.localeCompare(b.mataPelajaranName))
-        }))
-        .sort((a, b) => a.kelasName.localeCompare(b.kelasName));
-    }
+    const hadir = absensiBulanIni.filter(a => a.status === 'HADIR').length;
+    const totalAbsensi = absensiBulanIni.length;
+    const persenKehadiran = totalAbsensi > 0 ? Math.round((hadir / totalAbsensi) * 100) : 0;
 
-    const recentPelaksanaan = await this.prisma.pelaksanaanSilabus.findMany({
-      where: { status: 'COMPLETED', silabusId: { not: null }, kelas: kelasWhere },
-      orderBy: { updatedAt: 'desc' },
-      take: 15,
-      include: {
-        silabus: { include: { mataPelajaran: true } },
-        kelas: true,
-        guru: true
+    const hadirBulanLalu = absensiBulanLalu.filter(a => a.status === 'HADIR').length;
+    const persenKehadiranBulanLalu = absensiBulanLalu.length > 0 ? Math.round((hadirBulanLalu / absensiBulanLalu.length) * 100) : 0;
+    const kehadiranDelta = absensiBulanLalu.length > 0 ? persenKehadiran - persenKehadiranBulanLalu : 0;
+
+    const pelaksanaanNonLibur = pelaksanaanBulanIni.filter(p => p.status !== 'LIBUR');
+    const persenPelajaranTerlaksana = pelaksanaanNonLibur.length > 0
+      ? Math.round((pelaksanaanNonLibur.filter(p => p.status === 'COMPLETED').length / pelaksanaanNonLibur.length) * 100)
+      : 0;
+
+    // Pemantauan mingguan diagregasi PER MAPEL lintas semua kelas dalam lingkup (bukan per
+    // kelas) — jumlah barisnya tetap kecil & terbaca di scope manapun (GLOBAL/WILAYAH/CABANG),
+    // beda dari versi sebelumnya yang dibatasi CABANG karena baris per-kelas bisa membanjiri layar.
+    type WeekCell = {
+      hadir: number; sakit: number; izin: number; alpa: number; total: number;
+      status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[];
+    };
+    type MapelWeekRow = { mataPelajaranId: string; mataPelajaranName: string; weeks: WeekCell[] };
+
+    const emptyWeekCell = (): WeekCell => ({ hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0, status: null, guruNames: [] });
+    const mapelWeekMap = new Map<string, MapelWeekRow>();
+    const ensureMapelWeekRow = (mataPelajaranId: string, mataPelajaranName: string) => {
+      if (!mapelWeekMap.has(mataPelajaranId)) {
+        mapelWeekMap.set(mataPelajaranId, { mataPelajaranId, mataPelajaranName, weeks: Array.from({ length: weekCount }, emptyWeekCell) });
       }
+      return mapelWeekMap.get(mataPelajaranId)!;
+    };
+
+    absensiBulanIni.forEach(a => {
+      const weekIdx = Math.min(weekCount - 1, Math.floor((a.tanggal.getUTCDate() - 1) / 7));
+      const cell = ensureMapelWeekRow(a.mataPelajaranId, a.mataPelajaran.name).weeks[weekIdx];
+      cell.total++;
+      if (a.status === 'HADIR') cell.hadir++;
+      else if (a.status === 'SAKIT') cell.sakit++;
+      else if (a.status === 'IZIN') cell.izin++;
+      else if (a.status === 'ALPA') cell.alpa++;
     });
+
+    // "Menang" berjenjang lintas kelas untuk satu sel mapel+minggu: kalau ADA kelas yang belum
+    // selesai, seluruh sel dianggap belum selesai (PENDING) — baru dianggap Dikerjakan kalau
+    // semua kelas yang punya sesi minggu itu sudah Dikerjakan (LIBUR tidak menghalangi).
+    const STATUS_PRIORITY: Record<string, number> = { PENDING: 2, COMPLETED: 1, LIBUR: 0 };
+    pelaksanaanBulanIni.forEach(p => {
+      if (!p.tanggalDiajar) return;
+      const mapelId = p.mataPelajaranId || p.silabus?.mataPelajaranId;
+      const mapelName = p.mataPelajaran?.name || p.silabus?.mataPelajaran.name;
+      if (!mapelId || !mapelName) return;
+      const weekIdx = Math.min(weekCount - 1, Math.floor((p.tanggalDiajar.getUTCDate() - 1) / 7));
+      const cell = ensureMapelWeekRow(mapelId, mapelName).weeks[weekIdx];
+      if (!cell.status || STATUS_PRIORITY[p.status] > STATUS_PRIORITY[cell.status]) {
+        cell.status = p.status;
+      }
+      if (p.guru?.name && !cell.guruNames.includes(p.guru.name)) cell.guruNames.push(p.guru.name);
+    });
+
+    const pemantauanMingguan = Array.from(mapelWeekMap.values()).sort((a, b) => a.mataPelajaranName.localeCompare(b.mataPelajaranName));
 
     return {
       tahunAjaran,
       semester,
       scopeLevel,
       unitLabel,
+      selectedMonth,
+      periodeLabel,
       totalSilabusCompleted,
       totalSilabusTarget,
       persenSilabus: totalSilabusTarget > 0 ? Math.round((totalSilabusCompleted / totalSilabusTarget) * 100) : 0,
       hadir,
       totalAbsensi,
-      persenKehadiran: totalAbsensi > 0 ? Math.round((hadir / totalAbsensi) * 100) : 0,
+      persenKehadiran,
+      kehadiranDelta,
+      persenPelajaranTerlaksana,
       belumMulai,
       statusDistribution,
-      breakdown: breakdownFull.slice(0, 12),
-      breakdownTotal: breakdownFull.length,
-      kelasMapelBreakdown,
-      pemantauanAbsensi,
-      periodeAbsensiMingguan,
-      aktivitasTerbaru: recentPelaksanaan
-        .filter((p): p is typeof p & { silabus: NonNullable<(typeof p)['silabus']> } => !!p.silabus)
-        .map(p => ({
-          id: p.id,
-          kelasName: p.kelas.name,
-          mataPelajaranName: p.silabus.mataPelajaran.name,
-          bab: p.silabus.bab,
-          section: p.silabus.section,
-          guruName: p.guru?.name || null,
-          updatedAt: p.updatedAt
-        }))
+      breakdownTotal: unitMap.size,
+      pemantauanMingguan
     };
   }
 }
