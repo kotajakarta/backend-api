@@ -698,6 +698,28 @@ export class PembelajaranService {
 
     const pemantauanMingguan = Array.from(mapelWeekMap.values()).sort((a, b) => a.mataPelajaranName.localeCompare(b.mataPelajaranName));
 
+    const monthShortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    const monthShort = monthShortNames[selMonthIdx] || '';
+    const weeksInfo = Array.from({ length: weekCount }, (_, weekIdx) => {
+      const startDay = weekIdx * 7 + 1;
+      const endDay = Math.min(daysInMonth, (weekIdx + 1) * 7);
+      let satDay: number | null = null;
+      for (let d = startDay; d <= endDay; d++) {
+        const dateObj = new Date(Date.UTC(selYear, selMonthIdx, d));
+        if (dateObj.getUTCDay() === 6) {
+          satDay = d;
+          break;
+        }
+      }
+      const dayLabel = satDay !== null ? `Sabtu, ${satDay} ${monthShort}` : `${startDay}-${endDay} ${monthShort}`;
+      return {
+        weekNumber: weekIdx + 1,
+        dateLabel: dayLabel,
+        saturdayDate: satDay ? `${selYear}-${String(selMonthIdx + 1).padStart(2, '0')}-${String(satDay).padStart(2, '0')}` : null,
+        dateRange: `${startDay}-${endDay} ${monthShort}`
+      };
+    });
+
     return {
       tahunAjaran,
       semester,
@@ -718,7 +740,8 @@ export class PembelajaranService {
       breakdownTotal: unitMap.size,
       kelasOptions,
       selectedKelasId,
-      pemantauanMingguan
+      pemantauanMingguan,
+      weeksInfo
     };
   }
 }
