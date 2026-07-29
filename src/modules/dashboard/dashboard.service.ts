@@ -16,7 +16,7 @@ export class DashboardService {
 
   async getStats(user: any, query: any = {}) {
     let whereClause: any = {};
-    const { wilayahId, cabangId, jenisKelamin } = query;
+    const { wilayahId, cabangId, jenisKelamin, lembagaMuadalahId } = query;
 
     if (user.scope === 'WILAYAH') {
       whereClause.wilayahId = user.wilayahId;
@@ -29,6 +29,11 @@ export class DashboardService {
     }
     if (cabangId && (user.scope === 'GLOBAL' || user.scope === 'WILAYAH')) {
       whereClause.cabangId = cabangId;
+    }
+    if (lembagaMuadalahId && user.scope === 'GLOBAL') {
+      whereClause.siswaFormal = {
+        kelas: { lembagaMuadalahId: lembagaMuadalahId }
+      };
     }
 
     const studentWhere: any = { isActive: true, ...whereClause };
@@ -106,6 +111,9 @@ export class DashboardService {
     ];
 
     const kelasWhere: any = { isActive: true };
+    if (lembagaMuadalahId) {
+      kelasWhere.lembagaMuadalahId = lembagaMuadalahId;
+    }
     if (cabangId) {
       kelasWhere.cabangId = cabangId;
     } else if (wilayahId) {
