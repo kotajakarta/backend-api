@@ -131,8 +131,10 @@ export class PembelajaranController {
   getRingkasan(
     @Query('month') month: string | undefined,
     @Query('kelasId') kelasId: string | undefined,
+    @Query('wilayahId') wilayahId: string | undefined,
+    @Query('cabangId') cabangId: string | undefined,
     @Request() req: any
   ) {
-    return this.pembelajaranService.getRingkasan(req.user, month, kelasId);
+    return this.pembelajaranService.getRingkasan(req.user, month, kelasId, wilayahId, cabangId);
   }
 }
