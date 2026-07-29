@@ -1230,8 +1230,9 @@ export class FormalService {
       data: { jenisSiswa: 'MUADALAH' }
     });
 
+    let siswaFormalRecord;
     if (existing) {
-      return this.prisma.siswaFormal.update({
+      siswaFormalRecord = await this.prisma.siswaFormal.update({
         where: { studentId },
         data: { kelasId, tingkat: kelas.tingkat }
       });
@@ -1242,7 +1243,7 @@ export class FormalService {
         include: { biodata: true }
       });
       try {
-        return await this.prisma.siswaFormal.create({
+        siswaFormalRecord = await this.prisma.siswaFormal.create({
           data: {
             studentId,
             kelasId,
@@ -1258,6 +1259,33 @@ export class FormalService {
         throw error;
       }
     }
+
+    // Upsert RiwayatKelasFormal untuk tahun ajaran aktif
+    const akademik = await this.prisma.pengaturanAkademik.findFirst();
+    if (akademik?.tahunAjaran && akademik?.semesterAktif) {
+      await this.prisma.riwayatKelasFormal.upsert({
+        where: {
+          studentId_tahunAjaran_semester: {
+            studentId,
+            tahunAjaran: akademik.tahunAjaran,
+            semester: akademik.semesterAktif
+          }
+        },
+        update: {
+          kelasId: kelas.id,
+          waliKelasId: kelas.waliKelasId
+        },
+        create: {
+          studentId,
+          kelasId: kelas.id,
+          tahunAjaran: akademik.tahunAjaran,
+          semester: akademik.semesterAktif,
+          waliKelasId: kelas.waliKelasId
+        }
+      });
+    }
+
+    return siswaFormalRecord;
   }
 
   async removeStudentFromKelas(kelasId: string, studentId: string, user?: any) {
