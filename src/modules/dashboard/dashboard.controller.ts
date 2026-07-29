@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Inject, Request } from '@nestjs/common';
+import { Controller, Get, UseGuards, Inject, Request, Query } from '@nestjs/common';
 import { DashboardService } from './dashboard.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 
@@ -8,8 +8,8 @@ export class DashboardController {
 
   @Get('stats')
   @UseGuards(AccessControlGuard)
-  getStats(@Request() req: any) {
-    return this.dashboardService.getStats(req.user);
+  getStats(@Request() req: any, @Query() query: any) {
+    return this.dashboardService.getStats(req.user, query);
   }
 
   @Get('ketersediaan-guru')

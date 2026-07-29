@@ -14,17 +14,30 @@ const matchSubject = (subjectName: string | undefined | null, subKey: string) =>
 export class DashboardService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async getStats(user: any) {
-    let whereClause = {};
+  async getStats(user: any, query: any = {}) {
+    let whereClause: any = {};
+    const { wilayahId, cabangId, jenisKelamin } = query;
 
     if (user.scope === 'WILAYAH') {
-      whereClause = { wilayahId: user.wilayahId };
+      whereClause.wilayahId = user.wilayahId;
     } else if (user.scope === 'CABANG') {
-      whereClause = { cabangId: user.cabangId };
+      whereClause.cabangId = user.cabangId;
+    }
+
+    if (wilayahId && user.scope === 'GLOBAL') {
+      whereClause.wilayahId = wilayahId;
+    }
+    if (cabangId && (user.scope === 'GLOBAL' || user.scope === 'WILAYAH')) {
+      whereClause.cabangId = cabangId;
+    }
+
+    const studentWhere: any = { isActive: true, ...whereClause };
+    if (jenisKelamin) {
+      studentWhere.biodata = { jenisKelamin };
     }
 
     const totalSantri = await this.prisma.student.count({
-      where: user.scope === 'GLOBAL' ? {} : whereClause
+      where: studentWhere
     });
 
     // 1. Chart Grup Daimi
@@ -34,7 +47,7 @@ export class DashboardService {
       _count: {
         id: true,
       },
-      where: user.scope === 'GLOBAL' ? { isActive: true } : { ...whereClause, isActive: true }
+      where: studentWhere
     });
 
     const chartGrupDaimi = allGrupDaimi.map(grup => {
@@ -54,13 +67,14 @@ export class DashboardService {
 
     // 2. Chart Statistik Tambahan (Tingkat 7-12 & Non Muadalah)
     const nonMuadalahCount = await this.prisma.student.count({
-      where: user.scope === 'GLOBAL' 
-        ? { isActive: true, OR: [{ jenisSiswa: { not: 'MUADALAH' } }, { jenisSiswa: null }] } 
-        : { ...whereClause, isActive: true, OR: [{ jenisSiswa: { not: 'MUADALAH' } }, { jenisSiswa: null }] }
+      where: {
+        ...studentWhere,
+        OR: [{ jenisSiswa: { not: 'MUADALAH' } }, { jenisSiswa: null }]
+      }
     });
 
     const siswaFormalList = await this.prisma.siswaFormal.findMany({
-      where: user.scope === 'GLOBAL' ? { student: { isActive: true } } : { student: { ...whereClause, isActive: true } },
+      where: { student: studentWhere },
       include: { kelas: true }
     });
 
@@ -91,27 +105,35 @@ export class DashboardService {
       { name: 'Non Muadalah', value: nonMuadalahCount }
     ];
 
+    const kelasWhere: any = { isActive: true };
+    if (cabangId) {
+      kelasWhere.cabangId = cabangId;
+    } else if (wilayahId) {
+      kelasWhere.cabang = { wilayahId };
+    } else {
+      if (user.scope === 'WILAYAH') kelasWhere.cabang = { wilayahId: user.wilayahId };
+      else if (user.scope === 'CABANG') kelasWhere.cabangId = user.cabangId;
+    }
+
     const totalKelas = await this.prisma.kelas.count({
-      where: {
-        isActive: true,
-        ...(user.scope === 'GLOBAL' 
-          ? {} 
-          : user.scope === 'WILAYAH' 
-            ? { cabang: { wilayahId: user.wilayahId } }
-            : { cabangId: user.cabangId })
-      }
+      where: kelasWhere
     });
 
     // Subject coverage logic
     const requiredSubjects = ['matematika', 'bahasa indonesia', 'bahasa inggris', 'ipa', 'pkn'];
     
-    // Fetch cabangs based on scope
+    const cabangWhere: any = {};
+    if (cabangId) {
+      cabangWhere.id = cabangId;
+    } else if (wilayahId) {
+      cabangWhere.wilayahId = wilayahId;
+    } else {
+      if (user.scope === 'WILAYAH') cabangWhere.wilayahId = user.wilayahId;
+      else if (user.scope === 'CABANG') cabangWhere.id = user.cabangId;
+    }
+
     const cabangs = await this.prisma.cabang.findMany({
-      where: user.scope === 'GLOBAL' 
-        ? {} 
-        : user.scope === 'WILAYAH' 
-          ? { wilayahId: user.wilayahId }
-          : { id: user.cabangId },
+      where: cabangWhere,
       include: {
         wilayah: { select: { name: true } },
         kelas: {
@@ -169,15 +191,20 @@ export class DashboardService {
       });
     }
 
-    // Fetch real activities from AuditLog
+    const activityWhere: any = {};
+    if (cabangId) {
+      activityWhere.cabangId = cabangId;
+    } else if (wilayahId) {
+      activityWhere.wilayahId = wilayahId;
+    } else {
+      if (user.scope === 'WILAYAH') activityWhere.wilayahId = user.wilayahId;
+      else if (user.scope === 'CABANG') activityWhere.cabangId = user.cabangId;
+    }
+
     const recentLogs = await this.prisma.auditLog.findMany({
       take: 10,
       orderBy: { createdAt: 'desc' },
-      where: user.scope === 'GLOBAL' 
-        ? {} 
-        : user.scope === 'WILAYAH' 
-          ? { wilayahId: user.wilayahId }
-          : { cabangId: user.cabangId }
+      where: activityWhere
     });
 
     const activities = recentLogs.map((log: any) => ({
@@ -232,6 +259,48 @@ export class DashboardService {
       }
     }
 
+    // Kelengkapan Data Siswa
+    const totalSantriWithFullData = await this.prisma.student.count({
+      where: {
+        ...studentWhere,
+        biodata: {
+          ...(studentWhere.biodata || {}),
+          nik: { not: null },
+          noKk: { not: null },
+          nisn: { not: null },
+          tempatLahir: { not: null },
+          tanggalLahir: { not: null },
+          namaAyah: { not: null }
+        }
+      }
+    });
+
+    const kelengkapanSiswa = {
+      total: totalSantri,
+      lengkap: totalSantriWithFullData,
+      percent: totalSantri > 0 ? Math.round((totalSantriWithFullData / totalSantri) * 100) : 0
+    };
+
+    // Kelengkapan Data Guru
+    const staffWhere: any = { statusPool: 'TERSEDIA' };
+    if (cabangWhere.id) staffWhere.cabangId = cabangWhere.id;
+    else if (cabangWhere.wilayahId) staffWhere.wilayahId = cabangWhere.wilayahId;
+
+    const totalGuru = await this.prisma.staff.count({ where: staffWhere });
+    const totalGuruLengkap = await this.prisma.staff.count({
+      where: {
+        ...staffWhere,
+        phone: { not: null },
+        ktpUrl: { not: null }
+      }
+    });
+
+    const kelengkapanGuru = {
+      total: totalGuru,
+      lengkap: totalGuruLengkap,
+      percent: totalGuru > 0 ? Math.round((totalGuruLengkap / totalGuru) * 100) : 0
+    };
+
     return {
       totalSantri,
       totalKelas,
@@ -240,7 +309,9 @@ export class DashboardService {
       chartGrupDaimi,
       chartKelas: chartStatistikTambahan,
       activities,
-      raporCetakProgress
+      raporCetakProgress,
+      kelengkapanSiswa,
+      kelengkapanGuru
     };
   }
 
