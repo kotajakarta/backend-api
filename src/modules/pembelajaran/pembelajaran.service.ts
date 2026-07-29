@@ -537,6 +537,11 @@ export class PembelajaranService {
         weeks: Array<{
           hadir: number; sakit: number; izin: number; alpa: number; total: number;
           status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[]; kelasNames: string[];
+          details?: Array<{
+            kelasId: string; kelasName: string; guruName?: string | null;
+            status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null;
+            hadir: number; sakit: number; izin: number; alpa: number; total: number;
+          }>;
         }>;
       }>
     };
@@ -754,13 +759,23 @@ export class PembelajaranService {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     // ===== Weekly monitoring =====
+    type ClassWeekDetail = {
+      kelasId: string; kelasName: string; guruName?: string | null;
+      status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null;
+      hadir: number; sakit: number; izin: number; alpa: number; total: number;
+    };
     type WeekCell = {
       hadir: number; sakit: number; izin: number; alpa: number; total: number;
       status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[]; kelasNames: string[];
+      details?: ClassWeekDetail[];
+      detailsMap?: Map<string, ClassWeekDetail>;
     };
     type MapelWeekRow = { mataPelajaranId: string; mataPelajaranName: string; weeks: WeekCell[] };
 
-    const emptyWeekCell = (): WeekCell => ({ hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0, status: null, guruNames: [], kelasNames: [] });
+    const emptyWeekCell = (): WeekCell => ({
+      hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0, status: null,
+      guruNames: [], kelasNames: [], detailsMap: new Map<string, ClassWeekDetail>()
+    });
     const mapelWeekMap = new Map<string, MapelWeekRow>();
     const ensureMapelWeekRow = (mataPelajaranId: string, mataPelajaranName: string) => {
       if (!mapelWeekMap.has(mataPelajaranId)) {
@@ -780,6 +795,18 @@ export class PembelajaranService {
 
       const kName = kelasById.get(a.kelasId)?.name;
       if (kName && !cell.kelasNames.includes(kName)) cell.kelasNames.push(kName);
+
+      // Detail per kelas
+      let d = cell.detailsMap!.get(a.kelasId);
+      if (!d) {
+        d = { kelasId: a.kelasId, kelasName: kName || 'Kelas', guruName: null, status: null, hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0 };
+        cell.detailsMap!.set(a.kelasId, d);
+      }
+      d.total++;
+      if (a.status === 'HADIR') d.hadir++;
+      else if (a.status === 'SAKIT') d.sakit++;
+      else if (a.status === 'IZIN') d.izin++;
+      else if (a.status === 'ALPA') d.alpa++;
     });
 
     const STATUS_PRIORITY: Record<string, number> = { PENDING: 2, COMPLETED: 1, LIBUR: 0 };
@@ -797,6 +824,28 @@ export class PembelajaranService {
 
       const kName = kelasById.get(p.kelasId)?.name;
       if (kName && !cell.kelasNames.includes(kName)) cell.kelasNames.push(kName);
+
+      // Detail per kelas
+      let d = cell.detailsMap!.get(p.kelasId);
+      if (!d) {
+        d = { kelasId: p.kelasId, kelasName: kName || 'Kelas', guruName: p.guru?.name || null, status: p.status, hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0 };
+        cell.detailsMap!.set(p.kelasId, d);
+      } else {
+        if (p.guru?.name) d.guruName = p.guru.name;
+        if (!d.status || STATUS_PRIORITY[p.status] > STATUS_PRIORITY[d.status]) {
+          d.status = p.status;
+        }
+      }
+    });
+
+    // Transform detailsMap into details array for API output
+    Array.from(mapelWeekMap.values()).forEach(row => {
+      row.weeks.forEach(cell => {
+        if (cell.detailsMap) {
+          cell.details = Array.from(cell.detailsMap.values()).sort((a, b) => a.kelasName.localeCompare(b.kelasName));
+          delete cell.detailsMap;
+        }
+      });
     });
 
     const pemantauanMingguan = Array.from(mapelWeekMap.values()).sort((a, b) => a.mataPelajaranName.localeCompare(b.mataPelajaranName));
