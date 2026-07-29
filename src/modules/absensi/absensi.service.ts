@@ -95,9 +95,13 @@ export class AbsensiService {
     return this.prisma.programAbsensi.deleteMany();
   }
 
-  async generateProgramsBulk(data: { namePrefix: string; dayOfWeek: number; startMonth: string; endMonth: string }, user?: any) {
+  async generateProgramsBulk(data: { namePrefix: string; dayOfWeek?: number; daysOfWeek?: number[]; startMonth: string; endMonth: string }, user?: any) {
     this.requireGlobalOrWilayahScope(user, 'membuat program absensi massal');
-    const { namePrefix, dayOfWeek, startMonth, endMonth } = data;
+    const { namePrefix, dayOfWeek, daysOfWeek, startMonth, endMonth } = data;
+
+    const targetDays: number[] = Array.isArray(daysOfWeek) && daysOfWeek.length > 0
+      ? daysOfWeek
+      : (typeof dayOfWeek === 'number' ? [dayOfWeek] : [6]);
 
     const [startYear, startM] = startMonth.split('-').map(Number);
     const [endYear, endM] = endMonth.split('-').map(Number);
@@ -105,11 +109,11 @@ export class AbsensiService {
     const startDate = new Date(startYear, startM - 1, 1);
     const endDate = new Date(endYear, endM, 0); // last day of target month
 
-    const matchingDates: Date[] = [];
+    const matchingDates: { date: Date; day: number }[] = [];
     let current = new Date(startDate);
     while (current <= endDate) {
-      if (current.getDay() === dayOfWeek) {
-        matchingDates.push(new Date(current));
+      if (targetDays.includes(current.getDay())) {
+        matchingDates.push({ date: new Date(current), day: current.getDay() });
       }
       current.setDate(current.getDate() + 1);
     }
@@ -121,11 +125,12 @@ export class AbsensiService {
     ];
     const daysIndonesian = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
-    for (const d of matchingDates) {
+    for (const item of matchingDates) {
+      const d = item.date;
       const dayStr = String(d.getDate()).padStart(2, '0');
       const monthStr = months[d.getMonth()];
       const yearStr = d.getFullYear();
-      const dayName = daysIndonesian[dayOfWeek];
+      const dayName = daysIndonesian[item.day];
       const name = `${namePrefix} ${dayName} - ${dayStr} ${monthStr} ${yearStr}`;
 
       const existing = await this.prisma.programAbsensi.findFirst({
@@ -148,6 +153,7 @@ export class AbsensiService {
     }
 
     return {
+      message: `Berhasil membuat ${results.length} program absensi.`,
       totalGenerated: results.length,
       programs: results
     };

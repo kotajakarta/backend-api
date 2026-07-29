@@ -22,7 +22,7 @@ export class AbsensiController {
 
   @Post('programs/bulk-generate')
   @UseGuards(AccessControlGuard)
-  generateProgramsBulk(@Request() req: any, @Body() body: { namePrefix: string; dayOfWeek: number; startMonth: string; endMonth: string }) {
+  generateProgramsBulk(@Request() req: any, @Body() body: { namePrefix: string; dayOfWeek?: number; daysOfWeek?: number[]; startMonth: string; endMonth: string }) {
     return this.absensiService.generateProgramsBulk(body, req.user);
   }
 
