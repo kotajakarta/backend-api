@@ -536,7 +536,7 @@ export class PembelajaranService {
         mataPelajaranId: string; mataPelajaranName: string;
         weeks: Array<{
           hadir: number; sakit: number; izin: number; alpa: number; total: number;
-          status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[];
+          status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[]; kelasNames: string[];
         }>;
       }>
     };
@@ -756,11 +756,11 @@ export class PembelajaranService {
     // ===== Weekly monitoring =====
     type WeekCell = {
       hadir: number; sakit: number; izin: number; alpa: number; total: number;
-      status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[];
+      status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[]; kelasNames: string[];
     };
     type MapelWeekRow = { mataPelajaranId: string; mataPelajaranName: string; weeks: WeekCell[] };
 
-    const emptyWeekCell = (): WeekCell => ({ hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0, status: null, guruNames: [] });
+    const emptyWeekCell = (): WeekCell => ({ hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0, status: null, guruNames: [], kelasNames: [] });
     const mapelWeekMap = new Map<string, MapelWeekRow>();
     const ensureMapelWeekRow = (mataPelajaranId: string, mataPelajaranName: string) => {
       if (!mapelWeekMap.has(mataPelajaranId)) {
@@ -777,6 +777,9 @@ export class PembelajaranService {
       else if (a.status === 'SAKIT') cell.sakit++;
       else if (a.status === 'IZIN') cell.izin++;
       else if (a.status === 'ALPA') cell.alpa++;
+
+      const kName = kelasById.get(a.kelasId)?.name;
+      if (kName && !cell.kelasNames.includes(kName)) cell.kelasNames.push(kName);
     });
 
     const STATUS_PRIORITY: Record<string, number> = { PENDING: 2, COMPLETED: 1, LIBUR: 0 };
@@ -791,6 +794,9 @@ export class PembelajaranService {
         cell.status = p.status;
       }
       if (p.guru?.name && !cell.guruNames.includes(p.guru.name)) cell.guruNames.push(p.guru.name);
+
+      const kName = kelasById.get(p.kelasId)?.name;
+      if (kName && !cell.kelasNames.includes(kName)) cell.kelasNames.push(kName);
     });
 
     const pemantauanMingguan = Array.from(mapelWeekMap.values()).sort((a, b) => a.mataPelajaranName.localeCompare(b.mataPelajaranName));
