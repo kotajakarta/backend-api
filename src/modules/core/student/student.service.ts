@@ -1467,7 +1467,15 @@ export class StudentService {
 
     const students = await this.prisma.student.findMany({
       where: whereClause,
-      include: { biodata: true }
+      include: { 
+        biodata: true,
+        siswaFormal: {
+          include: { kelas: { include: { lembagaMuadalah: true } } }
+        },
+        dataDaimi: {
+          include: { grup: true }
+        }
+      }
     });
 
     const allBiodata = await this.prisma.biodata.findMany({
