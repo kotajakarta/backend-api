@@ -2513,5 +2513,142 @@ export class FormalService {
       }
     };
   }
+
+  // ===== Permohonan Kelas =====
+
+  async ajukanKelas(data: {
+    namaKelasUsulan: string;
+    cabangId: string;
+    tingkat?: string;
+    tahunAjaran?: string;
+    lembagaMuadalahId?: string;
+    waliKelasId?: string;
+    ruangId?: string;
+    kurikulum?: string;
+    jurusan?: string;
+    kapasitas?: number;
+  }, user: any) {
+    if (user.scope !== 'WILAYAH' && user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya user Wilayah dan Pusat yang dapat mengajukan kelas baru.');
+    }
+
+    const cabang = await this.prisma.cabang.findUnique({ where: { id: data.cabangId } });
+    if (!cabang) throw new NotFoundException('Cabang sasaran tidak ditemukan');
+    if (user.scope === 'WILAYAH' && cabang.wilayahId !== user.wilayahId) {
+      throw new ForbiddenException('Anda hanya dapat mengajukan kelas pada cabang di wilayah Anda.');
+    }
+
+    const permohonan = await (this.prisma as any).permohonanKelas.create({
+      data: {
+        cabangId: data.cabangId,
+        wilayahId: cabang.wilayahId || user.wilayahId || '',
+        namaKelasUsulan: data.namaKelasUsulan,
+        tingkat: data.tingkat || null,
+        tahunAjaran: data.tahunAjaran || null,
+        lembagaMuadalahId: data.lembagaMuadalahId || null,
+        waliKelasId: data.waliKelasId || null,
+        ruangId: data.ruangId || null,
+        kurikulum: data.kurikulum || null,
+        jurusan: data.jurusan || null,
+        kapasitas: data.kapasitas !== undefined ? Number(data.kapasitas) : 80,
+        status: 'PENDING',
+        createdById: user.id
+      },
+      include: { cabang: true, wilayah: true, createdBy: true }
+    });
+
+    await this.auditLogService.log('CREATE', 'PERMOHONAN_KELAS', permohonan.id, permohonan.namaKelasUsulan, user, `Mengajukan permohonan kelas baru "${permohonan.namaKelasUsulan}" di cabang ${cabang.name}`);
+    return permohonan;
+  }
+
+  async getPermohonanKelas(user: any) {
+    let whereClause: any = {};
+    if (user.scope === 'WILAYAH') {
+      whereClause = { wilayahId: user.wilayahId };
+    } else if (user.scope === 'CABANG') {
+      whereClause = { cabangId: user.cabangId };
+    }
+
+    return (this.prisma as any).permohonanKelas.findMany({
+      where: whereClause,
+      include: {
+        cabang: true,
+        wilayah: true,
+        createdBy: { select: { id: true, username: true, operatorName: true } },
+        approvedBy: { select: { id: true, username: true, operatorName: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async approveKelasWithKode(id: string, kodeKelasResmi: string, catatanAdmin?: string, user?: any) {
+    if (user && user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Pusat (GLOBAL) yang berhak menyetujui permohonan kelas.');
+    }
+    const permohonan = await (this.prisma as any).permohonanKelas.findUnique({ where: { id } });
+    if (!permohonan) throw new NotFoundException('Permohonan kelas tidak ditemukan');
+    if (permohonan.status !== 'PENDING') throw new BadRequestException('Permohonan ini sudah diproses.');
+
+    if (!kodeKelasResmi || !kodeKelasResmi.trim()) {
+      throw new BadRequestException('Kode Kelas Resmi wajib diisi oleh Admin Pusat.');
+    }
+
+    const finalName = kodeKelasResmi.trim();
+
+    const kelasBaru = await this.prisma.kelas.create({
+      data: {
+        name: finalName,
+        tingkat: permohonan.tingkat,
+        isActive: true,
+        cabangId: permohonan.cabangId,
+        lembagaMuadalahId: permohonan.lembagaMuadalahId,
+        tahunAjaran: permohonan.tahunAjaran,
+        waliKelasId: permohonan.waliKelasId,
+        ruangId: permohonan.ruangId,
+        kurikulum: permohonan.kurikulum,
+        jurusan: permohonan.jurusan,
+        kapasitas: permohonan.kapasitas
+      }
+    });
+
+    const updated = await (this.prisma as any).permohonanKelas.update({
+      where: { id },
+      data: {
+        status: 'APPROVED',
+        namaKelasDisetujui: finalName,
+        approvedById: user?.id || null,
+        catatanAdmin: catatanAdmin || null,
+        kelasCreatedId: kelasBaru.id
+      },
+      include: { cabang: true, wilayah: true }
+    });
+
+    if (user) {
+      await this.auditLogService.log('APPROVE', 'PERMOHONAN_KELAS', updated.id, finalName, user, `Menyetujui permohonan kelas "${permohonan.namaKelasUsulan}" -> Kode Resmi "${finalName}" (ID: ${kelasBaru.id})`);
+    }
+
+    return { permohonan: updated, kelas: kelasBaru };
+  }
+
+  async rejectKelas(id: string, catatanAdmin: string | undefined, user: any) {
+    if (user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Pusat (GLOBAL) yang berhak menolak permohonan kelas.');
+    }
+    const permohonan = await (this.prisma as any).permohonanKelas.findUnique({ where: { id } });
+    if (!permohonan) throw new NotFoundException('Permohonan kelas tidak ditemukan');
+    if (permohonan.status !== 'PENDING') throw new BadRequestException('Permohonan ini sudah diproses.');
+
+    const updated = await (this.prisma as any).permohonanKelas.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        approvedById: user.id,
+        catatanAdmin: catatanAdmin || 'Permohonan ditolak oleh Admin Pusat.'
+      }
+    });
+
+    await this.auditLogService.log('REJECT', 'PERMOHONAN_KELAS', updated.id, permohonan.namaKelasUsulan, user, `Menolak permohonan kelas "${permohonan.namaKelasUsulan}"`);
+    return updated;
+  }
 }
 

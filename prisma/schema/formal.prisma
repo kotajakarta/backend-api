@@ -199,3 +199,34 @@ model GuruMapelKelas {
   @@map("guru_mapel_kelas")
   @@schema("formal")
 }
+
+model PermohonanKelas {
+  id                 String           @id @default(uuid())
+  cabangId           String           @map("cabang_id")
+  wilayahId          String           @map("wilayah_id")
+  namaKelasUsulan    String           @map("nama_kelas_usulan")
+  namaKelasDisetujui String?          @map("nama_kelas_disetujui")
+  tingkat            String?
+  tahunAjaran        String?          @map("tahun_ajaran")
+  lembagaMuadalahId  String?          @map("lembaga_muadalah_id")
+  waliKelasId        String?          @map("wali_kelas_id")
+  ruangId            String?          @map("ruang_id")
+  kurikulum          String?
+  jurusan            String?
+  kapasitas          Int?             @default(80)
+  catatanAdmin       String?          @map("catatan_admin")
+  status             StatusPermohonan @default(PENDING)
+  createdById        String           @map("created_by_id")
+  approvedById       String?          @map("approved_by_id")
+  kelasCreatedId     String?          @map("kelas_created_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  cabang             Cabang           @relation(fields: [cabangId], references: [id])
+  wilayah            Wilayah          @relation(fields: [wilayahId], references: [id])
+  createdBy          User             @relation("PermohonanKelasCreatedBy", fields: [createdById], references: [id])
+  approvedBy         User?            @relation("PermohonanKelasApprovedBy", fields: [approvedById], references: [id])
+
+  @@map("permohonan_kelas")
+  @@schema("formal")
+}

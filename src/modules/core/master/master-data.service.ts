@@ -1,4 +1,4 @@
-import { Injectable, Inject, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
 
@@ -816,5 +816,111 @@ export class MasterDataService {
         }
       };
     }
+  }
+
+  // ===== Permohonan Cabang =====
+
+  async ajukanCabang(data: any, user: any) {
+    if (user.scope !== 'WILAYAH' && user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya user Wilayah dan Pusat yang dapat mengajukan cabang baru.');
+    }
+    const wilayahId = user.scope === 'WILAYAH' ? user.wilayahId : (data.wilayahId || user.wilayahId);
+    if (!wilayahId) {
+      throw new BadRequestException('Wilayah wajib diisi.');
+    }
+
+    const permohonan = await (this.prisma as any).permohonanCabang.create({
+      data: {
+        wilayahId,
+        namaCabangUsulan: data.namaCabangUsulan || data.name,
+        alamatJalan: data.alamatJalan || null,
+        alamatKabName: data.alamatKabName || null,
+        alamatProvName: data.alamatProvName || null,
+        kapasitasSantri: parseInt(data.kapasitasSantri || 0, 10),
+        alasan: data.alasan || null,
+        status: 'PENDING',
+        createdById: user.id
+      },
+      include: { wilayah: true, createdBy: true }
+    });
+
+    await this.auditLogService.log('CREATE', 'PERMOHONAN_CABANG', permohonan.id, permohonan.namaCabangUsulan, user, `Mengajukan permohonan cabang baru "${permohonan.namaCabangUsulan}"`);
+    return permohonan;
+  }
+
+  async getPermohonanCabang(user: any) {
+    let whereClause: any = {};
+    if (user.scope === 'WILAYAH') {
+      whereClause = { wilayahId: user.wilayahId };
+    } else if (user.scope === 'CABANG') {
+      whereClause = { createdById: user.id };
+    }
+
+    return (this.prisma as any).permohonanCabang.findMany({
+      where: whereClause,
+      include: {
+        wilayah: true,
+        createdBy: { select: { id: true, username: true, operatorName: true } },
+        approvedBy: { select: { id: true, username: true, operatorName: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async approveCabang(id: string, body: { namaCabangFinal?: string; catatanAdmin?: string }, user: any) {
+    if (user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Pusat (GLOBAL) yang berhak menyetujui permohonan cabang.');
+    }
+    const permohonan = await (this.prisma as any).permohonanCabang.findUnique({ where: { id } });
+    if (!permohonan) throw new NotFoundException('Permohonan cabang tidak ditemukan.');
+    if (permohonan.status !== 'PENDING') throw new BadRequestException('Permohonan ini sudah diproses.');
+
+    const finalName = body.namaCabangFinal || permohonan.namaCabangUsulan;
+
+    const cabangBaru = await this.prisma.cabang.create({
+      data: {
+        name: finalName,
+        wilayahId: permohonan.wilayahId,
+        alamatJalan: permohonan.alamatJalan,
+        alamatKabName: permohonan.alamatKabName,
+        alamatProvName: permohonan.alamatProvName,
+        kapasitasSantri: permohonan.kapasitasSantri
+      }
+    });
+
+    const updated = await (this.prisma as any).permohonanCabang.update({
+      where: { id },
+      data: {
+        status: 'APPROVED',
+        approvedById: user.id,
+        catatanAdmin: body.catatanAdmin || null,
+        cabangCreatedId: cabangBaru.id
+      },
+      include: { wilayah: true }
+    });
+
+    await this.auditLogService.log('APPROVE', 'PERMOHONAN_CABANG', updated.id, finalName, user, `Menyetujui permohonan cabang "${finalName}" -> Cabang ID: ${cabangBaru.id}`);
+    return { permohonan: updated, cabang: cabangBaru };
+  }
+
+  async rejectCabang(id: string, body: { catatanAdmin?: string }, user: any) {
+    if (user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Pusat (GLOBAL) yang berhak menolak permohonan cabang.');
+    }
+    const permohonan = await (this.prisma as any).permohonanCabang.findUnique({ where: { id } });
+    if (!permohonan) throw new NotFoundException('Permohonan cabang tidak ditemukan.');
+    if (permohonan.status !== 'PENDING') throw new BadRequestException('Permohonan ini sudah diproses.');
+
+    const updated = await (this.prisma as any).permohonanCabang.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        approvedById: user.id,
+        catatanAdmin: body.catatanAdmin || 'Permohonan ditolak oleh Admin Pusat.'
+      }
+    });
+
+    await this.auditLogService.log('REJECT', 'PERMOHONAN_CABANG', updated.id, permohonan.namaCabangUsulan, user, `Menolak permohonan cabang "${permohonan.namaCabangUsulan}"`);
+    return updated;
   }
 }

@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Put, Delete, UseGuards, Request, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, UseGuards, Request, Inject, Body, Param } from '@nestjs/common';
 import { MasterDataService } from './master-data.service.js';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
+import { RequireScope } from '../../../common/decorators/access-control.decorator.js';
 
 @Controller('master-data')
 export class MasterDataController {
@@ -16,6 +17,33 @@ export class MasterDataController {
   @UseGuards(AccessControlGuard)
   importGuru(@Request() req: any) {
     return this.masterDataService.importGuru(req.user, req.body);
+  }
+
+  @Get('cabang/permohonan')
+  @UseGuards(AccessControlGuard)
+  getPermohonanCabang(@Request() req: any) {
+    return this.masterDataService.getPermohonanCabang(req.user);
+  }
+
+  @Post('cabang/permohonan')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
+  ajukanCabang(@Request() req: any) {
+    return this.masterDataService.ajukanCabang(req.body, req.user);
+  }
+
+  @Post('cabang/permohonan/:id/approve')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  approveCabang(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.masterDataService.approveCabang(id, body, req.user);
+  }
+
+  @Post('cabang/permohonan/:id/reject')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  rejectCabang(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.masterDataService.rejectCabang(id, body, req.user);
   }
 
   @Post('cabang/import')

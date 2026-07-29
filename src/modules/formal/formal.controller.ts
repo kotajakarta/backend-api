@@ -24,8 +24,36 @@ export class FormalController {
     return this.formalService.importKelas(req.user, data);
   }
 
+  @Get('kelas/permohonan')
+  @UseGuards(AccessControlGuard)
+  getPermohonanKelas(@Request() req: any) {
+    return this.formalService.getPermohonanKelas(req.user);
+  }
+
+  @Post('kelas/permohonan')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
+  ajukanKelas(@Request() req: any, @Body() data: any) {
+    return this.formalService.ajukanKelas(data, req.user);
+  }
+
+  @Post('kelas/permohonan/:id/approve')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  approveKelas(@Request() req: any, @Param('id') id: string, @Body() body: { kodeKelasResmi: string; catatanAdmin?: string }) {
+    return this.formalService.approveKelasWithKode(id, body.kodeKelasResmi, body.catatanAdmin, req.user);
+  }
+
+  @Post('kelas/permohonan/:id/reject')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  rejectKelas(@Request() req: any, @Param('id') id: string, @Body() body: { catatanAdmin?: string }) {
+    return this.formalService.rejectKelas(id, body.catatanAdmin, req.user);
+  }
+
   @Post('kelas')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   createKelas(@Request() req: any, @Body() data: { 
     name: string, 
     tingkat?: string, 

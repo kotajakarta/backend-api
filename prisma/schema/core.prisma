@@ -6,6 +6,8 @@ model Wilayah {
   students   Student[]
   users      User[]
   kelasDaimi KelasDaimi[]
+  permohonanCabang PermohonanCabang[]
+  permohonanKelas  PermohonanKelas[]
 
   @@map("wilayah")
   @@schema("core")
@@ -56,6 +58,7 @@ model Cabang {
   fasilitas                 Fasilitas[]
   kegiatan                  Kegiatan[]
   grupDaimi                 GrupDaimi[]           @relation("GrupDaimiCabang")
+  permohonanKelas           PermohonanKelas[]
 
   @@map("cabang")
   @@schema("core")
@@ -84,6 +87,10 @@ model User {
   cabang            Cabang?            @relation(fields: [cabangId], references: [id])
   wilayah           Wilayah?           @relation(fields: [wilayahId], references: [id])
   confirmedKegiatan Kegiatan[]
+  permohonanCabangCreated PermohonanCabang[] @relation("PermohonanCabangCreatedBy")
+  permohonanCabangApproved PermohonanCabang[] @relation("PermohonanCabangApprovedBy")
+  permohonanKelasCreated   PermohonanKelas[]  @relation("PermohonanKelasCreatedBy")
+  permohonanKelasApproved  PermohonanKelas[]  @relation("PermohonanKelasApprovedBy")
 
   @@map("users")
   @@schema("core")
@@ -340,5 +347,38 @@ enum StatusPermintaanTarik {
   APPROVED
   REJECTED
 
+  @@schema("core")
+}
+
+enum StatusPermohonan {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@schema("core")
+}
+
+model PermohonanCabang {
+  id               String           @id @default(uuid())
+  wilayahId        String           @map("wilayah_id")
+  namaCabangUsulan String           @map("nama_cabang_usulan")
+  alamatJalan      String?          @map("alamat_jalan")
+  alamatKabName    String?          @map("alamat_kab_name")
+  alamatProvName   String?          @map("alamat_prov_name")
+  kapasitasSantri  Int?             @default(0) @map("kapasitas_santri")
+  alasan           String?
+  catatanAdmin     String?          @map("catatan_admin")
+  status           StatusPermohonan @default(PENDING)
+  createdById      String           @map("created_by_id")
+  approvedById     String?          @map("approved_by_id")
+  cabangCreatedId  String?          @map("cabang_created_id")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  wilayah          Wilayah          @relation(fields: [wilayahId], references: [id])
+  createdBy        User             @relation("PermohonanCabangCreatedBy", fields: [createdById], references: [id])
+  approvedBy       User?            @relation("PermohonanCabangApprovedBy", fields: [approvedById], references: [id])
+
+  @@map("permohonan_cabang")
   @@schema("core")
 }
