@@ -1035,18 +1035,30 @@ export class StudentService {
       where: { status: 'PENDING' }
     });
   }
-  async lepasSiswa(studentId: string, dto: { statusAkhir: StatusPool, catatan?: string }, user: any) {
+  async lepasSiswa(studentId: string, dto: { statusAkhir: StatusPool; catatan?: string }, user: any) {
+    if (!studentId || typeof studentId !== 'string' || studentId.trim().length === 0) {
+      throw new BadRequestException('ID Siswa wajib diisi');
+    }
+
+    const validStatuses = Object.values(StatusPool);
+    if (!dto || !dto.statusAkhir || !validStatuses.includes(dto.statusAkhir)) {
+      throw new BadRequestException(`Status akhir pelepasan tidak valid. Pilihan: ${validStatuses.join(', ')}`);
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      const student = await tx.student.findUnique({ where: { id: studentId } });
+      const student = await tx.student.findUnique({
+        where: { id: studentId },
+        include: { siswaFormal: true, dataDaimi: true }
+      });
       if (!student) {
         throw new BadRequestException('Siswa tidak ditemukan');
       }
       
       if (user && user.scope !== 'GLOBAL') {
-        if (user.scope === 'WILAYAH' && student.wilayahId !== user.wilayahId) {
+        if (user.scope === 'WILAYAH' && student.wilayahId && student.wilayahId !== user.wilayahId) {
           throw new ForbiddenException('Akses ditolak: Siswa berada di luar wilayah Anda.');
         }
-        if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+        if (user.scope === 'CABANG' && student.cabangId && student.cabangId !== user.cabangId) {
           throw new ForbiddenException('Akses ditolak: Siswa berada di luar cabang Anda.');
         }
       }
@@ -1068,7 +1080,7 @@ export class StudentService {
           data: {
             tanggalKeluar: new Date(),
             statusAkhir: dto.statusAkhir,
-            catatan: dto.catatan,
+            catatan: dto.catatan || null,
           },
         });
       }
@@ -1078,12 +1090,29 @@ export class StudentService {
         isActive = false;
       }
 
+      const isTersedia = dto.statusAkhir === StatusPool.TERSEDIA;
+
+      if (isTersedia) {
+        if (student.siswaFormal) {
+          await tx.siswaFormal.update({
+            where: { studentId: student.id },
+            data: { kelasId: null }
+          });
+        }
+        if (student.dataDaimi) {
+          await tx.dataDaimi.update({
+            where: { studentId: student.id },
+            data: { grupId: null, kelasId: null }
+          });
+        }
+      }
+
       const updatedStudent = await tx.student.update({
         where: { id: studentId },
         data: {
           statusPool: dto.statusAkhir,
-          cabangId: (dto.statusAkhir === StatusPool.TERSEDIA) ? null : student.cabangId,
-          wilayahId: (dto.statusAkhir === StatusPool.TERSEDIA) ? null : student.wilayahId,
+          cabangId: isTersedia ? null : student.cabangId,
+          wilayahId: isTersedia ? null : student.wilayahId,
           isActive,
         },
       });
@@ -1092,14 +1121,25 @@ export class StudentService {
     });
   }
 
-  async lepasMassalSiswa(studentIds: string[], dto: { statusAkhir: StatusPool, catatan?: string }, user: any) {
-    if (!studentIds || studentIds.length === 0) {
+  async lepasMassalSiswa(studentIds: string[], dto: { statusAkhir: StatusPool; catatan?: string }, user: any) {
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
       throw new BadRequestException('Siswa tidak terpilih');
+    }
+
+    const cleanStudentIds = studentIds.filter(id => typeof id === 'string' && id.trim().length > 0);
+    if (cleanStudentIds.length === 0) {
+      throw new BadRequestException('Daftar ID Siswa tidak valid');
+    }
+
+    const validStatuses = Object.values(StatusPool);
+    if (!dto || !dto.statusAkhir || !validStatuses.includes(dto.statusAkhir)) {
+      throw new BadRequestException(`Status akhir pelepasan tidak valid. Pilihan: ${validStatuses.join(', ')}`);
     }
 
     return this.prisma.$transaction(async (tx) => {
       const students = await tx.student.findMany({
-        where: { id: { in: studentIds } }
+        where: { id: { in: cleanStudentIds } },
+        include: { siswaFormal: true, dataDaimi: true }
       });
 
       if (students.length === 0) {
@@ -1108,10 +1148,10 @@ export class StudentService {
 
       for (const student of students) {
         if (user && user.scope !== 'GLOBAL') {
-          if (user.scope === 'WILAYAH' && student.wilayahId !== user.wilayahId) {
+          if (user.scope === 'WILAYAH' && student.wilayahId && student.wilayahId !== user.wilayahId) {
             throw new ForbiddenException(`Akses ditolak: Siswa ${student.id} berada di luar wilayah Anda.`);
           }
-          if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+          if (user.scope === 'CABANG' && student.cabangId && student.cabangId !== user.cabangId) {
             throw new ForbiddenException(`Akses ditolak: Siswa ${student.id} berada di luar cabang Anda.`);
           }
         }
@@ -1133,7 +1173,7 @@ export class StudentService {
             data: {
               tanggalKeluar: new Date(),
               statusAkhir: dto.statusAkhir,
-              catatan: dto.catatan,
+              catatan: dto.catatan || null,
             },
           });
         }
@@ -1143,12 +1183,29 @@ export class StudentService {
           isActive = false;
         }
 
+        const isTersedia = dto.statusAkhir === StatusPool.TERSEDIA;
+
+        if (isTersedia) {
+          if (student.siswaFormal) {
+            await tx.siswaFormal.update({
+              where: { studentId: student.id },
+              data: { kelasId: null }
+            });
+          }
+          if (student.dataDaimi) {
+            await tx.dataDaimi.update({
+              where: { studentId: student.id },
+              data: { grupId: null, kelasId: null }
+            });
+          }
+        }
+
         await tx.student.update({
           where: { id: student.id },
           data: {
             statusPool: dto.statusAkhir,
-            cabangId: (dto.statusAkhir === StatusPool.TERSEDIA) ? null : student.cabangId,
-            wilayahId: (dto.statusAkhir === StatusPool.TERSEDIA) ? null : student.wilayahId,
+            cabangId: isTersedia ? null : student.cabangId,
+            wilayahId: isTersedia ? null : student.wilayahId,
             isActive,
           },
         });

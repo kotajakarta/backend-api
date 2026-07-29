@@ -24,7 +24,15 @@ export class FormalService {
         waliKelas: true,
         ruang: true,
         _count: {
-          select: { siswaFormal: true }
+          select: {
+            siswaFormal: {
+              where: {
+                student: {
+                  statusPool: { not: 'TERSEDIA' }
+                }
+              }
+            }
+          }
         }
       }
     });

@@ -39,7 +39,8 @@ export class PrismaClientExceptionFilter implements ExceptionFilter {
       default:
         if (exception.code.startsWith('P2')) {
           status = HttpStatus.BAD_REQUEST;
-          message = 'The request contains invalid data.';
+          const targetField = (exception.meta?.target as string[])?.join(', ') || (exception.meta?.cause as string);
+          message = targetField ? `Data tidak valid pada field: ${targetField}` : 'Gagal memproses data. Mohon periksa kembali data yang dimasukkan.';
         }
         break;
     }
