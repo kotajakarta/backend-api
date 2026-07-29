@@ -6,7 +6,7 @@ import { ProgramType, KehadiranStatus } from '@prisma/client';
 export class AbsensiService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async getPrograms(activeOnly?: boolean, userScope?: string, page?: number, limit?: number) {
+  async getPrograms(activeOnly?: boolean, userScope?: string, page?: number, limit?: number, cabangId?: string, kelasId?: string) {
     const whereClause: any = {};
     const today = new Date();
     today.setHours(23, 59, 59, 999);
@@ -36,8 +36,13 @@ export class AbsensiService {
         })
       ]);
 
+      let finalItems = items;
+      if (cabangId && kelasId) {
+        finalItems = await this.appendIsAttendedStatus(items, cabangId, kelasId);
+      }
+
       return {
-        items,
+        items: finalItems,
         total,
         page,
         limit,
@@ -45,10 +50,37 @@ export class AbsensiService {
       };
     }
 
-    return this.prisma.programAbsensi.findMany({
+    let items = await this.prisma.programAbsensi.findMany({
       where: whereClause,
       orderBy: { date: 'desc' }
     });
+
+    if (cabangId && kelasId) {
+      items = await this.appendIsAttendedStatus(items, cabangId, kelasId);
+    }
+
+    return items;
+  }
+
+  private async appendIsAttendedStatus(programs: any[], cabangId: string, kelasId: string) {
+    if (!programs.length) return programs;
+    
+    const programIds = programs.map(p => p.id);
+    const attendanceRecords = await this.prisma.kehadiran.findMany({
+      where: {
+        programId: { in: programIds },
+        cabangId,
+        student: { siswaFormal: { kelasId } }
+      },
+      select: { programId: true },
+      distinct: ['programId']
+    });
+
+    const attendedSet = new Set(attendanceRecords.map(r => r.programId));
+    return programs.map(p => ({
+      ...p,
+      isAttended: attendedSet.has(p.id)
+    }));
   }
 
   // ProgramAbsensi adalah daftar/jadwal bersama lintas cabang (tidak terikat cabangId

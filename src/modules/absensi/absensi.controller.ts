@@ -12,12 +12,14 @@ export class AbsensiController {
     @Query('activeOnly') activeOnly?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('cabangId') cabangId?: string,
+    @Query('kelasId') kelasId?: string,
     @Request() req?: any
   ) {
     const userScope = req?.user?.scope;
     const pageNum = page ? Number(page) : undefined;
     const limitNum = limit ? Number(limit) : undefined;
-    return this.absensiService.getPrograms(activeOnly === 'true', userScope, pageNum, limitNum);
+    return this.absensiService.getPrograms(activeOnly === 'true', userScope, pageNum, limitNum, cabangId, kelasId);
   }
 
   @Post('programs/bulk-generate')
