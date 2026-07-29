@@ -1254,7 +1254,11 @@ export class FormalService {
         });
       } catch (error: any) {
         if (error.code === 'P2002') {
-          throw new BadRequestException('Siswa gagal ditambahkan ke rombel karena NISN sudah terdaftar pada siswa lain di sistem (Duplikat). Silakan perbaiki NISN siswa ini terlebih dahulu.');
+          const target = error.meta?.target || [];
+          if (target.includes('nisn')) {
+            throw new BadRequestException(`Siswa gagal ditambahkan ke rombel karena NISN sudah terdaftar pada siswa lain di sistem (Duplikat). Silakan perbaiki NISN siswa ini terlebih dahulu.`);
+          }
+          throw new BadRequestException(`Siswa gagal ditambahkan (Duplikat data: ${Array.isArray(target) ? target.join(', ') : target}).`);
         }
         throw error;
       }
@@ -1263,26 +1267,34 @@ export class FormalService {
     // Upsert RiwayatKelasFormal untuk tahun ajaran aktif
     const akademik = await this.prisma.pengaturanAkademik.findFirst();
     if (akademik?.tahunAjaran && akademik?.semesterAktif) {
-      await this.prisma.riwayatKelasFormal.upsert({
-        where: {
-          studentId_tahunAjaran_semester: {
+      try {
+        await this.prisma.riwayatKelasFormal.upsert({
+          where: {
+            studentId_tahunAjaran_semester: {
+              studentId,
+              tahunAjaran: akademik.tahunAjaran,
+              semester: akademik.semesterAktif
+            }
+          },
+          update: {
+            kelasId: kelas.id,
+            waliKelasId: kelas.waliKelasId
+          },
+          create: {
             studentId,
+            kelasId: kelas.id,
             tahunAjaran: akademik.tahunAjaran,
-            semester: akademik.semesterAktif
+            semester: akademik.semesterAktif,
+            waliKelasId: kelas.waliKelasId
           }
-        },
-        update: {
-          kelasId: kelas.id,
-          waliKelasId: kelas.waliKelasId
-        },
-        create: {
-          studentId,
-          kelasId: kelas.id,
-          tahunAjaran: akademik.tahunAjaran,
-          semester: akademik.semesterAktif,
-          waliKelasId: kelas.waliKelasId
+        });
+      } catch (error: any) {
+        if (error.code === 'P2002') {
+          const target = error.meta?.target || [];
+          throw new BadRequestException(`Siswa gagal ditambahkan ke rombel karena konflik data riwayat kelas (Duplikat data: ${Array.isArray(target) ? target.join(', ') : target}).`);
         }
-      });
+        throw error;
+      }
     }
 
     return siswaFormalRecord;

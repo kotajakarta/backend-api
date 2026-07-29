@@ -1457,5 +1457,73 @@ export class StudentService {
       });
     }
   }
-}
+  async getResiduStudents(user: any) {
+    let whereClause: any = {};
+    if (user.scope === 'CABANG') {
+      whereClause.cabangId = user.cabangId;
+    } else if (user.scope === 'WILAYAH') {
+      whereClause.wilayahId = user.wilayahId;
+    }
 
+    const students = await this.prisma.student.findMany({
+      where: whereClause,
+      include: { biodata: true }
+    });
+
+    const allBiodata = await this.prisma.biodata.findMany({
+      select: { nisn: true, noGlodemy: true, nisLokal: true, nik: true }
+    });
+
+    const nisnCounts: Record<string, number> = {};
+    const glodemyCounts: Record<string, number> = {};
+    const nisLokalCounts: Record<string, number> = {};
+    const nikCounts: Record<string, number> = {};
+
+    allBiodata.forEach(b => {
+      if (b.nisn && b.nisn.trim() !== '' && b.nisn.trim() !== '-') nisnCounts[b.nisn] = (nisnCounts[b.nisn] || 0) + 1;
+      if (b.noGlodemy && b.noGlodemy.trim() !== '' && b.noGlodemy.trim() !== '-') glodemyCounts[b.noGlodemy] = (glodemyCounts[b.noGlodemy] || 0) + 1;
+      if (b.nisLokal && b.nisLokal.trim() !== '' && b.nisLokal.trim() !== '-') nisLokalCounts[b.nisLokal] = (nisLokalCounts[b.nisLokal] || 0) + 1;
+      if (b.nik && b.nik.trim() !== '' && b.nik.trim() !== '-') nikCounts[b.nik] = (nikCounts[b.nik] || 0) + 1;
+    });
+
+    const requiredFields = [
+      'noKk', 'anakKe', 'jumlahSaudara', 'tempatLahir', 'tanggalLahir', 'namaAyah',
+      'pekerjaanAyah', 'pendidikanAyah', 'penghasilanAyah', 'namaIbu', 'pekerjaanIbu', 
+      'pendidikanIbu', 'penghasilanIbu', 'address', 'phone', 'fotoUrl', 'ijazahUrl', 'kkUrl',
+      'alamatProvId', 'alamatKabId', 'alamatKecId', 'alamatKelId', 'alamatJalan'
+    ];
+
+    const result = students.map(student => {
+      const b = student.biodata;
+      const flags: Record<string, 'VALID' | 'EMPTY' | 'DUPLICATE'> = {};
+
+      const checkDup = (val: string | null | undefined, counts: Record<string, number>) => {
+        if (!val || val.trim() === '' || val.trim() === '-') return 'EMPTY';
+        if (counts[val] > 1) return 'DUPLICATE';
+        return 'VALID';
+      };
+
+      flags.nisn = checkDup(b.nisn, nisnCounts);
+      flags.noGlodemy = checkDup(b.noGlodemy, glodemyCounts);
+      flags.nisLokal = checkDup(b.nisLokal, nisLokalCounts);
+      flags.nik = checkDup(b.nik, nikCounts);
+
+      // Other fields
+      requiredFields.forEach(f => {
+        const val = (b as any)[f];
+        if (val === null || val === undefined || val === '') {
+          flags[f] = 'EMPTY';
+        } else {
+          flags[f] = 'VALID';
+        }
+      });
+
+      return {
+        ...student,
+        flags
+      };
+    });
+
+    return result;
+  }
+}

@@ -20,6 +20,12 @@ export class StudentController {
     return this.studentService.exportStudentDetail(req.user);
   }
 
+  @Get('residu')
+  @UseGuards(AccessControlGuard)
+  getResiduStudents(@Request() req: any) {
+    return this.studentService.getResiduStudents(req.user);
+  }
+
   @Post()
   @UseGuards(AccessControlGuard)
   createStudent(@Request() req: any, @Body() data: any) {
