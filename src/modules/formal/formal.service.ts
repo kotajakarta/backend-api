@@ -379,8 +379,8 @@ export class FormalService {
       select: { biodataId: true }
     });
 
-    const nis = data.nis === '' ? null : data.nis;
-    const nisn = data.nisn === '' ? null : data.nisn;
+    const nis = (data.nis && data.nis.trim() !== '' && data.nis.trim() !== '-') ? data.nis : null;
+    const nisn = (data.nisn && data.nisn.trim() !== '' && data.nisn.trim() !== '-') ? data.nisn : null;
     const kelasId = data.kelasId === '' ? null : data.kelasId;
 
     if (student?.biodataId) {
@@ -398,26 +398,33 @@ export class FormalService {
     });
 
     let result;
-    if (existing) {
-      result = await this.prisma.siswaFormal.update({
-        where: { studentId },
-        data: {
-          nis,
-          nisn,
-          kelasId,
-          ...(data.isVerval !== undefined && { isVerval: data.isVerval }),
-        }
-      });
-    } else {
-      result = await this.prisma.siswaFormal.create({
-        data: {
-          studentId,
-          nis,
-          nisn,
-          kelasId,
-          isVerval: data.isVerval || false,
-        }
-      });
+    try {
+      if (existing) {
+        result = await this.prisma.siswaFormal.update({
+          where: { studentId },
+          data: {
+            nis,
+            nisn,
+            kelasId,
+            ...(data.isVerval !== undefined && { isVerval: data.isVerval }),
+          }
+        });
+      } else {
+        result = await this.prisma.siswaFormal.create({
+          data: {
+            studentId,
+            nis,
+            nisn,
+            kelasId,
+            isVerval: data.isVerval || false,
+          }
+        });
+      }
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException('Pembaruan gagal karena NISN sudah terdaftar pada siswa lain (Duplikat). Silakan gunakan NISN yang unik atau kosongkan jika belum memiliki.');
+      }
+      throw error;
     }
 
     if (user) {
@@ -1234,15 +1241,22 @@ export class FormalService {
         where: { id: studentId },
         include: { biodata: true }
       });
-      return this.prisma.siswaFormal.create({
-        data: {
-          studentId,
-          kelasId,
-          tingkat: kelas.tingkat,
-          nisn: student?.biodata?.nisn || null,
-          nis: student?.biodata?.nisLokal || null
+      try {
+        return await this.prisma.siswaFormal.create({
+          data: {
+            studentId,
+            kelasId,
+            tingkat: kelas.tingkat,
+            nisn: (student?.biodata?.nisn && student.biodata.nisn.trim() !== '' && student.biodata.nisn.trim() !== '-') ? student.biodata.nisn : null,
+            nis: (student?.biodata?.nisLokal && student.biodata.nisLokal.trim() !== '' && student.biodata.nisLokal.trim() !== '-') ? student.biodata.nisLokal : null
+          }
+        });
+      } catch (error: any) {
+        if (error.code === 'P2002') {
+          throw new BadRequestException('Siswa gagal ditambahkan ke rombel karena NISN sudah terdaftar pada siswa lain di sistem (Duplikat). Silakan perbaiki NISN siswa ini terlebih dahulu.');
         }
-      });
+        throw error;
+      }
     }
   }
 
