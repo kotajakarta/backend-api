@@ -570,20 +570,121 @@ export class MasterDataService {
   }
 
   async getCabang(user: any) {
-    // If scope is WILAYAH, filter by wilayahId
     let whereClause = {};
     if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause = { wilayahId: user.wilayahId };
     }
     
-    return this.prisma.cabang.findMany({
+    const cabangs = await this.prisma.cabang.findMany({
       where: whereClause,
       include: {
         wilayah: true,
-        _count: {
-          select: { students: true }
+        staff: true,
+        students: {
+          include: {
+            siswaFormal: true
+          }
         }
       }
+    });
+
+    return cabangs.map(cabang => {
+      const pimpinanCabang = cabang.staff.find(s => s.id === cabang.ketuaCabangId)?.name || '-';
+      const pjMuadalah = cabang.staff.find(s => s.id === cabang.ketuaMuadalahId)?.name || '-';
+
+      // Personel Breakdown
+      let pendidikLK = 0;
+      let pendidikPR = 0;
+      let kependidikanLK = 0;
+      let kependidikanPR = 0;
+
+      let guruMatematika = 0;
+      let guruIndo = 0;
+      let guruInggris = 0;
+      let guruIpa = 0;
+      let guruPkn = 0;
+
+      cabang.staff.forEach(s => {
+        const isPR = s.jenisKelamin === 'P' || s.jenisKelamin === 'Perempuan';
+        const isPendidik = s.position?.includes('Pengajar') || s.position?.includes('Guru') || s.position?.includes('Ustadz') || (s.mapelUmum && s.mapelUmum.length > 0);
+        
+        if (isPendidik) {
+          if (isPR) pendidikPR++;
+          else pendidikLK++;
+        } else {
+          if (isPR) kependidikanPR++;
+          else kependidikanLK++;
+        }
+
+        if (s.mapelUmum && Array.isArray(s.mapelUmum)) {
+          if (s.mapelUmum.includes('Matematika')) guruMatematika++;
+          if (s.mapelUmum.includes('Bahasa Indonesia')) guruIndo++;
+          if (s.mapelUmum.includes('Bahasa Inggris')) guruInggris++;
+          if (s.mapelUmum.includes('IPA')) guruIpa++;
+          if (s.mapelUmum.includes('PKn')) guruPkn++;
+        }
+      });
+
+      // Siswa Breakdown
+      let hazirlik = 0;
+      let hafizlik = 0;
+      let ibtidai = 0;
+      let ihzari = 0;
+
+      let tingkat7 = 0;
+      let tingkat8 = 0;
+      let tingkat9 = 0;
+      let tingkat10 = 0;
+      let tingkat11 = 0;
+      let tingkat12 = 0;
+      let lulus = 0;
+      let sekolahLain = 0;
+
+      cabang.students.forEach(st => {
+        if (!st.isActive) return;
+        if (st.jenisSiswa === 'NON_MUADALAH') {
+          sekolahLain++;
+        }
+
+        const gd = (st.grupDaimi || '').toUpperCase();
+        if (gd.includes('HAZIRLIK') || gd.includes('HQ')) hazirlik++;
+        else if (gd.includes('HAFIZLIK') || gd.includes('TAHFIZ')) hafizlik++;
+        else if (gd.includes('IBTIDAI')) ibtidai++;
+        else if (gd.includes('IHZARI')) ihzari++;
+
+        const t = st.siswaFormal?.tingkat || '';
+        if (t === '7' || t.includes('7') || t.includes('VII')) tingkat7++;
+        else if (t === '8' || t.includes('8') || t.includes('VIII')) tingkat8++;
+        else if (t === '9' || t.includes('9') || t.includes('IX')) tingkat9++;
+        else if (t === '10' || t.includes('10') || t.includes('X')) tingkat10++;
+        else if (t === '11' || t.includes('11') || t.includes('XI')) tingkat11++;
+        else if (t === '12' || t.includes('12') || t.includes('XII')) tingkat12++;
+      });
+
+      return {
+        ...cabang,
+        pimpinanCabang,
+        pjMuadalah,
+        personel: {
+          pendidikLK,
+          pendidikPR,
+          kependidikanLK,
+          kependidikanPR,
+          totalLK: pendidikLK + kependidikanLK,
+          totalPR: pendidikPR + kependidikanPR,
+          guruMatematika,
+          guruIndo,
+          guruInggris,
+          guruIpa,
+          guruPkn,
+          totalGuruMapel: guruMatematika + guruIndo + guruInggris + guruIpa + guruPkn
+        },
+        siswaStats: {
+          totalSiswa: cabang.students.length,
+          grup: { hazirlik, hafizlik, ibtidai, ihzari },
+          tingkat: { tingkat7, tingkat8, tingkat9, tingkat10, tingkat11, tingkat12, lulus, sekolahLain }
+        }
+      };
     });
   }
 
