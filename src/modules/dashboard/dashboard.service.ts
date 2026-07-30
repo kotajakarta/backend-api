@@ -320,6 +320,11 @@ export class DashboardService {
       namaAyah: { not: null }
     };
 
+    const guruLengkapCondition = {
+      phone: { not: null },
+      ktpUrl: { not: null }
+    };
+
     if (user.scope === 'GLOBAL') {
       const wilayahs = await this.prisma.wilayah.findMany({ orderBy: { name: 'asc' } });
       for (const w of wilayahs) {
@@ -329,11 +334,18 @@ export class DashboardService {
         const lengkap = total === 0 ? 0 : await this.prisma.student.count({
           where: { ...studentWhere, wilayahId: w.id, biodata: { ...(studentWhere.biodata || {}), ...fullDataBiodataCondition } }
         });
+        
+        const totalGuru = await this.prisma.staff.count({
+          where: { statusPool: 'TERSEDIA', wilayahId: w.id }
+        });
+        const lengkapGuru = totalGuru === 0 ? 0 : await this.prisma.staff.count({
+          where: { statusPool: 'TERSEDIA', wilayahId: w.id, ...guruLengkapCondition }
+        });
+
         kelengkapanEntities.push({
           name: w.name,
-          total,
-          lengkap,
-          percent: total > 0 ? Math.round((lengkap / total) * 100) : 0
+          siswa: { total, lengkap, percent: total > 0 ? Math.round((lengkap / total) * 100) : 0 },
+          guru: { total: totalGuru, lengkap: lengkapGuru, percent: totalGuru > 0 ? Math.round((lengkapGuru / totalGuru) * 100) : 0 }
         });
       }
     } else if (user.scope === 'WILAYAH') {
@@ -348,11 +360,18 @@ export class DashboardService {
         const lengkap = total === 0 ? 0 : await this.prisma.student.count({
           where: { ...studentWhere, cabangId: c.id, biodata: { ...(studentWhere.biodata || {}), ...fullDataBiodataCondition } }
         });
+
+        const totalGuru = await this.prisma.staff.count({
+          where: { statusPool: 'TERSEDIA', cabangId: c.id }
+        });
+        const lengkapGuru = totalGuru === 0 ? 0 : await this.prisma.staff.count({
+          where: { statusPool: 'TERSEDIA', cabangId: c.id, ...guruLengkapCondition }
+        });
+
         kelengkapanEntities.push({
           name: c.name,
-          total,
-          lengkap,
-          percent: total > 0 ? Math.round((lengkap / total) * 100) : 0
+          siswa: { total, lengkap, percent: total > 0 ? Math.round((lengkap / total) * 100) : 0 },
+          guru: { total: totalGuru, lengkap: lengkapGuru, percent: totalGuru > 0 ? Math.round((lengkapGuru / totalGuru) * 100) : 0 }
         });
       }
     } else {
@@ -376,9 +395,7 @@ export class DashboardService {
         });
         kelengkapanEntities.push({
           name: k.name,
-          total,
-          lengkap,
-          percent: total > 0 ? Math.round((lengkap / total) * 100) : 0
+          siswa: { total, lengkap, percent: total > 0 ? Math.round((lengkap / total) * 100) : 0 }
         });
       }
 
@@ -398,9 +415,7 @@ export class DashboardService {
         });
         kelengkapanEntities.push({
           name: 'Belum Masuk Kelas',
-          total: totalBelum,
-          lengkap: lengkapBelum,
-          percent: Math.round((lengkapBelum / totalBelum) * 100)
+          siswa: { total: totalBelum, lengkap: lengkapBelum, percent: Math.round((lengkapBelum / totalBelum) * 100) }
         });
       }
     }
