@@ -582,7 +582,12 @@ export class MasterDataService {
         staff: true,
         students: {
           include: {
-            siswaFormal: true
+            siswaFormal: true,
+            dataDaimi: {
+              include: {
+                grup: true
+              }
+            }
           }
         }
       }
@@ -646,7 +651,7 @@ export class MasterDataService {
           sekolahLain++;
         }
 
-        const gd = (st.grupDaimi || '').toUpperCase();
+        const gd = (st.grupDaimi || st.dataDaimi?.grup?.jenis || st.dataDaimi?.grup?.name || '').toUpperCase();
         if (gd.includes('HAZIRLIK') || gd.includes('HQ')) hazirlik++;
         else if (gd.includes('HAFIZLIK') || gd.includes('TAHFIZ')) hafizlik++;
         else if (gd.includes('IBTIDAI')) ibtidai++;
