@@ -230,11 +230,12 @@ export class DashboardService {
       percent: number;
     } | null = null;
 
+    const pengaturanAkademik = await this.prisma.pengaturanAkademik.findFirst();
+    let taAktif = pengaturanAkademik?.tahunAjaran || '';
+    let semAktif = pengaturanAkademik?.semesterAktif || '';
+
     if (user.divisi === 'FORMAL' || user.divisi === 'ALL') {
-      const pengaturanAkademik = await this.prisma.pengaturanAkademik.findFirst();
-      if (pengaturanAkademik?.tahunAjaran && pengaturanAkademik?.semesterAktif) {
-        const taAktif = pengaturanAkademik.tahunAjaran;
-        const semAktif = pengaturanAkademik.semesterAktif;
+      if (taAktif && semAktif) {
 
         let kelasWhereRapor: any = {};
         if (user.scope === 'CABANG' && user.cabangId) {
@@ -309,6 +310,102 @@ export class DashboardService {
       percent: totalGuru > 0 ? Math.round((totalGuruLengkap / totalGuru) * 100) : 0
     };
 
+    let kelengkapanEntities = [];
+    const fullDataBiodataCondition = {
+      nik: { not: null },
+      noKk: { not: null },
+      nisn: { not: null },
+      tempatLahir: { not: null },
+      tanggalLahir: { not: null },
+      namaAyah: { not: null }
+    };
+
+    if (user.scope === 'GLOBAL') {
+      const wilayahs = await this.prisma.wilayah.findMany({ orderBy: { name: 'asc' } });
+      for (const w of wilayahs) {
+        const total = await this.prisma.student.count({
+          where: { ...studentWhere, wilayahId: w.id }
+        });
+        const lengkap = total === 0 ? 0 : await this.prisma.student.count({
+          where: { ...studentWhere, wilayahId: w.id, biodata: { ...(studentWhere.biodata || {}), ...fullDataBiodataCondition } }
+        });
+        kelengkapanEntities.push({
+          name: w.name,
+          total,
+          lengkap,
+          percent: total > 0 ? Math.round((lengkap / total) * 100) : 0
+        });
+      }
+    } else if (user.scope === 'WILAYAH') {
+      const cabangs = await this.prisma.cabang.findMany({
+        where: { wilayahId: user.wilayahId },
+        orderBy: { name: 'asc' }
+      });
+      for (const c of cabangs) {
+        const total = await this.prisma.student.count({
+          where: { ...studentWhere, cabangId: c.id }
+        });
+        const lengkap = total === 0 ? 0 : await this.prisma.student.count({
+          where: { ...studentWhere, cabangId: c.id, biodata: { ...(studentWhere.biodata || {}), ...fullDataBiodataCondition } }
+        });
+        kelengkapanEntities.push({
+          name: c.name,
+          total,
+          lengkap,
+          percent: total > 0 ? Math.round((lengkap / total) * 100) : 0
+        });
+      }
+    } else {
+      const kelasList = await this.prisma.kelas.findMany({
+        where: { cabangId: user.cabangId, isActive: true },
+        orderBy: { name: 'asc' }
+      });
+      for (const k of kelasList) {
+        const total = await this.prisma.student.count({
+          where: { 
+            ...studentWhere, 
+            riwayatKelasFormal: { some: { kelasId: k.id, tahunAjaran: taAktif, semester: semAktif } } 
+          }
+        });
+        const lengkap = total === 0 ? 0 : await this.prisma.student.count({
+          where: { 
+            ...studentWhere, 
+            riwayatKelasFormal: { some: { kelasId: k.id, tahunAjaran: taAktif, semester: semAktif } },
+            biodata: { ...(studentWhere.biodata || {}), ...fullDataBiodataCondition }
+          }
+        });
+        kelengkapanEntities.push({
+          name: k.name,
+          total,
+          lengkap,
+          percent: total > 0 ? Math.round((lengkap / total) * 100) : 0
+        });
+      }
+
+      const totalBelum = await this.prisma.student.count({
+        where: {
+          ...studentWhere,
+          riwayatKelasFormal: { none: { tahunAjaran: taAktif, semester: semAktif } }
+        }
+      });
+      if (totalBelum > 0) {
+        const lengkapBelum = await this.prisma.student.count({
+          where: {
+            ...studentWhere,
+            riwayatKelasFormal: { none: { tahunAjaran: taAktif, semester: semAktif } },
+            biodata: { ...(studentWhere.biodata || {}), ...fullDataBiodataCondition }
+          }
+        });
+        kelengkapanEntities.push({
+          name: 'Belum Masuk Kelas',
+          total: totalBelum,
+          lengkap: lengkapBelum,
+          percent: Math.round((lengkapBelum / totalBelum) * 100)
+        });
+      }
+    }
+
+
     return {
       totalSantri,
       totalKelas,
@@ -319,7 +416,8 @@ export class DashboardService {
       activities,
       raporCetakProgress,
       kelengkapanSiswa,
-      kelengkapanGuru
+      kelengkapanGuru,
+      kelengkapanEntities
     };
   }
 

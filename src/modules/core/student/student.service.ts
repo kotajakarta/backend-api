@@ -428,7 +428,7 @@ export class StudentService {
       namaIbu, statusHidupIbu, nikIbu, tempatLahirIbu, tanggalLahirIbu, pekerjaanIbu, pendidikanIbu, penghasilanIbu,
       address, phone, 
       kontakDaruratNama, kontakDaruratTelp, kontakDaruratHubungan,
-      wilayahId, cabangId, isActive,
+      wilayahId, cabangId, isActive, tanggalMasuk,
       alamatProvId, alamatProvName, alamatKabId, alamatKabName, alamatKecId, alamatKecName, alamatKelId, alamatKelName, alamatJalan
     } = data;
 
