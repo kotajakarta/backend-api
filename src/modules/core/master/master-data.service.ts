@@ -295,7 +295,27 @@ export class MasterDataService {
     return results;
   }
 
-  async createGuru(data: { name: string, position: string, wilayahId?: string, grupDaimiId?: string, ifadahUrl?: string, ktpUrl?: string, phone?: string, cabangId?: string, mapelUmum?: string[], waliKelas?: string }, user?: any) {
+  async createGuru(data: {
+    name: string,
+    position: string,
+    wilayahId?: string,
+    grupDaimiId?: string,
+    ifadahUrl?: string,
+    ktpUrl?: string,
+    ijazahUrl?: string,
+    jenisKelamin?: string,
+    pendidikanTerakhir?: string,
+    perguruanTinggi?: string,
+    programStudi?: string,
+    tahunLulus?: string,
+    nik?: string,
+    tempatLahir?: string,
+    tanggalLahir?: string,
+    phone?: string,
+    cabangId?: string,
+    mapelUmum?: string[],
+    waliKelas?: string
+  }, user?: any) {
     if (user) {
       if (user.scope === 'CABANG') {
         data.cabangId = user.cabangId;
@@ -321,6 +341,15 @@ export class MasterDataService {
         grupDaimiId: data.grupDaimiId || null,
         ifadahUrl: data.ifadahUrl || null,
         ktpUrl: data.ktpUrl || null,
+        ijazahUrl: data.ijazahUrl || null,
+        jenisKelamin: data.jenisKelamin || null,
+        pendidikanTerakhir: data.pendidikanTerakhir || null,
+        perguruanTinggi: data.perguruanTinggi || null,
+        programStudi: data.programStudi || null,
+        tahunLulus: data.tahunLulus || null,
+        nik: data.nik || null,
+        tempatLahir: data.tempatLahir || null,
+        tanggalLahir: data.tanggalLahir ? new Date(data.tanggalLahir) : null,
         phone: data.phone || null,
         statusPool: statusPool,
         mapelUmum: data.mapelUmum || [],
@@ -333,7 +362,27 @@ export class MasterDataService {
     return result;
   }
 
-  async updateGuru(id: string, data: { name: string, position: string, wilayahId?: string, grupDaimiId?: string, ifadahUrl?: string, ktpUrl?: string, phone?: string, cabangId?: string, mapelUmum?: string[], waliKelas?: string }, user?: any) {
+  async updateGuru(id: string, data: {
+    name: string,
+    position: string,
+    wilayahId?: string,
+    grupDaimiId?: string,
+    ifadahUrl?: string,
+    ktpUrl?: string,
+    ijazahUrl?: string,
+    jenisKelamin?: string,
+    pendidikanTerakhir?: string,
+    perguruanTinggi?: string,
+    programStudi?: string,
+    tahunLulus?: string,
+    nik?: string,
+    tempatLahir?: string,
+    tanggalLahir?: string,
+    phone?: string,
+    cabangId?: string,
+    mapelUmum?: string[],
+    waliKelas?: string
+  }, user?: any) {
     const existing = await this.prisma.staff.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Guru tidak ditemukan');
     if (user) {
@@ -363,6 +412,15 @@ export class MasterDataService {
         grupDaimiId: data.grupDaimiId || null,
         ifadahUrl: data.ifadahUrl || null,
         ktpUrl: data.ktpUrl || null,
+        ijazahUrl: data.ijazahUrl || null,
+        jenisKelamin: data.jenisKelamin || null,
+        pendidikanTerakhir: data.pendidikanTerakhir || null,
+        perguruanTinggi: data.perguruanTinggi || null,
+        programStudi: data.programStudi || null,
+        tahunLulus: data.tahunLulus || null,
+        nik: data.nik || null,
+        tempatLahir: data.tempatLahir || null,
+        tanggalLahir: data.tanggalLahir ? new Date(data.tanggalLahir) : null,
         phone: data.phone || null,
         statusPool: statusPool,
         mapelUmum: data.mapelUmum || [],
@@ -374,7 +432,15 @@ export class MasterDataService {
         name: 'Nama',
         position: 'Jabatan',
         phone: 'No. Telepon',
-        waliKelas: 'Wali Kelas'
+        waliKelas: 'Wali Kelas',
+        nik: 'NIK',
+        tempatLahir: 'Tempat Lahir',
+        tanggalLahir: 'Tanggal Lahir',
+        jenisKelamin: 'Jenis Kelamin',
+        pendidikanTerakhir: 'Pendidikan Terakhir',
+        perguruanTinggi: 'Perguruan Tinggi',
+        programStudi: 'Program Studi',
+        tahunLulus: 'Tahun Lulus'
       };
       const changes: string[] = [];
       if (existing) {
