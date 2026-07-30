@@ -22,7 +22,12 @@ export class PrismaClientExceptionFilter implements ExceptionFilter {
     switch (exception.code) {
       case 'P2002':
         status = HttpStatus.CONFLICT;
-        message = 'A record with this data already exists.';
+        if (exception.meta && exception.meta.target) {
+          const fields = (exception.meta.target as string[]).join(', ');
+          message = `Data ${fields} yang Anda masukkan sudah terdaftar (duplikat).`;
+        } else {
+          message = 'A record with this data already exists.';
+        }
         break;
       case 'P2025':
         status = HttpStatus.NOT_FOUND;
