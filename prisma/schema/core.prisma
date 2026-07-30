@@ -140,7 +140,7 @@ model Biodata {
   suratKesehatanUrl     String?   @map("surat_kesehatan_url")
   suratDomisiliUrl      String?   @map("surat_domisili_url")
   dokumenLainUrl        String?   @map("dokumen_lain_url")
-  nisn                  String?   @map("nisn")
+  nisn                  String?   @unique @map("nisn")
   alamatJalan           String?   @map("alamat_jalan")
   alamatKabId           String?   @map("alamat_kab_id")
   alamatKabName         String?   @map("alamat_kab_name")

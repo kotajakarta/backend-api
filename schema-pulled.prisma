@@ -1,0 +1,990 @@
+◇ injected env (8) from .env // tip: ⌘ override existing { override: true }
+// prisma/schema/absensi.prisma
+model ProgramAbsensi {
+  id            String          @id @default(uuid())
+  name          String
+  type          ProgramType     @default(PELAJARAN)
+  date          DateTime        @db.Date
+  isActive      Boolean         @default(true) @map("is_active")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  kehadiran     Kehadiran[]
+  kehadiranGuru KehadiranGuru[]
+
+  @@map("program_absensi")
+  @@schema("absensi")
+}
+
+model Kehadiran {
+  id        String          @id @default(uuid())
+  programId String          @map("program_id")
+  studentId String          @map("student_id")
+  cabangId  String          @map("cabang_id")
+  status    KehadiranStatus @default(HADIR)
+  catatan   String?
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+  program   ProgramAbsensi  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  student   Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, studentId])
+  @@map("kehadiran")
+  @@schema("absensi")
+}
+
+model KehadiranGuru {
+  id        String          @id @default(uuid())
+  programId String          @map("program_id")
+  guruId    String          @map("guru_id")
+  cabangId  String          @map("cabang_id")
+  status    KehadiranStatus @default(HADIR)
+  catatan   String?
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+  guru      Staff           @relation(fields: [guruId], references: [id], onDelete: Cascade)
+  program   ProgramAbsensi  @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, guruId])
+  @@map("kehadiran_guru")
+  @@schema("absensi")
+}
+
+enum ProgramType {
+  PELAJARAN
+  UJIAN
+  LAINNYA
+
+  @@schema("absensi")
+}
+
+enum KehadiranStatus {
+  HADIR
+  SAKIT
+  IZIN
+  ALPA
+
+  @@schema("absensi")
+}
+
+// prisma/schema/base.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["absensi", "core", "formal", "pesantren"]
+}
+
+// prisma/schema/core.prisma
+model Wilayah {
+  id               String             @id @default(uuid())
+  name             String
+  cabangs          Cabang[]
+  permohonanCabang PermohonanCabang[]
+  staff            Staff[]
+  students         Student[]
+  users            User[]
+  permohonanKelas  PermohonanKelas[]
+  kelasDaimi       KelasDaimi[]
+
+  @@map("wilayah")
+  @@schema("core")
+}
+
+model Cabang {
+  id                        String                @id @default(uuid())
+  name                      String
+  wilayahId                 String?               @map("wilayah_id")
+  kapasitasSantri           Int?                  @default(0) @map("kapasitas_santri")
+  nameGlodemy               String?               @map("name_glodemy")
+  nameResmi                 String?               @map("name_resmi")
+  totalSantriManual         Int?                  @default(0) @map("total_santri_manual")
+  alamatJalan               String?               @map("alamat_jalan")
+  alamatKabId               String?               @map("alamat_kab_id")
+  alamatKabName             String?               @map("alamat_kab_name")
+  alamatKecId               String?               @map("alamat_kec_id")
+  alamatKecName             String?               @map("alamat_kec_name")
+  alamatKelId               String?               @map("alamat_kel_id")
+  alamatKelName             String?               @map("alamat_kel_name")
+  alamatProvId              String?               @map("alamat_prov_id")
+  alamatProvName            String?               @map("alamat_prov_name")
+  ketuaCabangId             String?               @map("ketua_cabang_id")
+  ketuaIslerId              String?               @map("ketua_isler_id")
+  ketuaMuadalahId           String?               @map("ketua_muadalah_id")
+  statusBangunan            String?               @map("status_bangunan")
+  statusTanah               String?               @map("status_tanah")
+  alamatNegara              String?               @map("alamat_negara")
+  fotoPlang                 String?               @map("foto_plang")
+  fotoGedung                String?               @map("foto_gedung")
+  fotoHalaman               String?               @map("foto_halaman")
+  fotoDenah                 String?               @map("foto_denah")
+  fotoMushala               String?               @map("foto_mushala")
+  fotoKelas                 String?               @map("foto_kelas")
+  fotoRuangTidur            String?               @map("foto_ruang_tidur")
+  fotoRuangMakan            String?               @map("foto_ruang_makan")
+  fotoKamarMandi            String?               @map("foto_kamar_mandi")
+  wilayah                   Wilayah?              @relation(fields: [wilayahId], references: [id])
+  fasilitas                 Fasilitas[]
+  kegiatan                  Kegiatan[]
+  permintaanTarikRequesting PermintaanTarikData[] @relation("RequestingCabang")
+  permintaanTarikTarget     PermintaanTarikData[] @relation("TargetCabang")
+  riwayatPendidikan         RiwayatPendidikan[]
+  ruang                     Ruang[]
+  staff                     Staff[]
+  students                  Student[]
+  users                     User[]
+  kelas                     Kelas[]
+  permohonanKelas           PermohonanKelas[]
+  grupDaimi                 GrupDaimi[]           @relation("GrupDaimiCabang")
+  kelasDaimi                KelasDaimi[]
+
+  @@map("cabang")
+  @@schema("core")
+}
+
+model Faq {
+  id        String   @id @default(uuid())
+  question  String
+  answer    String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("faq")
+  @@schema("core")
+}
+
+model User {
+  id                       String             @id @default(uuid())
+  username                 String             @unique
+  password                 String
+  scope                    UserScope
+  divisi                   UserDivisi
+  wilayahId                String?            @map("wilayah_id")
+  cabangId                 String?            @map("cabang_id")
+  operatorName             String?            @map("operator_name")
+  confirmedKegiatan        Kegiatan[]
+  permohonanCabangApproved PermohonanCabang[] @relation("PermohonanCabangApprovedBy")
+  permohonanCabangCreated  PermohonanCabang[] @relation("PermohonanCabangCreatedBy")
+  cabang                   Cabang?            @relation(fields: [cabangId], references: [id])
+  wilayah                  Wilayah?           @relation(fields: [wilayahId], references: [id])
+  permohonanKelasApproved  PermohonanKelas[]  @relation("PermohonanKelasApprovedBy")
+  permohonanKelasCreated   PermohonanKelas[]  @relation("PermohonanKelasCreatedBy")
+
+  @@map("users")
+  @@schema("core")
+}
+
+model Biodata {
+  id                    String    @id @default(uuid())
+  nik                   String?   @unique
+  noKk                  String?   @map("no_kk")
+  nisLokal              String?   @map("nis_lokal")
+  noGlodemy             String?   @map("no_glodemy")
+  fullName              String    @map("full_name")
+  tempatLahir           String?   @map("tempat_lahir")
+  tanggalLahir          DateTime? @map("tanggal_lahir")
+  jenisKelamin          String?   @map("jenis_kelamin")
+  kewarganegaraan       String?   @map("kewarganegaraan")
+  jumlahSaudara         Int?      @map("jumlah_saudara")
+  anakKe                Int?      @map("anak_ke")
+  namaAyah              String?   @map("nama_ayah")
+  statusHidupAyah       String?   @map("status_hidup_ayah")
+  nikAyah               String?   @map("nik_ayah")
+  tempatLahirAyah       String?   @map("tempat_lahir_ayah")
+  tanggalLahirAyah      DateTime? @map("tanggal_lahir_ayah")
+  pekerjaanAyah         String?   @map("pekerjaan_ayah")
+  pendidikanAyah        String?   @map("pendidikan_ayah")
+  penghasilanAyah       String?   @map("penghasilan_ayah")
+  namaIbu               String?   @map("nama_ibu")
+  statusHidupIbu        String?   @map("status_hidup_ibu")
+  nikIbu                String?   @map("nik_ibu")
+  tempatLahirIbu        String?   @map("tempat_lahir_ibu")
+  tanggalLahirIbu       DateTime? @map("tanggal_lahir_ibu")
+  pekerjaanIbu          String?   @map("pekerjaan_ibu")
+  pendidikanIbu         String?   @map("pendidikan_ibu")
+  penghasilanIbu        String?   @map("penghasilan_ibu")
+  address               String?
+  phone                 String?
+  kontakDaruratNama     String?   @map("kontak_darurat_nama")
+  kontakDaruratTelp     String?   @map("kontak_darurat_telp")
+  kontakDaruratHubungan String?   @map("kontak_darurat_hubungan")
+  nisn                  String?   @map("nisn")
+  alamatJalan           String?   @map("alamat_jalan")
+  alamatKabId           String?   @map("alamat_kab_id")
+  alamatKabName         String?   @map("alamat_kab_name")
+  alamatKecId           String?   @map("alamat_kec_id")
+  alamatKecName         String?   @map("alamat_kec_name")
+  alamatKelId           String?   @map("alamat_kel_id")
+  alamatKelName         String?   @map("alamat_kel_name")
+  alamatProvId          String?   @map("alamat_prov_id")
+  alamatProvName        String?   @map("alamat_prov_name")
+  akteUrl               String?   @map("akte_url")
+  dokumenLainUrl        String?   @map("dokumen_lain_url")
+  fotoUrl               String?   @map("foto_url")
+  ijazahUrl             String?   @map("ijazah_url")
+  kkUrl                 String?   @map("kk_url")
+  raporUrl              String?   @map("rapor_url")
+  skhunUrl              String?   @map("skhun_url")
+  suratDomisiliUrl      String?   @map("surat_domisili_url")
+  suratKesehatanUrl     String?   @map("surat_kesehatan_url")
+  suratMutasiUrl        String?   @map("surat_mutasi_url")
+  student               Student?
+
+  @@map("biodata")
+  @@schema("core")
+}
+
+model Student {
+  id                     String                @id @default(uuid())
+  biodataId              String                @unique @map("biodata_id")
+  wilayahId              String?               @map("wilayah_id")
+  cabangId               String?               @map("cabang_id")
+  statusPool             StatusPool            @default(TERSEDIA) @map("status_pool")
+  isActive               Boolean               @default(true) @map("is_active")
+  jenisSiswa             JenisSiswa?           @map("jenis_siswa")
+  grupDaimi              String?               @map("grup_daimi")
+  statusHafidz           StatusHafidz?         @map("status_hafidz")
+  daftarUlangAt          DateTime?             @map("daftar_ulang_at")
+  daftarUlangJenis       String?               @map("daftar_ulang_jenis")
+  daftarUlangTahunAjaran String?               @map("daftar_ulang_tahun_ajaran")
+  daftarUlangSemester    String?               @map("daftar_ulang_semester")
+  kehadiran              Kehadiran[]
+  permintaanTarik        PermintaanTarikData[]
+  riwayatPendidikan      RiwayatPendidikan[]
+  biodata                Biodata               @relation(fields: [biodataId], references: [id])
+  cabang                 Cabang?               @relation(fields: [cabangId], references: [id])
+  wilayah                Wilayah?              @relation(fields: [wilayahId], references: [id])
+  absensiMapel           AbsensiMapel[]
+  hafalanAlQuran         HafalanAlQuran[]
+  nilaiFormal            NilaiFormal[]
+  riwayatKelasFormal     RiwayatKelasFormal[]
+  siswaFormal            SiswaFormal?
+  dataDaimi              DataDaimi?
+
+  @@map("students")
+  @@schema("core")
+}
+
+model RiwayatPendidikan {
+  id            String    @id @default(uuid())
+  studentId     String    @map("student_id")
+  cabangId      String?   @map("cabang_id")
+  tanggalMasuk  DateTime  @map("tanggal_masuk")
+  tanggalKeluar DateTime? @map("tanggal_keluar")
+  statusAkhir   String?   @map("status_akhir")
+  catatan       String?
+  cabang        Cabang?   @relation(fields: [cabangId], references: [id])
+  student       Student   @relation(fields: [studentId], references: [id])
+
+  @@map("riwayat_pendidikan")
+  @@schema("core")
+}
+
+model Staff {
+  id                 String               @id @default(uuid())
+  name               String
+  position           String
+  wilayahId          String?              @map("wilayah_id")
+  cabangId           String?              @map("cabang_id")
+  grupDaimiId        String?              @map("grup_daimi_id")
+  ifadahUrl          String?              @map("ifadah_url")
+  ktpUrl             String?              @map("ktp_url")
+  statusPool         StatusPool           @default(TERSEDIA) @map("status_pool")
+  phone              String?              @map("phone")
+  mapelUmum          String[]             @map("mapel_umum")
+  waliKelas          String?              @map("wali_kelas")
+  kehadiranGuru      KehadiranGuru[]
+  panitia            Panitia[]
+  cabang             Cabang?              @relation(fields: [cabangId], references: [id])
+  grupDaimi          GrupDaimi?           @relation(fields: [grupDaimiId], references: [id])
+  wilayah            Wilayah?             @relation(fields: [wilayahId], references: [id])
+  guruMapelKelas     GuruMapelKelas[]
+  kelasWali          Kelas[]              @relation("KelasWali")
+  pelaksanaanSilabus PelaksanaanSilabus[]
+  riwayatWaliKelas   RiwayatKelasFormal[]
+  grupDaimiKetua     GrupDaimi[]          @relation("GrupDaimiKetua")
+
+  @@map("staff")
+  @@schema("core")
+}
+
+model PengaturanAkademik {
+  id              String   @id @default(uuid())
+  semesterAktif   String   @map("semester_aktif")
+  tahunAjaran     String   @map("tahun_ajaran")
+  kodeDaftarUlang String?  @map("kode_daftar_ulang")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("pengaturan_akademik")
+  @@schema("core")
+}
+
+model Pengumuman {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  links     Json?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  showPopup Boolean  @default(false) @map("show_popup")
+
+  @@map("pengumuman")
+  @@schema("core")
+}
+
+model KalenderAkademik {
+  id        String   @id @default(uuid())
+  title     String
+  fileUrl   String   @map("file_url")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("kalender_akademik")
+  @@schema("core")
+}
+
+model PermintaanTarikData {
+  id                 String                @id @default(uuid())
+  studentId          String                @map("student_id")
+  requestingCabangId String                @map("requesting_cabang_id")
+  targetCabangId     String?               @map("target_cabang_id")
+  status             StatusPermintaanTarik @default(PENDING)
+  alasan             String?
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  requestingCabang   Cabang                @relation("RequestingCabang", fields: [requestingCabangId], references: [id])
+  student            Student               @relation(fields: [studentId], references: [id])
+  targetCabang       Cabang?               @relation("TargetCabang", fields: [targetCabangId], references: [id])
+
+  @@map("permintaan_tarik_data")
+  @@schema("core")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String
+  entity     String
+  entityId   String   @map("entity_id")
+  entityName String   @map("entity_name")
+  actorId    String   @map("actor_id")
+  actorName  String   @map("actor_name")
+  actorScope String   @map("actor_scope")
+  wilayahId  String?  @map("wilayah_id")
+  cabangId   String?  @map("cabang_id")
+  details    String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+  @@schema("core")
+}
+
+model PermohonanCabang {
+  id               String           @id @default(uuid())
+  wilayahId        String           @map("wilayah_id")
+  namaCabangUsulan String           @map("nama_cabang_usulan")
+  alamatJalan      String?          @map("alamat_jalan")
+  alamatKabName    String?          @map("alamat_kab_name")
+  alamatProvName   String?          @map("alamat_prov_name")
+  kapasitasSantri  Int?             @default(0) @map("kapasitas_santri")
+  alasan           String?
+  catatanAdmin     String?          @map("catatan_admin")
+  status           StatusPermohonan @default(PENDING)
+  createdById      String           @map("created_by_id")
+  approvedById     String?          @map("approved_by_id")
+  cabangCreatedId  String?          @map("cabang_created_id")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  approvedBy       User?            @relation("PermohonanCabangApprovedBy", fields: [approvedById], references: [id])
+  createdBy        User             @relation("PermohonanCabangCreatedBy", fields: [createdById], references: [id])
+  wilayah          Wilayah          @relation(fields: [wilayahId], references: [id])
+
+  @@map("permohonan_cabang")
+  @@schema("core")
+}
+
+enum UserScope {
+  GLOBAL
+  WILAYAH
+  CABANG
+
+  @@schema("core")
+}
+
+enum UserDivisi {
+  FORMAL
+  PESANTREN
+  ALL
+
+  @@schema("core")
+}
+
+enum StatusPool {
+  TERSEDIA
+  AKTIF_CABANG
+  LULUS
+  MUTASI
+  DROP_OUT
+
+  @@schema("core")
+}
+
+enum JenisSiswa {
+  MUADALAH
+  NON_MUADALAH
+
+  @@schema("core")
+}
+
+enum StatusHafidz {
+  BELUM_MULAI
+  SEDANG_BERLANGSUNG
+  SUDAH_SETOR_30_JUZ
+  SUDAH_KHATAMAN_KUBRO
+
+  @@schema("core")
+}
+
+enum StatusPermintaanTarik {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@schema("core")
+}
+
+enum StatusPermohonan {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@schema("core")
+}
+
+// prisma/schema/formal.prisma
+model SiswaFormal {
+  id        String  @id @default(uuid())
+  studentId String  @unique @map("student_id")
+  kelasId   String? @map("kelas_id")
+  tingkat   String? @map("tingkat")
+  nis       String? @map("nis")
+  nisn      String? @unique
+  isVerval  Boolean @default(false) @map("is_verval")
+  kelas     Kelas?  @relation(fields: [kelasId], references: [id])
+  student   Student @relation(fields: [studentId], references: [id])
+
+  @@map("siswa_formal")
+  @@schema("formal")
+}
+
+model Kelas {
+  id                 String               @id @default(uuid())
+  name               String
+  tingkat            String?
+  isActive           Boolean              @default(true) @map("is_active")
+  cabangId           String?              @map("cabang_id")
+  lembagaMuadalahId  String?              @map("lembaga_muadalah_id")
+  tahunAjaran        String?              @map("tahun_ajaran")
+  waliKelasId        String?              @map("wali_kelas_id")
+  ruangId            String?              @map("ruang_id")
+  kurikulum          String?              @map("kurikulum")
+  jurusan            String?              @map("jurusan")
+  jenisRombel        String?              @map("jenis_rombel")
+  kapasitas          Int?                 @default(80) @map("kapasitas")
+  absensiMapel       AbsensiMapel[]
+  guruMapelKelas     GuruMapelKelas[]
+  hafalanAlQuran     HafalanAlQuran[]
+  cabang             Cabang?              @relation(fields: [cabangId], references: [id])
+  lembagaMuadalah    LembagaMuadalah?     @relation(fields: [lembagaMuadalahId], references: [id])
+  ruang              Ruang?               @relation(fields: [ruangId], references: [id])
+  waliKelas          Staff?               @relation("KelasWali", fields: [waliKelasId], references: [id])
+  nilaiFormal        NilaiFormal[]
+  pelaksanaanSilabus PelaksanaanSilabus[]
+  riwayatKelasFormal RiwayatKelasFormal[]
+  siswaFormal        SiswaFormal[]
+
+  @@map("kelas")
+  @@schema("formal")
+}
+
+model LembagaMuadalah {
+  id           String   @id @default(uuid())
+  name         String
+  code         String   @unique
+  npsn         String?
+  nspp         String?
+  namaKetua    String?  @map("nama_ketua")
+  ttdKetua     String?  @map("ttd_ketua")
+  skSpm        String?  @map("sk_spm")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  alamatDetail String?  @map("alamat_detail")
+  jenjang      String?
+  kabupaten    String?
+  kecamatan    String?
+  kelurahan    String?
+  namaLain     String?  @map("nama_lain")
+  provinsi     String?
+  kelas        Kelas[]
+
+  @@map("lembaga_muadalah")
+  @@schema("formal")
+}
+
+model MataPelajaran {
+  id                String               @id @default(uuid())
+  name              String
+  grupMapel         String               @map("grup_mapel")
+  isActive          Boolean              @default(true) @map("is_active")
+  kodeMapel         String               @unique @map("kode_mapel")
+  aktifPembelajaran Boolean              @default(true) @map("aktif_pembelajaran")
+  absensiMapel      AbsensiMapel[]
+  guruMapelKelas    GuruMapelKelas[]
+  keaktifanGrup     KeaktifanMapelGrup[]
+  nilaiFormal       NilaiFormal[]
+  pelaksanaanLibur  PelaksanaanSilabus[]
+  silabusMapel      SilabusMapel[]
+
+  @@map("mata_pelajaran")
+  @@schema("formal")
+}
+
+model KeaktifanMapelGrup {
+  id              String        @id @default(uuid())
+  mataPelajaranId String        @map("mata_pelajaran_id")
+  grupDaimiId     String        @map("grup_daimi_id")
+  isActive        Boolean       @default(false) @map("is_active")
+  grupDaimi       GrupDaimi     @relation(fields: [grupDaimiId], references: [id], onDelete: Cascade)
+  mataPelajaran   MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+
+  @@unique([mataPelajaranId, grupDaimiId])
+  @@map("keaktifan_mapel_grup")
+  @@schema("formal")
+}
+
+model NilaiFormal {
+  id                String              @id @default(uuid())
+  capaianKompetensi String?             @map("capaian_kompetensi")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  kelasId           String              @map("kelas_id")
+  mataPelajaranId   String              @map("mata_pelajaran_id")
+  nilaiAkhir        Float?              @map("nilai_akhir")
+  nilaiHarian       Float?              @map("nilai_harian")
+  nilaiPas          Float?              @map("nilai_pas")
+  predikat          String?
+  riwayatKelasId    String?             @map("riwayat_kelas_id")
+  semester          String
+  studentId         String              @map("student_id")
+  tahunAjaran       String              @map("tahun_ajaran")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  kelas             Kelas               @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  mataPelajaran     MataPelajaran       @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  riwayatKelas      RiwayatKelasFormal? @relation(fields: [riwayatKelasId], references: [id])
+  student           Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, mataPelajaranId, tahunAjaran, semester])
+  @@map("nilai_formal")
+  @@schema("formal")
+}
+
+model RiwayatKelasFormal {
+  id                    String        @id @default(uuid())
+  studentId             String        @map("student_id")
+  kelasId               String        @map("kelas_id")
+  tahunAjaran           String        @map("tahun_ajaran")
+  semester              String
+  statusAkhir           String?       @map("status_akhir")
+  waliKelasId           String?       @map("wali_kelas_id")
+  catatan               String?
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
+  alpa                  Int?          @default(0)
+  catatanWaliKelas      String?       @map("catatan_wali_kelas")
+  izin                  Int?          @default(0)
+  sakit                 Int?          @default(0)
+  disiplin              String?       @map("disiplin")
+  hubunganSosial        String?       @map("hubungan_sosial")
+  kemampuanRepresentasi String?       @map("kemampuan_representasi")
+  kepercayaanDiri       String?       @map("kepercayaan_diri")
+  kerapihan             String?       @map("kerapihan")
+  ketaatan              String?       @map("ketaatan")
+  ketakwaan             String?       @map("ketakwaan")
+  semangatBelajar       String?       @map("semangat_belajar")
+  tanggungJawab         String?       @map("tanggung_jawab")
+  sudahCetak            Boolean       @default(false) @map("sudah_cetak")
+  grupDaimiId           String?       @map("grup_daimi_id")
+  nilaiFormal           NilaiFormal[]
+  grupDaimi             GrupDaimi?    @relation(fields: [grupDaimiId], references: [id])
+  kelas                 Kelas         @relation(fields: [kelasId], references: [id])
+  student               Student       @relation(fields: [studentId], references: [id])
+  waliKelas             Staff?        @relation(fields: [waliKelasId], references: [id])
+
+  @@unique([studentId, tahunAjaran, semester])
+  @@map("riwayat_kelas_formal")
+  @@schema("formal")
+}
+
+model HafalanAlQuran {
+  id            String   @id @default(uuid())
+  studentId     String   @map("student_id")
+  kelasId       String   @map("kelas_id")
+  tahunAjaran   String   @map("tahun_ajaran")
+  semester      String
+  awalPutaran   Int?     @map("awal_putaran")
+  awalJuz       Int?     @map("awal_juz")
+  targetPutaran Int?     @map("target_putaran")
+  targetJuz     Int?     @map("target_juz")
+  akhirPutaran  Int?     @map("akhir_putaran")
+  akhirJuz      Int?     @map("akhir_juz")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  kelas         Kelas    @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  student       Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, tahunAjaran, semester])
+  @@map("hafalan_al_quran")
+  @@schema("formal")
+}
+
+model GuruMapelKelas {
+  id              String        @id @default(uuid())
+  staffId         String        @map("staff_id")
+  mataPelajaranId String        @map("mata_pelajaran_id")
+  kelasId         String        @map("kelas_id")
+  kelas           Kelas         @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  mataPelajaran   MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  staff           Staff         @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, mataPelajaranId, kelasId])
+  @@map("guru_mapel_kelas")
+  @@schema("formal")
+}
+
+model PermohonanKelas {
+  id                 String           @id @default(uuid())
+  cabangId           String           @map("cabang_id")
+  wilayahId          String           @map("wilayah_id")
+  namaKelasUsulan    String           @map("nama_kelas_usulan")
+  namaKelasDisetujui String?          @map("nama_kelas_disetujui")
+  tingkat            String?
+  tahunAjaran        String?          @map("tahun_ajaran")
+  lembagaMuadalahId  String?          @map("lembaga_muadalah_id")
+  waliKelasId        String?          @map("wali_kelas_id")
+  ruangId            String?          @map("ruang_id")
+  kurikulum          String?
+  jurusan            String?
+  kapasitas          Int?             @default(80)
+  catatanAdmin       String?          @map("catatan_admin")
+  status             StatusPermohonan @default(PENDING)
+  createdById        String           @map("created_by_id")
+  approvedById       String?          @map("approved_by_id")
+  kelasCreatedId     String?          @map("kelas_created_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  approvedBy         User?            @relation("PermohonanKelasApprovedBy", fields: [approvedById], references: [id])
+  cabang             Cabang           @relation(fields: [cabangId], references: [id])
+  createdBy          User             @relation("PermohonanKelasCreatedBy", fields: [createdById], references: [id])
+  wilayah            Wilayah          @relation(fields: [wilayahId], references: [id])
+
+  @@map("permohonan_kelas")
+  @@schema("formal")
+}
+
+// prisma/schema/kegiatan.prisma
+model JenisKegiatan {
+  id        String             @id @default(uuid())
+  nama      String             @unique
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+  templates TemplateKegiatan[]
+
+  @@map("jenis_kegiatan")
+  @@schema("core")
+}
+
+model TemplateKegiatan {
+  id              String            @id @default(uuid())
+  judul           String
+  deskripsi       String
+  deadline        DateTime
+  jenisId         String            @map("jenis_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  tanggalKegiatan DateTime?         @map("tanggal_kegiatan")
+  tujuanKegiatan  String?           @map("tujuan_kegiatan")
+  waktuKegiatan   String?           @map("waktu_kegiatan")
+  dokumen         DokumenTemplate[]
+  kegiatan        Kegiatan[]
+  jenis           JenisKegiatan     @relation(fields: [jenisId], references: [id])
+
+  @@map("template_kegiatan")
+  @@schema("core")
+}
+
+model DokumenTemplate {
+  id         String           @id @default(uuid())
+  templateId String           @map("template_id")
+  filePath   String           @map("file_path")
+  fileName   String           @map("file_name")
+  fileType   String           @map("file_type")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  template   TemplateKegiatan @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("dokumen_template")
+  @@schema("core")
+}
+
+model Kegiatan {
+  id                String            @id @default(uuid())
+  templateId        String            @map("template_id")
+  cabangId          String            @map("cabang_id")
+  asramaId          String?           @map("asrama_id")
+  deskripsi         String
+  isConfirmed       Boolean           @default(false) @map("is_confirmed")
+  confirmedAt       DateTime?         @map("confirmed_at")
+  confirmedByUserId String?           @map("confirmed_by_user_id")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  jumlahPeserta     Int?              @map("jumlah_peserta")
+  kesimpulan        String?           @map("kesimpulan")
+  ringkasanKegiatan String?           @map("ringkasan_kegiatan")
+  tanggalKegiatan   DateTime?         @map("tanggal_kegiatan")
+  tempatKegiatan    String?           @map("tempat_kegiatan")
+  waktuKegiatan     String?           @map("waktu_kegiatan")
+  dokumen           DokumenKegiatan[]
+  asrama            Ruang?            @relation(fields: [asramaId], references: [id])
+  cabang            Cabang            @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+  confirmedByUser   User?             @relation(fields: [confirmedByUserId], references: [id])
+  template          TemplateKegiatan  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  panitia           Panitia[]
+
+  @@map("kegiatan")
+  @@schema("core")
+}
+
+model Panitia {
+  id         String   @id @default(uuid())
+  kegiatanId String   @map("kegiatan_id")
+  staffId    String   @map("staff_id")
+  jabatan    String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  kegiatan   Kegiatan @relation(fields: [kegiatanId], references: [id], onDelete: Cascade)
+  staff      Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("panitia")
+  @@schema("core")
+}
+
+model DokumenKegiatan {
+  id         String   @id @default(uuid())
+  kegiatanId String   @map("kegiatan_id")
+  filePath   String   @map("file_path")
+  fileName   String   @map("file_name")
+  fileType   String   @map("file_type")
+  createdAt  DateTime @default(now()) @map("created_at")
+  kegiatan   Kegiatan @relation(fields: [kegiatanId], references: [id], onDelete: Cascade)
+
+  @@map("dokumen_kegiatan")
+  @@schema("core")
+}
+
+// prisma/schema/pembelajaran.prisma
+model SilabusMapel {
+  id              String               @id @default(uuid())
+  mataPelajaranId String               @map("mata_pelajaran_id")
+  tingkat         String
+  tahunAjaran     String               @map("tahun_ajaran")
+  semester        String
+  bab             String
+  urutanBab       Int                  @map("urutan_bab")
+  section         String
+  urutanSection   Int                  @map("urutan_section")
+  tanggalTarget   DateTime?            @map("tanggal_target") @db.Date
+  isActive        Boolean              @default(true) @map("is_active")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  absensiMapel    AbsensiMapel[]
+  pelaksanaan     PelaksanaanSilabus[]
+  mataPelajaran   MataPelajaran        @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+
+  @@unique([mataPelajaranId, tingkat, tahunAjaran, semester, urutanBab, urutanSection])
+  @@map("silabus_mapel")
+  @@schema("formal")
+}
+
+model PelaksanaanSilabus {
+  id              String        @id @default(uuid())
+  silabusId       String?       @map("silabus_id")
+  kelasId         String        @map("kelas_id")
+  status          StatusSilabus @default(PENDING)
+  tanggalDiajar   DateTime?     @map("tanggal_diajar") @db.Date
+  catatan         String?
+  updatedById     String?       @map("updated_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  guruId          String?       @map("guru_id")
+  mataPelajaranId String        @map("mata_pelajaran_id")
+  guru            Staff?        @relation(fields: [guruId], references: [id])
+  kelas           Kelas         @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  mataPelajaran   MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  silabus         SilabusMapel? @relation(fields: [silabusId], references: [id], onDelete: Cascade)
+
+  @@unique([kelasId, mataPelajaranId, tanggalDiajar])
+  @@map("pelaksanaan_silabus")
+  @@schema("formal")
+}
+
+model AbsensiMapel {
+  id              String               @id @default(uuid())
+  mataPelajaranId String               @map("mata_pelajaran_id")
+  kelasId         String               @map("kelas_id")
+  studentId       String               @map("student_id")
+  tanggal         DateTime             @db.Date
+  status          StatusKehadiranMapel @default(HADIR)
+  catatan         String?
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  silabusId       String               @map("silabus_id")
+  kelas           Kelas                @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  mataPelajaran   MataPelajaran        @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+  silabus         SilabusMapel         @relation(fields: [silabusId], references: [id], onDelete: Cascade)
+  student         Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([silabusId, kelasId, studentId, tanggal])
+  @@map("absensi_mapel")
+  @@schema("formal")
+}
+
+enum StatusSilabus {
+  PENDING
+  COMPLETED
+  LIBUR
+
+  @@schema("formal")
+}
+
+enum StatusKehadiranMapel {
+  HADIR
+  SAKIT
+  IZIN
+  ALPA
+
+  @@schema("formal")
+}
+
+// prisma/schema/pesantren.prisma
+model Kamar {
+  id   String @id @default(uuid())
+  name String
+
+  @@map("kamar")
+  @@schema("pesantren")
+}
+
+model GrupDaimi {
+  id                 String               @id @default(uuid())
+  name               String
+  jenis              String?
+  ketuaId            String?              @map("ketua_id")
+  cabangId           String?              @map("cabang_id")
+  staff              Staff[]
+  keaktifanMapelGrup KeaktifanMapelGrup[]
+  riwayatKelasFormal RiwayatKelasFormal[]
+  dataDaimi          DataDaimi[]
+  cabang             Cabang?              @relation("GrupDaimiCabang", fields: [cabangId], references: [id])
+  ketua              Staff?               @relation("GrupDaimiKetua", fields: [ketuaId], references: [id])
+  kelasDaimi         KelasDaimi[]
+
+  @@map("grup_daimi")
+  @@schema("pesantren")
+}
+
+model JenisGrupDaimi {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("jenis_grup_daimi")
+  @@schema("pesantren")
+}
+
+model KelasDaimi {
+  id        String      @id @default(uuid())
+  name      String
+  grupId    String      @map("grup_id")
+  wilayahId String?     @map("wilayah_id")
+  cabangId  String?     @map("cabang_id")
+  dataDaimi DataDaimi[]
+  cabang    Cabang?     @relation(fields: [cabangId], references: [id])
+  grup      GrupDaimi   @relation(fields: [grupId], references: [id], onDelete: Cascade)
+  wilayah   Wilayah?    @relation(fields: [wilayahId], references: [id])
+
+  @@map("kelas_daimi")
+  @@schema("pesantren")
+}
+
+model DataDaimi {
+  id        String      @id @default(uuid())
+  studentId String      @unique @map("student_id")
+  grupId    String?     @map("grup_id")
+  kelasId   String?     @map("kelas_id")
+  nis       String?     @map("nis")
+  grup      GrupDaimi?  @relation(fields: [grupId], references: [id])
+  kelas     KelasDaimi? @relation(fields: [kelasId], references: [id])
+  student   Student     @relation(fields: [studentId], references: [id])
+
+  @@map("data_daimi")
+  @@schema("pesantren")
+}
+
+model NilaiKitab {
+  id    String @id @default(uuid())
+  score Float
+
+  @@map("nilai_kitab")
+  @@schema("pesantren")
+}
+
+// prisma/schema/sarpras.prisma
+model Ruang {
+  id         String      @id @default(uuid())
+  nama       String
+  kode       String?
+  tipe       String
+  kapasitas  Int?
+  luas       Float?
+  kondisi    String
+  keterangan String?
+  cabangId   String      @map("cabang_id")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+  fasilitas  Fasilitas[]
+  kegiatan   Kegiatan[]
+  cabang     Cabang      @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+  kelas      Kelas[]
+
+  @@map("ruang")
+  @@schema("core")
+}
+
+model Fasilitas {
+  id         String   @id @default(uuid())
+  nama       String
+  kode       String?
+  jumlah     Int
+  kondisi    String
+  keterangan String?
+  cabangId   String   @map("cabang_id")
+  ruangId    String?  @map("ruang_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  cabang     Cabang   @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+  ruang      Ruang?   @relation(fields: [ruangId], references: [id])
+
+  @@map("fasilitas")
+  @@schema("core")
+}
+
+
