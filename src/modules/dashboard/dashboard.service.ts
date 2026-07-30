@@ -421,9 +421,45 @@ export class DashboardService {
     }
 
 
+    let rbacIdentity: any = {
+      operatorName: user.operatorName || user.username,
+      scope: user.scope,
+      wilayahName: null,
+      cabangName: null,
+      ketuaCabangName: null,
+      ketuaMuadalahName: null
+    };
+
+    if (user.scope === 'WILAYAH' && user.wilayahId) {
+      const w = await this.prisma.wilayah.findUnique({ where: { id: user.wilayahId } });
+      if (w) rbacIdentity.wilayahName = w.name;
+    }
+
+    if (user.scope === 'CABANG' && user.cabangId) {
+      const c = await this.prisma.cabang.findUnique({ 
+        where: { id: user.cabangId },
+        include: { wilayah: true }
+      });
+      if (c) {
+        rbacIdentity.cabangName = c.name;
+        rbacIdentity.wilayahName = c.wilayah?.name;
+        
+        if (c.ketuaCabangId) {
+          const ketuaC = await this.prisma.staff.findUnique({ where: { id: c.ketuaCabangId } });
+          if (ketuaC) rbacIdentity.ketuaCabangName = ketuaC.name;
+        }
+        if (c.ketuaMuadalahId) {
+          const ketuaM = await this.prisma.staff.findUnique({ where: { id: c.ketuaMuadalahId } });
+          if (ketuaM) rbacIdentity.ketuaMuadalahName = ketuaM.name;
+        }
+      }
+    }
+
     return {
       totalSantri,
       totalKelas,
+      totalGuru,
+      rbacIdentity,
       cabangMissingSubjectsCount: ketersediaanGuru.filter(k => k.status !== 'hijau').length,
       ketersediaanGuru,
       chartGrupDaimi,
