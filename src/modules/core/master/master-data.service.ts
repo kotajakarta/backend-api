@@ -663,6 +663,20 @@ export class MasterDataService {
     return result;
   }
 
+  async updateWilayahProfile(id: string, data: { ketuaMuadalahName?: string; ketuaMuadalahPhone?: string }, user?: any) {
+    if (user && user.scope !== 'GLOBAL' && user.wilayahId !== id) {
+      throw new ForbiddenException('Anda tidak memiliki akses untuk memperbarui profil wilayah ini.');
+    }
+    const result = await (this.prisma.wilayah as any).update({ 
+      where: { id }, 
+      data: {
+        ketuaMuadalahName: data.ketuaMuadalahName || null,
+        ketuaMuadalahPhone: data.ketuaMuadalahPhone || null
+      }
+    });
+    return result;
+  }
+
   async deleteWilayah(id: string, user?: any) {
     if (user && user.scope !== 'GLOBAL') {
       throw new ForbiddenException('Hanya admin global yang dapat menghapus wilayah.');

@@ -166,6 +166,12 @@ export class MasterDataController {
     return this.masterDataService.updateWilayah(req.params.id, req.body, req.user);
   }
 
+  @Put('wilayah/:id/profile')
+  @UseGuards(AccessControlGuard)
+  updateWilayahProfile(@Request() req: any) {
+    return this.masterDataService.updateWilayahProfile(req.params.id, req.body, req.user);
+  }
+
   @Delete('wilayah/all')
   @UseGuards(AccessControlGuard)
   deleteAllWilayah(@Request() req: any) {

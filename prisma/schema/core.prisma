@@ -1,6 +1,9 @@
 model Wilayah {
-  id         String       @id @default(uuid())
-  name       String
+  id                  String       @id @default(uuid())
+  name                String
+  ketuaMuadalahId     String?      @map("ketua_muadalah_id")
+  ketuaMuadalahName   String?      @map("ketua_muadalah_name")
+  ketuaMuadalahPhone  String?      @map("ketua_muadalah_phone")
   cabangs    Cabang[]
   staff      Staff[]
   students   Student[]

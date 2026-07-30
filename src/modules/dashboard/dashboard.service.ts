@@ -427,12 +427,18 @@ export class DashboardService {
       wilayahName: null,
       cabangName: null,
       ketuaCabangName: null,
-      ketuaMuadalahName: null
+      ketuaCabangPhone: null,
+      ketuaMuadalahName: null,
+      ketuaMuadalahPhone: null
     };
 
     if (user.scope === 'WILAYAH' && user.wilayahId) {
       const w = await this.prisma.wilayah.findUnique({ where: { id: user.wilayahId } });
-      if (w) rbacIdentity.wilayahName = w.name;
+      if (w) {
+        rbacIdentity.wilayahName = (w as any).name;
+        rbacIdentity.ketuaMuadalahName = (w as any).ketuaMuadalahName || null;
+        rbacIdentity.ketuaMuadalahPhone = (w as any).ketuaMuadalahPhone || null;
+      }
     }
 
     if (user.scope === 'CABANG' && user.cabangId) {
@@ -446,11 +452,17 @@ export class DashboardService {
         
         if (c.ketuaCabangId) {
           const ketuaC = await this.prisma.staff.findUnique({ where: { id: c.ketuaCabangId } });
-          if (ketuaC) rbacIdentity.ketuaCabangName = ketuaC.name;
+          if (ketuaC) {
+            rbacIdentity.ketuaCabangName = ketuaC.name;
+            rbacIdentity.ketuaCabangPhone = (ketuaC as any).phone || null;
+          }
         }
         if (c.ketuaMuadalahId) {
           const ketuaM = await this.prisma.staff.findUnique({ where: { id: c.ketuaMuadalahId } });
-          if (ketuaM) rbacIdentity.ketuaMuadalahName = ketuaM.name;
+          if (ketuaM) {
+            rbacIdentity.ketuaMuadalahName = ketuaM.name;
+            rbacIdentity.ketuaMuadalahPhone = (ketuaM as any).phone || null;
+          }
         }
       }
     }
