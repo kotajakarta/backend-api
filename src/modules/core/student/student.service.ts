@@ -1469,6 +1469,10 @@ export class StudentService {
       where: whereClause,
       include: { 
         biodata: true,
+        wilayah: true,
+        cabang: {
+          include: { wilayah: true }
+        },
         siswaFormal: {
           include: { kelas: { include: { lembagaMuadalah: true } } }
         },
