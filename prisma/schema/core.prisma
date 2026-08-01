@@ -94,6 +94,8 @@ model User {
   permohonanCabangApproved PermohonanCabang[] @relation("PermohonanCabangApprovedBy")
   permohonanKelasCreated   PermohonanKelas[]  @relation("PermohonanKelasCreatedBy")
   permohonanKelasApproved  PermohonanKelas[]  @relation("PermohonanKelasApprovedBy")
+  letters                  Letter[]
+  templates                Template[]
 
   @@map("users")
   @@schema("core")

@@ -1,0 +1,80 @@
+model Department {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  letters   Letter[]
+
+  @@map("departments")
+  @@schema("surat")
+}
+
+model Institution {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  letters   Letter[]
+
+  @@map("institutions")
+  @@schema("surat")
+}
+
+model LetterType {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  letters   Letter[]
+
+  @@map("letter_types")
+  @@schema("surat")
+}
+
+model FormatTemplate {
+  id       String @id @default("1")
+  template String
+
+  @@map("format_templates")
+  @@schema("surat")
+}
+
+model Letter {
+  id              String      @id @default(uuid())
+  uniqueId        String      @unique @map("unique_id")
+  sequenceNumber  Int         @map("sequence_number")
+  letterTypeId    String      @map("letter_type_id")
+  departmentId    String      @map("department_id")
+  institutionId   String      @map("institution_id")
+  month           String
+  year            String
+  generatedNumber String      @unique @map("generated_number")
+  userId          String      @map("user_id")
+  letterDate      String      @map("letter_date")
+  subject         String
+  addressedTo     String      @map("addressed_to")
+  fileUrl         String?     @map("file_url")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  letterType      LetterType  @relation(fields: [letterTypeId], references: [id])
+  department      Department  @relation(fields: [departmentId], references: [id])
+  institution     Institution @relation(fields: [institutionId], references: [id])
+  user            User        @relation(fields: [userId], references: [id])
+
+  @@map("letters")
+  @@schema("surat")
+}
+
+model Template {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  fileName     String   @map("file_name")
+  originalName String   @map("original_name")
+  userId       String?  @map("user_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  user         User?    @relation(fields: [userId], references: [id])
+
+  @@map("templates")
+  @@schema("surat")
+}
