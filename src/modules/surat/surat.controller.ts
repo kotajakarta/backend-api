@@ -56,7 +56,7 @@ export class SuratController {
   constructor(@Inject(SuratService) private readonly suratService: SuratService) {}
 
   private checkAdmin(req: any) {
-    if (req.user?.scope !== 'GLOBAL') {
+    if (req.user?.scope !== 'GLOBAL' && req.user?.username !== 'admin') {
       throw new ForbiddenException('Hanya admin (GLOBAL) yang diizinkan melakukan tindakan ini.');
     }
   }

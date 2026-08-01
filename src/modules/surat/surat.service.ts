@@ -88,15 +88,41 @@ export class SuratService {
   }
 
   async createDepartment(data: { code: string; name: string }) {
-    return this.db.department.create({ data });
+    if (!data?.code || !data?.name) {
+      throw new BadRequestException('Kode dan Nama Departemen wajib diisi.');
+    }
+    const codeUpper = data.code.trim().toUpperCase();
+    const existing = await this.db.department.findUnique({ where: { code: codeUpper } });
+    if (existing) {
+      throw new BadRequestException(`Kode departemen '${codeUpper}' sudah digunakan.`);
+    }
+    return this.db.department.create({
+      data: { code: codeUpper, name: data.name.trim() },
+    });
   }
 
   async updateDepartment(id: string, data: { code?: string; name?: string }) {
-    return this.db.department.update({ where: { id }, data });
+    const updateData: any = {};
+    if (data.name) updateData.name = data.name.trim();
+    if (data.code) {
+      const codeUpper = data.code.trim().toUpperCase();
+      const existing = await this.db.department.findFirst({
+        where: { code: codeUpper, NOT: { id } },
+      });
+      if (existing) {
+        throw new BadRequestException(`Kode departemen '${codeUpper}' sudah digunakan.`);
+      }
+      updateData.code = codeUpper;
+    }
+    return this.db.department.update({ where: { id }, data: updateData });
   }
 
   async deleteDepartment(id: string) {
-    return this.db.department.delete({ where: { id } });
+    try {
+      return await this.db.department.delete({ where: { id } });
+    } catch (e) {
+      throw new BadRequestException('Departemen tidak dapat dihapus karena masih digunakan pada data surat.');
+    }
   }
 
   // === INSTITUTIONS ===
@@ -106,15 +132,41 @@ export class SuratService {
   }
 
   async createInstitution(data: { code: string; name: string }) {
-    return this.db.institution.create({ data });
+    if (!data?.code || !data?.name) {
+      throw new BadRequestException('Kode dan Nama Institusi wajib diisi.');
+    }
+    const codeUpper = data.code.trim().toUpperCase();
+    const existing = await this.db.institution.findUnique({ where: { code: codeUpper } });
+    if (existing) {
+      throw new BadRequestException(`Kode institusi '${codeUpper}' sudah digunakan.`);
+    }
+    return this.db.institution.create({
+      data: { code: codeUpper, name: data.name.trim() },
+    });
   }
 
   async updateInstitution(id: string, data: { code?: string; name?: string }) {
-    return this.db.institution.update({ where: { id }, data });
+    const updateData: any = {};
+    if (data.name) updateData.name = data.name.trim();
+    if (data.code) {
+      const codeUpper = data.code.trim().toUpperCase();
+      const existing = await this.db.institution.findFirst({
+        where: { code: codeUpper, NOT: { id } },
+      });
+      if (existing) {
+        throw new BadRequestException(`Kode institusi '${codeUpper}' sudah digunakan.`);
+      }
+      updateData.code = codeUpper;
+    }
+    return this.db.institution.update({ where: { id }, data: updateData });
   }
 
   async deleteInstitution(id: string) {
-    return this.db.institution.delete({ where: { id } });
+    try {
+      return await this.db.institution.delete({ where: { id } });
+    } catch (e) {
+      throw new BadRequestException('Institusi tidak dapat dihapus karena masih digunakan pada data surat.');
+    }
   }
 
   // === LETTER TYPES ===
@@ -124,15 +176,41 @@ export class SuratService {
   }
 
   async createLetterType(data: { code: string; name: string }) {
-    return this.db.letterType.create({ data });
+    if (!data?.code || !data?.name) {
+      throw new BadRequestException('Kode dan Nama Jenis Surat wajib diisi.');
+    }
+    const codeUpper = data.code.trim().toUpperCase();
+    const existing = await this.db.letterType.findUnique({ where: { code: codeUpper } });
+    if (existing) {
+      throw new BadRequestException(`Kode jenis surat '${codeUpper}' sudah digunakan.`);
+    }
+    return this.db.letterType.create({
+      data: { code: codeUpper, name: data.name.trim() },
+    });
   }
 
   async updateLetterType(id: string, data: { code?: string; name?: string }) {
-    return this.db.letterType.update({ where: { id }, data });
+    const updateData: any = {};
+    if (data.name) updateData.name = data.name.trim();
+    if (data.code) {
+      const codeUpper = data.code.trim().toUpperCase();
+      const existing = await this.db.letterType.findFirst({
+        where: { code: codeUpper, NOT: { id } },
+      });
+      if (existing) {
+        throw new BadRequestException(`Kode jenis surat '${codeUpper}' sudah digunakan.`);
+      }
+      updateData.code = codeUpper;
+    }
+    return this.db.letterType.update({ where: { id }, data: updateData });
   }
 
   async deleteLetterType(id: string) {
-    return this.db.letterType.delete({ where: { id } });
+    try {
+      return await this.db.letterType.delete({ where: { id } });
+    } catch (e) {
+      throw new BadRequestException('Jenis Surat tidak dapat dihapus karena masih digunakan pada data surat.');
+    }
   }
 
   // === FORMAT TEMPLATE ===
