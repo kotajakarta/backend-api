@@ -110,9 +110,22 @@ export class PembelajaranService {
     // Catatan absensi terikat pada (silabusId + tanggal)
     const absensiList = mapelIds.length > 0 ? await this.prisma.absensiMapel.findMany({
       where: { kelasId, mataPelajaranId: { in: mapelIds } },
-      select: { silabusId: true, tanggal: true }
+      select: { silabusId: true, tanggal: true, status: true }
     }) : [];
     const absensiSet = new Set(absensiList.map(a => `${a.silabusId}__${a.tanggal.toISOString().slice(0, 10)}`));
+
+    // Rekap kehadiran (H/I/S/A) per baris silabus (satu baris = satu sesi materi).
+    const kehadiranMap = new Map<string, { hadir: number; izin: number; sakit: number; alpa: number; total: number }>();
+    absensiList.forEach(a => {
+      if (!a.silabusId) return;
+      const rec = kehadiranMap.get(a.silabusId) || { hadir: 0, izin: 0, sakit: 0, alpa: 0, total: 0 };
+      rec.total++;
+      if (a.status === 'HADIR') rec.hadir++;
+      else if (a.status === 'IZIN') rec.izin++;
+      else if (a.status === 'SAKIT') rec.sakit++;
+      else if (a.status === 'ALPA') rec.alpa++;
+      kehadiranMap.set(a.silabusId, rec);
+    });
 
     const executions = executionsRaw.map(p => {
       const defaultGuru = p.mataPelajaranId ? defaultGuruMap.get(p.mataPelajaranId) : null;
@@ -140,7 +153,8 @@ export class PembelajaranService {
         section: s.section,
         tanggalTarget: s.tanggalTarget ? s.tanggalTarget.toISOString().slice(0, 10) : '',
         defaultGuruId: defaultGuru?.id || null,
-        defaultGuruName: defaultGuru?.name || null
+        defaultGuruName: defaultGuru?.name || null,
+        kehadiran: kehadiranMap.get(s.id) || null
       };
     });
 
