@@ -13,6 +13,7 @@ import {
   UploadedFile,
   Res,
   Inject,
+  ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response, Request as ExpressRequest } from 'express';
@@ -54,6 +55,12 @@ const storageTemplate = multer.diskStorage({
 export class SuratController {
   constructor(@Inject(SuratService) private readonly suratService: SuratService) {}
 
+  private checkAdmin(req: any) {
+    if (req.user?.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin (GLOBAL) yang diizinkan melakukan tindakan ini.');
+    }
+  }
+
   // === DASHBOARD & STATS ===
   @Get('stats')
   @UseGuards(AccessControlGuard)
@@ -70,19 +77,22 @@ export class SuratController {
 
   @Post('departments')
   @UseGuards(AccessControlGuard)
-  async createDepartment(@Body() body: { code: string; name: string }) {
+  async createDepartment(@Request() req: any, @Body() body: { code: string; name: string }) {
+    this.checkAdmin(req);
     return this.suratService.createDepartment(body);
   }
 
   @Put('departments/:id')
   @UseGuards(AccessControlGuard)
-  async updateDepartment(@Param('id') id: string, @Body() body: { code?: string; name?: string }) {
+  async updateDepartment(@Request() req: any, @Param('id') id: string, @Body() body: { code?: string; name?: string }) {
+    this.checkAdmin(req);
     return this.suratService.updateDepartment(id, body);
   }
 
   @Delete('departments/:id')
   @UseGuards(AccessControlGuard)
-  async deleteDepartment(@Param('id') id: string) {
+  async deleteDepartment(@Request() req: any, @Param('id') id: string) {
+    this.checkAdmin(req);
     return this.suratService.deleteDepartment(id);
   }
 
@@ -95,19 +105,22 @@ export class SuratController {
 
   @Post('institutions')
   @UseGuards(AccessControlGuard)
-  async createInstitution(@Body() body: { code: string; name: string }) {
+  async createInstitution(@Request() req: any, @Body() body: { code: string; name: string }) {
+    this.checkAdmin(req);
     return this.suratService.createInstitution(body);
   }
 
   @Put('institutions/:id')
   @UseGuards(AccessControlGuard)
-  async updateInstitution(@Param('id') id: string, @Body() body: { code?: string; name?: string }) {
+  async updateInstitution(@Request() req: any, @Param('id') id: string, @Body() body: { code?: string; name?: string }) {
+    this.checkAdmin(req);
     return this.suratService.updateInstitution(id, body);
   }
 
   @Delete('institutions/:id')
   @UseGuards(AccessControlGuard)
-  async deleteInstitution(@Param('id') id: string) {
+  async deleteInstitution(@Request() req: any, @Param('id') id: string) {
+    this.checkAdmin(req);
     return this.suratService.deleteInstitution(id);
   }
 
@@ -120,19 +133,22 @@ export class SuratController {
 
   @Post('types')
   @UseGuards(AccessControlGuard)
-  async createLetterType(@Body() body: { code: string; name: string }) {
+  async createLetterType(@Request() req: any, @Body() body: { code: string; name: string }) {
+    this.checkAdmin(req);
     return this.suratService.createLetterType(body);
   }
 
   @Put('types/:id')
   @UseGuards(AccessControlGuard)
-  async updateLetterType(@Param('id') id: string, @Body() body: { code?: string; name?: string }) {
+  async updateLetterType(@Request() req: any, @Param('id') id: string, @Body() body: { code?: string; name?: string }) {
+    this.checkAdmin(req);
     return this.suratService.updateLetterType(id, body);
   }
 
   @Delete('types/:id')
   @UseGuards(AccessControlGuard)
-  async deleteLetterType(@Param('id') id: string) {
+  async deleteLetterType(@Request() req: any, @Param('id') id: string) {
+    this.checkAdmin(req);
     return this.suratService.deleteLetterType(id);
   }
 
@@ -145,7 +161,8 @@ export class SuratController {
 
   @Put('format-template')
   @UseGuards(AccessControlGuard)
-  async updateFormatTemplate(@Body() body: { template: string }) {
+  async updateFormatTemplate(@Request() req: any, @Body() body: { template: string }) {
+    this.checkAdmin(req);
     return this.suratService.updateFormatTemplate(body.template);
   }
 
@@ -160,12 +177,14 @@ export class SuratController {
   @UseGuards(AccessControlGuard)
   @UseInterceptors(FileInterceptor('file', { storage: storageTemplate }))
   async createTemplate(@Request() req: any, @Body() body: any, @UploadedFile() file: any) {
+    this.checkAdmin(req);
     return this.suratService.createTemplate(body, file, req.user?.id);
   }
 
   @Delete('templates/:id')
   @UseGuards(AccessControlGuard)
-  async deleteTemplate(@Param('id') id: string) {
+  async deleteTemplate(@Request() req: any, @Param('id') id: string) {
+    this.checkAdmin(req);
     return this.suratService.deleteTemplate(id);
   }
 
@@ -209,7 +228,7 @@ export class SuratController {
 
   @Delete('letters/:id')
   @UseGuards(AccessControlGuard)
-  async deleteLetter(@Param('id') id: string) {
+  async deleteLetter(@Request() req: any, @Param('id') id: string) {
     return this.suratService.deleteLetter(id);
   }
 
