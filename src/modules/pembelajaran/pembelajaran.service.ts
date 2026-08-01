@@ -6,9 +6,15 @@ export interface SilabusSummaryItem {
   mataPelajaranId: string;
   name: string;
   kodeMapel: string;
+  tingkat: string;
   jumlahItem: number;
   hasSilabus: boolean;
 }
+
+// Daftar tingkat yang dipakai UI Kelola Silabus. Tingkat bukan model/enum tersendiri
+// di database (cuma kolom string bebas di SilabusMapel/Kelas), jadi daftarnya sama
+// persis dengan TINGKAT_OPTIONS di frontend — dipakai buat mode "Semua Tingkat".
+const TINGKAT_LIST = ['Non Muadalah', '7', '8', '9', '10', '11', '12'];
 
 export interface SilabusExportItem {
   id: string;
@@ -44,30 +50,55 @@ export class PembelajaranService {
     });
   }
 
-  // Ringkasan per mapel aktif untuk satu Tingkat+TahunAjaran+Semester: dipakai layar
-  // daftar Kelola Silabus agar admin tahu mapel mana yang silabusnya sudah/belum diisi.
+  // Ringkasan per mapel aktif untuk satu Tingkat+TahunAjaran+Semester (atau seluruh
+  // Tingkat sekaligus bila tingkat === 'ALL') — dipakai layar daftar Kelola Silabus
+  // agar admin tahu kombinasi mapel+tingkat mana yang silabusnya sudah/belum diisi.
   async getSilabusSummary(params: { tingkat: string; tahunAjaran: string; semester: string }): Promise<SilabusSummaryItem[]> {
     const { tingkat, tahunAjaran, semester } = params;
 
-    const [mapelList, grouped] = await Promise.all([
-      this.prisma.mataPelajaran.findMany({
-        where: { aktifPembelajaran: true },
-        orderBy: { name: 'asc' },
-        select: { id: true, name: true, kodeMapel: true }
-      }),
-      this.prisma.silabusMapel.groupBy({
-        by: ['mataPelajaranId'],
-        where: { tingkat, tahunAjaran, semester },
-        _count: { _all: true }
-      })
-    ]);
+    const mapelList = await this.prisma.mataPelajaran.findMany({
+      where: { aktifPembelajaran: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, kodeMapel: true }
+    });
 
+    if (tingkat === 'ALL') {
+      const grouped = await this.prisma.silabusMapel.groupBy({
+        by: ['mataPelajaranId', 'tingkat'],
+        where: { tahunAjaran, semester },
+        _count: { _all: true }
+      });
+      const countByKey = new Map(grouped.map(g => [`${g.mataPelajaranId}::${g.tingkat}`, g._count._all]));
+
+      const result: SilabusSummaryItem[] = [];
+      for (const m of mapelList) {
+        for (const t of TINGKAT_LIST) {
+          const jumlahItem = countByKey.get(`${m.id}::${t}`) ?? 0;
+          result.push({
+            mataPelajaranId: m.id,
+            name: m.name,
+            kodeMapel: m.kodeMapel,
+            tingkat: t,
+            jumlahItem,
+            hasSilabus: jumlahItem > 0
+          });
+        }
+      }
+      return result;
+    }
+
+    const grouped = await this.prisma.silabusMapel.groupBy({
+      by: ['mataPelajaranId'],
+      where: { tingkat, tahunAjaran, semester },
+      _count: { _all: true }
+    });
     const countByMapel = new Map(grouped.map(g => [g.mataPelajaranId, g._count._all]));
 
     return mapelList.map(m => ({
       mataPelajaranId: m.id,
       name: m.name,
       kodeMapel: m.kodeMapel,
+      tingkat,
       jumlahItem: countByMapel.get(m.id) ?? 0,
       hasSilabus: (countByMapel.get(m.id) ?? 0) > 0
     }));
