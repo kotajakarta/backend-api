@@ -13,7 +13,6 @@ import {
   UploadedFile,
   Res,
   Inject,
-  ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response, Request as ExpressRequest } from 'express';
@@ -22,6 +21,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { SuratService } from './surat.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
+import { RequireScope } from '../../common/decorators/access-control.decorator.js';
 
 const uploadDirSurat = path.join(process.cwd(), 'uploads/surat');
 const uploadDirTemplates = path.join(process.cwd(), 'uploads/surat-templates');
@@ -55,12 +55,6 @@ const storageTemplate = multer.diskStorage({
 export class SuratController {
   constructor(@Inject(SuratService) private readonly suratService: SuratService) {}
 
-  private checkAdmin(req: any) {
-    if (req.user?.scope !== 'GLOBAL' && req.user?.username !== 'admin') {
-      throw new ForbiddenException('Hanya admin (GLOBAL) yang diizinkan melakukan tindakan ini.');
-    }
-  }
-
   // === DASHBOARD & STATS ===
   @Get('stats')
   @UseGuards(AccessControlGuard)
@@ -77,22 +71,22 @@ export class SuratController {
 
   @Post('departments')
   @UseGuards(AccessControlGuard)
-  async createDepartment(@Request() req: any, @Body() body: { code: string; name: string }) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async createDepartment(@Body() body: { code: string; name: string }) {
     return this.suratService.createDepartment(body);
   }
 
   @Put('departments/:id')
   @UseGuards(AccessControlGuard)
-  async updateDepartment(@Request() req: any, @Param('id') id: string, @Body() body: { code?: string; name?: string }) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async updateDepartment(@Param('id') id: string, @Body() body: { code?: string; name?: string }) {
     return this.suratService.updateDepartment(id, body);
   }
 
   @Delete('departments/:id')
   @UseGuards(AccessControlGuard)
-  async deleteDepartment(@Request() req: any, @Param('id') id: string) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async deleteDepartment(@Param('id') id: string) {
     return this.suratService.deleteDepartment(id);
   }
 
@@ -105,22 +99,22 @@ export class SuratController {
 
   @Post('institutions')
   @UseGuards(AccessControlGuard)
-  async createInstitution(@Request() req: any, @Body() body: { code: string; name: string }) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async createInstitution(@Body() body: { code: string; name: string }) {
     return this.suratService.createInstitution(body);
   }
 
   @Put('institutions/:id')
   @UseGuards(AccessControlGuard)
-  async updateInstitution(@Request() req: any, @Param('id') id: string, @Body() body: { code?: string; name?: string }) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async updateInstitution(@Param('id') id: string, @Body() body: { code?: string; name?: string }) {
     return this.suratService.updateInstitution(id, body);
   }
 
   @Delete('institutions/:id')
   @UseGuards(AccessControlGuard)
-  async deleteInstitution(@Request() req: any, @Param('id') id: string) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async deleteInstitution(@Param('id') id: string) {
     return this.suratService.deleteInstitution(id);
   }
 
@@ -133,22 +127,22 @@ export class SuratController {
 
   @Post('types')
   @UseGuards(AccessControlGuard)
-  async createLetterType(@Request() req: any, @Body() body: { code: string; name: string }) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async createLetterType(@Body() body: { code: string; name: string }) {
     return this.suratService.createLetterType(body);
   }
 
   @Put('types/:id')
   @UseGuards(AccessControlGuard)
-  async updateLetterType(@Request() req: any, @Param('id') id: string, @Body() body: { code?: string; name?: string }) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async updateLetterType(@Param('id') id: string, @Body() body: { code?: string; name?: string }) {
     return this.suratService.updateLetterType(id, body);
   }
 
   @Delete('types/:id')
   @UseGuards(AccessControlGuard)
-  async deleteLetterType(@Request() req: any, @Param('id') id: string) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async deleteLetterType(@Param('id') id: string) {
     return this.suratService.deleteLetterType(id);
   }
 
@@ -161,8 +155,8 @@ export class SuratController {
 
   @Put('format-template')
   @UseGuards(AccessControlGuard)
-  async updateFormatTemplate(@Request() req: any, @Body() body: { template: string }) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async updateFormatTemplate(@Body() body: { template: string }) {
     return this.suratService.updateFormatTemplate(body.template);
   }
 
@@ -175,20 +169,21 @@ export class SuratController {
 
   @Post('templates')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   @UseInterceptors(FileInterceptor('file', { storage: storageTemplate }))
   async createTemplate(@Request() req: any, @Body() body: any, @UploadedFile() file: any) {
-    this.checkAdmin(req);
     return this.suratService.createTemplate(body, file, req.user?.id);
   }
 
   @Delete('templates/:id')
   @UseGuards(AccessControlGuard)
-  async deleteTemplate(@Request() req: any, @Param('id') id: string) {
-    this.checkAdmin(req);
+  @RequireScope('GLOBAL')
+  async deleteTemplate(@Param('id') id: string) {
     return this.suratService.deleteTemplate(id);
   }
 
   @Get('templates/download/:filename')
+  @UseGuards(AccessControlGuard)
   serveTemplateFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
     const filePath = path.join(uploadDirTemplates, safeFilename);
@@ -233,6 +228,7 @@ export class SuratController {
   }
 
   @Get('letters/download/:filename')
+  @UseGuards(AccessControlGuard)
   serveLetterFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
     const filePath = path.join(uploadDirSurat, safeFilename);
