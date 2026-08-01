@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,7 +19,7 @@ function toRoman(num: number): string {
 
 @Injectable()
 export class SuratService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   private get db(): any {
     return this.prisma as any;
