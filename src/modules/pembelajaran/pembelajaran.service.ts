@@ -2,6 +2,14 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { StatusSilabus, StatusKehadiranMapel } from '@prisma/client';
 
+export interface SilabusSummaryItem {
+  mataPelajaranId: string;
+  name: string;
+  kodeMapel: string;
+  jumlahItem: number;
+  hasSilabus: boolean;
+}
+
 @Injectable()
 export class PembelajaranService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
@@ -20,6 +28,35 @@ export class PembelajaranService {
       where: { mataPelajaranId, tingkat, tahunAjaran, semester },
       orderBy: [{ urutanBab: 'asc' }, { urutanSection: 'asc' }]
     });
+  }
+
+  // Ringkasan per mapel aktif untuk satu Tingkat+TahunAjaran+Semester: dipakai layar
+  // daftar Kelola Silabus agar admin tahu mapel mana yang silabusnya sudah/belum diisi.
+  async getSilabusSummary(params: { tingkat: string; tahunAjaran: string; semester: string }): Promise<SilabusSummaryItem[]> {
+    const { tingkat, tahunAjaran, semester } = params;
+
+    const [mapelList, grouped] = await Promise.all([
+      this.prisma.mataPelajaran.findMany({
+        where: { aktifPembelajaran: true },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, kodeMapel: true }
+      }),
+      this.prisma.silabusMapel.groupBy({
+        by: ['mataPelajaranId'],
+        where: { tingkat, tahunAjaran, semester },
+        _count: { _all: true }
+      })
+    ]);
+
+    const countByMapel = new Map(grouped.map(g => [g.mataPelajaranId, g._count._all]));
+
+    return mapelList.map(m => ({
+      mataPelajaranId: m.id,
+      name: m.name,
+      kodeMapel: m.kodeMapel,
+      jumlahItem: countByMapel.get(m.id) ?? 0,
+      hasSilabus: (countByMapel.get(m.id) ?? 0) > 0
+    }));
   }
 
   // Replace-in-place: baris yang punya `id` di-update, yang tanpa `id` dibuat baru,

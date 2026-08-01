@@ -2,6 +2,7 @@ import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Request, 
 import { PembelajaranService } from './pembelajaran.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireDivisi, RequireScope } from '../../common/decorators/access-control.decorator.js';
+import { SilabusSummaryQueryDto } from './dto/silabus-summary-query.dto.js';
 
 @Controller('pembelajaran')
 @RequireDivisi('FORMAL')
@@ -23,6 +24,13 @@ export class PembelajaranController {
       throw new BadRequestException('mataPelajaranId, tingkat, tahunAjaran, dan semester wajib diisi');
     }
     return this.pembelajaranService.getSilabus({ mataPelajaranId, tingkat, tahunAjaran, semester });
+  }
+
+  @Get('silabus/summary')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  getSilabusSummary(@Query() query: SilabusSummaryQueryDto) {
+    return this.pembelajaranService.getSilabusSummary(query);
   }
 
   @Post('silabus/bulk')
