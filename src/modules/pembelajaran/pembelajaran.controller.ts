@@ -33,6 +33,13 @@ export class PembelajaranController {
     return this.pembelajaranService.getSilabusSummary(query);
   }
 
+  @Get('silabus/export')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  getAllSilabusForExport() {
+    return this.pembelajaranService.getAllSilabusForExport();
+  }
+
   @Post('silabus/bulk')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')

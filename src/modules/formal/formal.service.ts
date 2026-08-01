@@ -321,7 +321,12 @@ export class FormalService {
       }
     }
 
-    const result = await this.prisma.kelas.delete({ where: { id } });
+    let result;
+    try {
+      result = await this.prisma.kelas.delete({ where: { id } });
+    } catch (e) {
+      throw new BadRequestException('Kelas tidak dapat dihapus karena masih memiliki data terkait (siswa, guru mapel, nilai, absensi, atau riwayat kelas). Pindahkan atau hapus data tersebut terlebih dahulu.');
+    }
     if (user) {
       await this.auditLogService.log('DELETE', 'KELAS', result.id, result.name, user, `Menghapus kelas "${result.name}"`);
     }

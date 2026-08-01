@@ -10,6 +10,20 @@ export interface SilabusSummaryItem {
   hasSilabus: boolean;
 }
 
+export interface SilabusExportItem {
+  id: string;
+  mataPelajaranName: string;
+  kodeMapel: string;
+  tingkat: string;
+  tahunAjaran: string;
+  semester: string;
+  bab: string;
+  urutanBab: number;
+  section: string;
+  urutanSection: number;
+  tanggalTarget: Date | null;
+}
+
 @Injectable()
 export class PembelajaranService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
@@ -56,6 +70,36 @@ export class PembelajaranService {
       kodeMapel: m.kodeMapel,
       jumlahItem: countByMapel.get(m.id) ?? 0,
       hasSilabus: (countByMapel.get(m.id) ?? 0) > 0
+    }));
+  }
+
+  // Ekspor seluruh silabus di database (semua mapel, semua tingkat/tahun ajaran/semester)
+  // jadi satu daftar flat — dipakai tombol "Export Semua Silabus" di layar Kelola Silabus.
+  async getAllSilabusForExport(): Promise<SilabusExportItem[]> {
+    const rows = await this.prisma.silabusMapel.findMany({
+      include: { mataPelajaran: { select: { name: true, kodeMapel: true } } },
+      orderBy: [
+        { mataPelajaran: { name: 'asc' } },
+        { tingkat: 'asc' },
+        { tahunAjaran: 'asc' },
+        { semester: 'asc' },
+        { urutanBab: 'asc' },
+        { urutanSection: 'asc' }
+      ]
+    });
+
+    return rows.map(r => ({
+      id: r.id,
+      mataPelajaranName: r.mataPelajaran.name,
+      kodeMapel: r.mataPelajaran.kodeMapel,
+      tingkat: r.tingkat,
+      tahunAjaran: r.tahunAjaran,
+      semester: r.semester,
+      bab: r.bab,
+      urutanBab: r.urutanBab,
+      section: r.section,
+      urutanSection: r.urutanSection,
+      tanggalTarget: r.tanggalTarget
     }));
   }
 
