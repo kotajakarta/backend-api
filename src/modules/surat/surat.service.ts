@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,6 +23,16 @@ export class SuratService {
 
   private get db(): any {
     return this.prisma as any;
+  }
+
+  // RBAC data-level scoping untuk surat: GLOBAL lihat semua, WILAYAH cuma surat yang
+  // dibuat user di wilayahnya, CABANG cuma surat yang dibuat user di cabangnya.
+  // Surat tidak punya wilayahId/cabangId sendiri — scoping ditelusuri dari pembuatnya (user).
+  private buildLetterScopeWhere(user?: any): any {
+    if (!user || user.scope === 'GLOBAL') return {};
+    if (user.scope === 'WILAYAH') return { user: { wilayahId: user.wilayahId } };
+    if (user.scope === 'CABANG') return { user: { cabangId: user.cabangId } };
+    return {};
   }
 
   // Ensure default master data exists
@@ -274,16 +284,17 @@ export class SuratService {
   }
 
   // === LETTERS MANAGEMENT & GENERATION ===
-  async getLetterStats() {
+  async getLetterStats(user?: any) {
     await this.ensureDefaults();
     const now = new Date();
     const currentMonth = String(now.getMonth() + 1);
     const currentYear = String(now.getFullYear());
+    const letterWhere = this.buildLetterScopeWhere(user);
 
     const [totalLetters, monthLetters, totalTemplates, totalTypes] = await Promise.all([
-      this.db.letter.count(),
+      this.db.letter.count({ where: letterWhere }),
       this.db.letter.count({
-        where: { month: currentMonth, year: currentYear },
+        where: { ...letterWhere, month: currentMonth, year: currentYear },
       }),
       this.db.template.count(),
       this.db.letterType.count(),
@@ -304,9 +315,9 @@ export class SuratService {
     institutionId?: string;
     month?: string;
     year?: string;
-  }) {
+  }, user?: any) {
     await this.ensureDefaults();
-    const where: any = {};
+    const where: any = { ...this.buildLetterScopeWhere(user) };
 
     if (filters.letterTypeId) where.letterTypeId = filters.letterTypeId;
     if (filters.departmentId) where.departmentId = filters.departmentId;
@@ -422,9 +433,16 @@ export class SuratService {
     return letter;
   }
 
-  async deleteLetter(id: string) {
-    const letter = await this.db.letter.findUnique({ where: { id } });
+  async deleteLetter(id: string, user?: any) {
+    const letter = await this.db.letter.findUnique({ where: { id }, include: { user: true } });
     if (!letter) throw new NotFoundException('Surat tidak ditemukan.');
+
+    if (user && user.scope === 'WILAYAH' && letter.user.wilayahId !== user.wilayahId) {
+      throw new ForbiddenException('Anda hanya dapat menghapus surat di wilayah Anda.');
+    }
+    if (user && user.scope === 'CABANG' && letter.user.cabangId !== user.cabangId) {
+      throw new ForbiddenException('Anda hanya dapat menghapus surat di cabang Anda.');
+    }
 
     if (letter.fileUrl) {
       const filePath = path.join(uploadDirSurat, letter.fileUrl);
@@ -434,5 +452,17 @@ export class SuratService {
     }
 
     return this.db.letter.delete({ where: { id } });
+  }
+
+  // Dipakai endpoint download file surat: cegah CABANG/WILAYAH mengunduh berkas surat
+  // milik cabang/wilayah lain lewat tebak-tebakan nama file. Jika file tidak terkait
+  // surat manapun (yatim), biarkan lolos supaya alur 404 "file tidak ditemukan" tetap normal.
+  async checkLetterFileAccess(filename: string, user?: any): Promise<boolean> {
+    if (!user || user.scope === 'GLOBAL') return true;
+    const letter = await this.db.letter.findFirst({ where: { fileUrl: filename }, include: { user: true } });
+    if (!letter) return true;
+    if (user.scope === 'WILAYAH') return letter.user.wilayahId === user.wilayahId;
+    if (user.scope === 'CABANG') return letter.user.cabangId === user.cabangId;
+    return true;
   }
 }

@@ -58,8 +58,8 @@ export class SuratController {
   // === DASHBOARD & STATS ===
   @Get('stats')
   @UseGuards(AccessControlGuard)
-  async getStats() {
-    return this.suratService.getLetterStats();
+  async getStats(@Request() req: any) {
+    return this.suratService.getLetterStats(req.user);
   }
 
   // === MASTER DATA: DEPARTMENTS ===
@@ -197,6 +197,7 @@ export class SuratController {
   @Get('letters')
   @UseGuards(AccessControlGuard)
   async getLetters(
+    @Request() req: any,
     @Query('search') search?: string,
     @Query('letterTypeId') letterTypeId?: string,
     @Query('departmentId') departmentId?: string,
@@ -211,7 +212,7 @@ export class SuratController {
       institutionId,
       month,
       year,
-    });
+    }, req.user);
   }
 
   @Post('letters/generate')
@@ -224,13 +225,17 @@ export class SuratController {
   @Delete('letters/:id')
   @UseGuards(AccessControlGuard)
   async deleteLetter(@Request() req: any, @Param('id') id: string) {
-    return this.suratService.deleteLetter(id);
+    return this.suratService.deleteLetter(id, req.user);
   }
 
   @Get('letters/download/:filename')
   @UseGuards(AccessControlGuard)
-  serveLetterFile(@Param('filename') filename: string, @Res() res: Response) {
+  async serveLetterFile(@Request() req: any, @Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
+    const allowed = await this.suratService.checkLetterFileAccess(safeFilename, req.user);
+    if (!allowed) {
+      return res.status(403).send('Anda tidak memiliki akses ke berkas surat ini.');
+    }
     const filePath = path.join(uploadDirSurat, safeFilename);
     if (fs.existsSync(filePath)) {
       return res.download(filePath);
