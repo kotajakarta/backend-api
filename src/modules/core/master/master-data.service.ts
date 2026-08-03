@@ -580,6 +580,7 @@ export class MasterDataService {
       include: {
         wilayah: true,
         staff: true,
+        targetKuota: true,
         students: {
           include: {
             siswaFormal: true,
@@ -666,10 +667,26 @@ export class MasterDataService {
         else if (t === '12' || t.includes('12') || t.includes('XII')) tingkat12++;
       });
 
+      const targetObj = cabang.targetKuota && cabang.targetKuota.length > 0
+        ? cabang.targetKuota[0]
+        : {
+            targetHazirlik: 0,
+            targetHafizlik: 0,
+            targetIbtidai: 0,
+            targetIhzari: 0,
+            targetTingkat7: 0,
+            targetTingkat8: 0,
+            targetTingkat9: 0,
+            targetTingkat10: 0,
+            targetTingkat11: 0,
+            targetTingkat12: 0,
+          };
+
       return {
         ...cabang,
         pimpinanCabang,
         pjMuadalah,
+        targetKuota: targetObj,
         personel: {
           pendidikLK,
           pendidikPR,
@@ -1108,5 +1125,115 @@ export class MasterDataService {
 
     await this.auditLogService.log('REJECT', 'PERMOHONAN_CABANG', updated.id, permohonan.namaCabangUsulan, user, `Menolak permohonan cabang "${permohonan.namaCabangUsulan}"`);
     return updated;
+  }
+
+  async updateTargetKuota(cabangId: string, data: any, user?: any) {
+    const cabang = await this.prisma.cabang.findUnique({ where: { id: cabangId } });
+    if (!cabang) throw new NotFoundException('Cabang tidak ditemukan');
+
+    const tahunAjaran = data.tahunAjaran || '2026/2027';
+
+    const updatedTarget = await this.prisma.targetKuotaCabang.upsert({
+      where: {
+        cabangId_tahunAjaran: {
+          cabangId,
+          tahunAjaran,
+        }
+      },
+      update: {
+        targetHazirlik: Number(data.targetHazirlik) || 0,
+        targetHafizlik: Number(data.targetHafizlik) || 0,
+        targetIbtidai: Number(data.targetIbtidai) || 0,
+        targetIhzari: Number(data.targetIhzari) || 0,
+        targetTingkat7: Number(data.targetTingkat7) || 0,
+        targetTingkat8: Number(data.targetTingkat8) || 0,
+        targetTingkat9: Number(data.targetTingkat9) || 0,
+        targetTingkat10: Number(data.targetTingkat10) || 0,
+        targetTingkat11: Number(data.targetTingkat11) || 0,
+        targetTingkat12: Number(data.targetTingkat12) || 0,
+      },
+      create: {
+        cabangId,
+        tahunAjaran,
+        targetHazirlik: Number(data.targetHazirlik) || 0,
+        targetHafizlik: Number(data.targetHafizlik) || 0,
+        targetIbtidai: Number(data.targetIbtidai) || 0,
+        targetIhzari: Number(data.targetIhzari) || 0,
+        targetTingkat7: Number(data.targetTingkat7) || 0,
+        targetTingkat8: Number(data.targetTingkat8) || 0,
+        targetTingkat9: Number(data.targetTingkat9) || 0,
+        targetTingkat10: Number(data.targetTingkat10) || 0,
+        targetTingkat11: Number(data.targetTingkat11) || 0,
+        targetTingkat12: Number(data.targetTingkat12) || 0,
+      }
+    });
+
+    if (user) {
+      await this.auditLogService.log(
+        'UPDATE',
+        'TARGET_KUOTA_CABANG',
+        cabangId,
+        cabang.name,
+        user,
+        `Mengubah target kuota cabang "${cabang.name}" (Tahun Ajaran ${tahunAjaran})`
+      );
+    }
+
+    return updatedTarget;
+  }
+
+  async importTargetKuota(data: any[], user?: any) {
+    const allCabang = await this.prisma.cabang.findMany({ select: { id: true, name: true, nameGlodemy: true, nameResmi: true } });
+    const cabangMap = new Map<string, string>();
+    
+    for (const c of allCabang) {
+      if (c.name) cabangMap.set(c.name.toLowerCase().trim(), c.id);
+      if (c.nameGlodemy) cabangMap.set(c.nameGlodemy.toLowerCase().trim(), c.id);
+      if (c.nameResmi) cabangMap.set(c.nameResmi.toLowerCase().trim(), c.id);
+    }
+
+    const updatedList = [];
+    const tahunAjaran = '2026/2027';
+
+    for (const row of data) {
+      const rawName = String(row['Nama Cabang'] || row['Nama'] || row['Cabang'] || '').toLowerCase().trim();
+      if (!rawName) continue;
+
+      const cabangId = cabangMap.get(rawName);
+      if (!cabangId) continue;
+
+      const targetObj = {
+        targetHazirlik: Number(row['Hazirlik'] || row['Target Hazirlik'] || 0) || 0,
+        targetHafizlik: Number(row['Hafizlik'] || row['Target Hafizlik'] || 0) || 0,
+        targetIbtidai: Number(row['Ibtidai'] || row['Target Ibtidai'] || 0) || 0,
+        targetIhzari: Number(row['Ihzari'] || row['Target Ihzari'] || 0) || 0,
+        targetTingkat7: Number(row['Tingkat 7'] || row['Target Tingkat 7'] || 0) || 0,
+        targetTingkat8: Number(row['Tingkat 8'] || row['Target Tingkat 8'] || 0) || 0,
+        targetTingkat9: Number(row['Tingkat 9'] || row['Target Tingkat 9'] || 0) || 0,
+        targetTingkat10: Number(row['Tingkat 10'] || row['Target Tingkat 10'] || 0) || 0,
+        targetTingkat11: Number(row['Tingkat 11'] || row['Target Tingkat 11'] || 0) || 0,
+        targetTingkat12: Number(row['Tingkat 12'] || row['Target Tingkat 12'] || 0) || 0,
+      };
+
+      const res = await this.prisma.targetKuotaCabang.upsert({
+        where: { cabangId_tahunAjaran: { cabangId, tahunAjaran } },
+        update: targetObj,
+        create: { cabangId, tahunAjaran, ...targetObj }
+      });
+      updatedList.push(res);
+    }
+
+    if (user) {
+      await this.auditLogService.log(
+        'UPDATE',
+        'TARGET_KUOTA_CABANG',
+        'IMPORT_BULK',
+        'Bulk Import Target Kuota',
+        user,
+        `Mengisi target kuota cabang secara massal (${updatedList.length} cabang ter-update)`
+      );
+    }
+
+    return { count: updatedList.length, success: true };
   }
 }

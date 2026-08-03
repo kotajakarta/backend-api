@@ -62,6 +62,7 @@ model Cabang {
   kegiatan                  Kegiatan[]
   grupDaimi                 GrupDaimi[]           @relation("GrupDaimiCabang")
   permohonanKelas           PermohonanKelas[]
+  targetKuota               TargetKuotaCabang[]
 
   @@map("cabang")
   @@schema("core")
@@ -400,5 +401,34 @@ model PermohonanCabang {
   approvedBy User?   @relation("PermohonanCabangApprovedBy", fields: [approvedById], references: [id])
 
   @@map("permohonan_cabang")
+  @@schema("core")
+}
+
+model TargetKuotaCabang {
+  id              String   @id @default(uuid())
+  cabangId        String   @map("cabang_id")
+  tahunAjaran     String   @default("2026/2027") @map("tahun_ajaran")
+  
+  // Target per Grup Daimi
+  targetHazirlik  Int      @default(0) @map("target_hazirlik")
+  targetHafizlik  Int      @default(0) @map("target_hafizlik")
+  targetIbtidai   Int      @default(0) @map("target_ibtidai")
+  targetIhzari    Int      @default(0) @map("target_ihzari")
+
+  // Target per Tingkat Formal
+  targetTingkat7  Int      @default(0) @map("target_tingkat_7")
+  targetTingkat8  Int      @default(0) @map("target_tingkat_8")
+  targetTingkat9  Int      @default(0) @map("target_tingkat_9")
+  targetTingkat10 Int      @default(0) @map("target_tingkat_10")
+  targetTingkat11 Int      @default(0) @map("target_tingkat_11")
+  targetTingkat12 Int      @default(0) @map("target_tingkat_12")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  cabang          Cabang   @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+
+  @@unique([cabangId, tahunAjaran])
+  @@map("target_kuota_cabang")
   @@schema("core")
 }

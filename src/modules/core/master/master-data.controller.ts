@@ -136,6 +136,18 @@ export class MasterDataController {
     return this.masterDataService.updateCabangProfile(req.params.id, req.body, req.user);
   }
 
+  @Put('cabang/:id/target-kuota')
+  @UseGuards(AccessControlGuard)
+  updateTargetKuota(@Request() req: any) {
+    return this.masterDataService.updateTargetKuota(req.params.id, req.body, req.user);
+  }
+
+  @Post('cabang/import-target-kuota')
+  @UseGuards(AccessControlGuard)
+  importTargetKuota(@Request() req: any) {
+    return this.masterDataService.importTargetKuota(req.body, req.user);
+  }
+
   @Delete('cabang/all')
   @UseGuards(AccessControlGuard)
   deleteAllCabang(@Request() req: any) {
