@@ -1,16 +1,16 @@
 model Wilayah {
-  id                  String       @id @default(uuid())
-  name                String
-  ketuaMuadalahId     String?      @map("ketua_muadalah_id")
-  ketuaMuadalahName   String?      @map("ketua_muadalah_name")
-  ketuaMuadalahPhone  String?      @map("ketua_muadalah_phone")
-  cabangs    Cabang[]
-  staff      Staff[]
-  students   Student[]
-  users      User[]
-  kelasDaimi KelasDaimi[]
-  permohonanCabang PermohonanCabang[]
-  permohonanKelas  PermohonanKelas[]
+  id                 String             @id @default(uuid())
+  name               String
+  ketuaMuadalahId    String?            @map("ketua_muadalah_id")
+  ketuaMuadalahName  String?            @map("ketua_muadalah_name")
+  ketuaMuadalahPhone String?            @map("ketua_muadalah_phone")
+  cabangs            Cabang[]
+  staff              Staff[]
+  students           Student[]
+  users              User[]
+  kelasDaimi         KelasDaimi[]
+  permohonanCabang   PermohonanCabang[]
+  permohonanKelas    PermohonanKelas[]
 
   @@map("wilayah")
   @@schema("core")
@@ -79,23 +79,26 @@ model Faq {
 }
 
 model User {
-  id                String             @id @default(uuid())
-  username          String             @unique
-  password          String
-  scope             UserScope
-  divisi            UserDivisi
-  wilayahId         String?            @map("wilayah_id")
-  cabangId          String?            @map("cabang_id")
-  operatorName      String?            @map("operator_name")
-  cabang            Cabang?            @relation(fields: [cabangId], references: [id])
-  wilayah           Wilayah?           @relation(fields: [wilayahId], references: [id])
-  confirmedKegiatan Kegiatan[]
-  permohonanCabangCreated PermohonanCabang[] @relation("PermohonanCabangCreatedBy")
-  permohonanCabangApproved PermohonanCabang[] @relation("PermohonanCabangApprovedBy")
-  permohonanKelasCreated   PermohonanKelas[]  @relation("PermohonanKelasCreatedBy")
-  permohonanKelasApproved  PermohonanKelas[]  @relation("PermohonanKelasApprovedBy")
+  id                       String                 @id @default(uuid())
+  username                 String                 @unique
+  password                 String
+  scope                    UserScope
+  divisi                   UserDivisi
+  wilayahId                String?                @map("wilayah_id")
+  cabangId                 String?                @map("cabang_id")
+  operatorName             String?                @map("operator_name")
+  cabang                   Cabang?                @relation(fields: [cabangId], references: [id])
+  wilayah                  Wilayah?               @relation(fields: [wilayahId], references: [id])
+  confirmedKegiatan        Kegiatan[]
+  permohonanCabangCreated  PermohonanCabang[]     @relation("PermohonanCabangCreatedBy")
+  permohonanCabangApproved PermohonanCabang[]     @relation("PermohonanCabangApprovedBy")
+  permohonanKelasCreated   PermohonanKelas[]      @relation("PermohonanKelasCreatedBy")
+  permohonanKelasApproved  PermohonanKelas[]      @relation("PermohonanKelasApprovedBy")
   letters                  Letter[]
   templates                Template[]
+  waliSantri               WaliSantri[]
+  permohonanIzinCreated    PermohonanIzinSantri[] @relation("PermohonanIzinCreatedBy")
+  permohonanIzinApproved   PermohonanIzinSantri[] @relation("PermohonanIzinApprovedBy")
 
   @@map("users")
   @@schema("core")
@@ -162,31 +165,33 @@ model Biodata {
 }
 
 model Student {
-  id                 String                @id @default(uuid())
-  biodataId          String                @unique @map("biodata_id")
-  wilayahId          String?               @map("wilayah_id")
-  cabangId           String?               @map("cabang_id")
-  statusPool         StatusPool            @default(TERSEDIA) @map("status_pool")
-  isActive           Boolean               @default(true) @map("is_active")
-  jenisSiswa         JenisSiswa?           @map("jenis_siswa")
-  grupDaimi          String?               @map("grup_daimi")
-  statusHafidz       StatusHafidz?         @map("status_hafidz")
-  daftarUlangAt          DateTime? @map("daftar_ulang_at")
-  daftarUlangJenis       String?   @map("daftar_ulang_jenis")
-  daftarUlangTahunAjaran String?   @map("daftar_ulang_tahun_ajaran")
-  daftarUlangSemester    String?   @map("daftar_ulang_semester")
-  kehadiran          Kehadiran[]
-  permintaanTarik    PermintaanTarikData[]
-  riwayatPendidikan  RiwayatPendidikan[]
-  biodata            Biodata               @relation(fields: [biodataId], references: [id])
-  cabang             Cabang?               @relation(fields: [cabangId], references: [id])
-  wilayah            Wilayah?              @relation(fields: [wilayahId], references: [id])
-  riwayatKelasFormal RiwayatKelasFormal[]
-  siswaFormal        SiswaFormal?
-  dataDaimi          DataDaimi?
-  nilaiFormal        NilaiFormal[]
-  hafalanAlQuran     HafalanAlQuran[]
-  absensiMapel       AbsensiMapel[]
+  id                     String                 @id @default(uuid())
+  biodataId              String                 @unique @map("biodata_id")
+  wilayahId              String?                @map("wilayah_id")
+  cabangId               String?                @map("cabang_id")
+  statusPool             StatusPool             @default(TERSEDIA) @map("status_pool")
+  isActive               Boolean                @default(true) @map("is_active")
+  jenisSiswa             JenisSiswa?            @map("jenis_siswa")
+  grupDaimi              String?                @map("grup_daimi")
+  statusHafidz           StatusHafidz?          @map("status_hafidz")
+  daftarUlangAt          DateTime?              @map("daftar_ulang_at")
+  daftarUlangJenis       String?                @map("daftar_ulang_jenis")
+  daftarUlangTahunAjaran String?                @map("daftar_ulang_tahun_ajaran")
+  daftarUlangSemester    String?                @map("daftar_ulang_semester")
+  kehadiran              Kehadiran[]
+  permintaanTarik        PermintaanTarikData[]
+  riwayatPendidikan      RiwayatPendidikan[]
+  biodata                Biodata                @relation(fields: [biodataId], references: [id])
+  cabang                 Cabang?                @relation(fields: [cabangId], references: [id])
+  wilayah                Wilayah?               @relation(fields: [wilayahId], references: [id])
+  riwayatKelasFormal     RiwayatKelasFormal[]
+  siswaFormal            SiswaFormal?
+  dataDaimi              DataDaimi?
+  nilaiFormal            NilaiFormal[]
+  hafalanAlQuran         HafalanAlQuran[]
+  absensiMapel           AbsensiMapel[]
+  waliSantri             WaliSantri[]
+  permohonanIzin         PermohonanIzinSantri[]
 
   @@map("students")
   @@schema("core")
@@ -208,11 +213,11 @@ model RiwayatPendidikan {
 }
 
 model Staff {
-  id               String               @id @default(uuid())
-  name             String
-  position         String
-  wilayahId        String?              @map("wilayah_id")
-  cabangId         String?              @map("cabang_id")
+  id                 String               @id @default(uuid())
+  name               String
+  position           String
+  wilayahId          String?              @map("wilayah_id")
+  cabangId           String?              @map("cabang_id")
   grupDaimiId        String?              @map("grup_daimi_id")
   ifadahUrl          String?              @map("ifadah_url")
   ktpUrl             String?              @map("ktp_url")
@@ -226,19 +231,19 @@ model Staff {
   tempatLahir        String?              @map("tempat_lahir")
   tanggalLahir       DateTime?            @map("tanggal_lahir")
   statusPool         StatusPool           @default(TERSEDIA) @map("status_pool")
-  phone            String?              @map("phone")
-  mapelUmum        String[]             @map("mapel_umum")
-  waliKelas        String?              @map("wali_kelas")
-  cabang           Cabang?              @relation(fields: [cabangId], references: [id])
-  grupDaimi        GrupDaimi?           @relation(fields: [grupDaimiId], references: [id])
-  grupDaimiKetua   GrupDaimi[]          @relation("GrupDaimiKetua")
-  wilayah          Wilayah?             @relation(fields: [wilayahId], references: [id])
-  guruMapelKelas   GuruMapelKelas[]
+  phone              String?              @map("phone")
+  mapelUmum          String[]             @map("mapel_umum")
+  waliKelas          String?              @map("wali_kelas")
+  cabang             Cabang?              @relation(fields: [cabangId], references: [id])
+  grupDaimi          GrupDaimi?           @relation(fields: [grupDaimiId], references: [id])
+  grupDaimiKetua     GrupDaimi[]          @relation("GrupDaimiKetua")
+  wilayah            Wilayah?             @relation(fields: [wilayahId], references: [id])
+  guruMapelKelas     GuruMapelKelas[]
   pelaksanaanSilabus PelaksanaanSilabus[]
-  riwayatWaliKelas RiwayatKelasFormal[]
-  kelasWali        Kelas[]              @relation("KelasWali")
-  panitia          Panitia[]
-  kehadiranGuru    KehadiranGuru[]
+  riwayatWaliKelas   RiwayatKelasFormal[]
+  kelasWali          Kelas[]              @relation("KelasWali")
+  panitia            Panitia[]
+  kehadiranGuru      KehadiranGuru[]
 
   @@map("staff")
   @@schema("core")
@@ -318,6 +323,7 @@ enum UserScope {
   GLOBAL
   WILAYAH
   CABANG
+  WALI
 
   @@schema("core")
 }
@@ -389,9 +395,9 @@ model PermohonanCabang {
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
-  wilayah          Wilayah          @relation(fields: [wilayahId], references: [id])
-  createdBy        User             @relation("PermohonanCabangCreatedBy", fields: [createdById], references: [id])
-  approvedBy       User?            @relation("PermohonanCabangApprovedBy", fields: [approvedById], references: [id])
+  wilayah    Wilayah @relation(fields: [wilayahId], references: [id])
+  createdBy  User    @relation("PermohonanCabangCreatedBy", fields: [createdById], references: [id])
+  approvedBy User?   @relation("PermohonanCabangApprovedBy", fields: [approvedById], references: [id])
 
   @@map("permohonan_cabang")
   @@schema("core")

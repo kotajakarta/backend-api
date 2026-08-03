@@ -1,0 +1,42 @@
+enum JenisIzinSantri {
+  IZIN_PULANG
+  SAKIT
+  LAINNYA
+
+  @@schema("core")
+}
+
+model WaliSantri {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  studentId String   @map("student_id")
+  hubungan  String?
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, studentId])
+  @@map("wali_santri")
+  @@schema("core")
+}
+
+model PermohonanIzinSantri {
+  id             String           @id @default(uuid())
+  studentId      String           @map("student_id")
+  createdById    String           @map("created_by_id")
+  jenisIzin      JenisIzinSantri  @map("jenis_izin")
+  keterangan     String
+  tanggalMulai   DateTime         @map("tanggal_mulai") @db.Date
+  tanggalSelesai DateTime         @map("tanggal_selesai") @db.Date
+  status         StatusPermohonan @default(PENDING)
+  catatanAdmin   String?          @map("catatan_admin")
+  approvedById   String?          @map("approved_by_id")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  student        Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdBy      User             @relation("PermohonanIzinCreatedBy", fields: [createdById], references: [id])
+  approvedBy     User?            @relation("PermohonanIzinApprovedBy", fields: [approvedById], references: [id])
+
+  @@map("permohonan_izin_santri")
+  @@schema("core")
+}
