@@ -517,30 +517,38 @@ export class FormalService {
   async toggleKeaktifanMapelGrup(data: { mataPelajaranId: string, grupDaimiId?: string, jenisGrupName?: string, isActive: boolean }, user?: any) {
     if (data.jenisGrupName) {
       const allGrups = await this.prisma.grupDaimi.findMany({ select: { id: true, name: true, jenis: true } });
-      const targetGrupIds = allGrups
+      let targetGrupIds = allGrups
         .filter(g => (g.jenis && g.jenis.toLowerCase() === data.jenisGrupName!.toLowerCase()) || (g.name && g.name.toLowerCase() === data.jenisGrupName!.toLowerCase()))
         .map(g => g.id);
 
-      if (targetGrupIds.length > 0) {
-        await Promise.all(
-          targetGrupIds.map(grupId =>
-            this.prisma.keaktifanMapelGrup.upsert({
-              where: {
-                mataPelajaranId_grupDaimiId: {
-                  mataPelajaranId: data.mataPelajaranId,
-                  grupDaimiId: grupId,
-                }
-              },
-              update: { isActive: data.isActive },
-              create: {
+      if (targetGrupIds.length === 0) {
+        const newGrup = await this.prisma.grupDaimi.create({
+          data: {
+            name: data.jenisGrupName,
+            jenis: data.jenisGrupName,
+          }
+        });
+        targetGrupIds = [newGrup.id];
+      }
+
+      await Promise.all(
+        targetGrupIds.map(grupId =>
+          this.prisma.keaktifanMapelGrup.upsert({
+            where: {
+              mataPelajaranId_grupDaimiId: {
                 mataPelajaranId: data.mataPelajaranId,
                 grupDaimiId: grupId,
-                isActive: data.isActive,
               }
-            })
-          )
-        );
-      }
+            },
+            update: { isActive: data.isActive },
+            create: {
+              mataPelajaranId: data.mataPelajaranId,
+              grupDaimiId: grupId,
+              isActive: data.isActive,
+            }
+          })
+        )
+      );
 
       if (user) {
         await this.auditLogService.log('UPDATE', 'MAPEL_GRUP', `${data.mataPelajaranId}-${data.jenisGrupName}`, 'Keaktifan Mapel Jenis Grup', user, `Mengubah status mapel jenis grup "${data.jenisGrupName}" menjadi ${data.isActive ? 'Aktif' : 'Nonaktif'}`);
