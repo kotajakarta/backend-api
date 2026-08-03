@@ -300,6 +300,7 @@ export class FormalController {
   }
 
   @Get('muadalah/uploads/:filename')
+  @UseGuards(AccessControlGuard)
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
     const uploadDir = path.join(process.cwd(), 'uploads');
