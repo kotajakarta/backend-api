@@ -11,7 +11,7 @@ export class AdminController {
 
   @Get('users')
   @UseGuards(AccessControlGuard)
-  @RequireScope('GLOBAL')
+  @RequireScope('WILAYAH')
   getUsersAndWilayah() {
     return this.adminService.getUsers();
   }
