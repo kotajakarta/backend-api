@@ -10,43 +10,120 @@ export class AdminService {
     return this.prisma.user.findMany({
       include: {
         wilayah: true,
-        cabang: true
+        cabang: true,
+        waliSantri: {
+          include: {
+            student: {
+              include: {
+                biodata: { select: { fullName: true } }
+              }
+            }
+          }
+        }
       }
     });
   }
 
   async createUser(data: any) {
     const hashedPassword = await bcrypt.hash(data.password, 10);
-    return this.prisma.user.create({
-      data: {
-        username: data.username,
-        password: hashedPassword,
-        scope: data.scope,
-        divisi: data.divisi,
-        operatorName: data.operatorName || null,
-        wilayahId: data.wilayahId || null,
-        cabangId: data.cabangId || null
+    // WALI accounts don't participate in the wilayah/cabang org hierarchy — their access
+    // boundary is student-linkage (WaliSantri rows), not divisi/wilayah/cabang. divisi is
+    // schema-required (non-null) but functionally unused for WALI since the guard skips
+    // the divisi check for WALI tokens (see AccessControlGuard). Never trust client input
+    // for these fields when scope is WALI.
+    const isWali = data.scope === 'WALI';
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          username: data.username,
+          password: hashedPassword,
+          scope: data.scope,
+          divisi: isWali ? 'ALL' : data.divisi,
+          operatorName: data.operatorName || null,
+          wilayahId: isWali ? null : (data.wilayahId || null),
+          cabangId: isWali ? null : (data.cabangId || null)
+        }
+      });
+
+      if (isWali) {
+        const studentIds: string[] = data.studentIds || [];
+        if (studentIds.length > 0) {
+          await tx.waliSantri.createMany({
+            data: studentIds.map((studentId) => ({
+              userId: user.id,
+              studentId,
+              hubungan: data.hubungan || null
+            }))
+          });
+        }
       }
+
+      return user;
     });
   }
 
   async updateUser(id: string, data: any) {
-    const updateData: any = {
-      username: data.username,
-      scope: data.scope,
-      divisi: data.divisi,
-      operatorName: data.operatorName || null,
-      wilayahId: data.wilayahId || null,
-      cabangId: data.cabangId || null
-    };
+    // Hash outside the transaction (same as before) — bcrypt is CPU-bound work that
+    // shouldn't hold a DB transaction/connection open.
+    const hashedPassword = data.password ? await bcrypt.hash(data.password, 10) : undefined;
 
-    if (data.password) {
-      updateData.password = await bcrypt.hash(data.password, 10);
-    }
+    return this.prisma.$transaction(async (tx) => {
+      const existingUser = await tx.user.findUnique({ where: { id } });
 
-    return this.prisma.user.update({
-      where: { id },
-      data: updateData
+      // "Resulting" scope: whatever scope the user will have AFTER this update —
+      // the posted scope if provided, otherwise the user's current scope.
+      const resultingScope = data.scope !== undefined ? data.scope : existingUser?.scope;
+      const isWali = resultingScope === 'WALI';
+      const wasWali = existingUser?.scope === 'WALI';
+
+      const updateData: any = {
+        username: data.username,
+        scope: data.scope,
+        divisi: isWali ? 'ALL' : data.divisi,
+        operatorName: data.operatorName || null,
+        wilayahId: isWali ? null : (data.wilayahId || null),
+        cabangId: isWali ? null : (data.cabangId || null)
+      };
+
+      if (hashedPassword) {
+        updateData.password = hashedPassword;
+      }
+
+      const updatedUser = await tx.user.update({
+        where: { id },
+        data: updateData
+      });
+
+      if (isWali && data.studentIds !== undefined) {
+        // Explicit studentIds provided (including an explicit []) — diff against the
+        // user's current links and reconcile. Omitted (undefined) studentIds is handled
+        // by simply not entering this branch, leaving existing links untouched.
+        const currentLinks = await tx.waliSantri.findMany({ where: { userId: id } });
+        const currentStudentIds = currentLinks.map((link) => link.studentId);
+        const newStudentIds: string[] = data.studentIds;
+
+        const toAdd = newStudentIds.filter((studentId) => !currentStudentIds.includes(studentId));
+        const toRemove = currentStudentIds.filter((studentId) => !newStudentIds.includes(studentId));
+
+        for (const studentId of toAdd) {
+          await tx.waliSantri.create({
+            data: { userId: id, studentId, hubungan: data.hubungan || null }
+          });
+        }
+
+        for (const studentId of toRemove) {
+          await tx.waliSantri.delete({
+            where: { userId_studentId: { userId: id, studentId } }
+          });
+        }
+      } else if (!isWali && wasWali) {
+        // Scope changed away from WALI — a non-WALI account shouldn't retain student
+        // links, so clean up regardless of whether studentIds was provided.
+        await tx.waliSantri.deleteMany({ where: { userId: id } });
+      }
+
+      return updatedUser;
     });
   }
 

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsEnum, IsOptional, MinLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsEnum, IsOptional, MinLength, IsArray } from 'class-validator';
 import { UserScope, UserDivisi } from '@prisma/client';
 
 export class CreateUserDto {
@@ -30,4 +30,13 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   cabangId?: string;
+
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  studentIds?: string[];
+
+  @IsString()
+  @IsOptional()
+  hubungan?: string;
 }
