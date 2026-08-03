@@ -5,5 +5,6 @@ import { FormalService } from './formal.service.js';
 @Module({
   controllers: [FormalController],
   providers: [FormalService],
+  exports: [FormalService],
 })
 export class FormalModule {}

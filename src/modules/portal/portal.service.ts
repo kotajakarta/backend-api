@@ -1,0 +1,211 @@
+import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { FormalService } from '../formal/formal.service.js';
+import { AuthService } from '../auth/auth.service.js';
+import { CreatePermohonanIzinDto } from './dto/create-permohonan-izin.dto.js';
+
+@Injectable()
+export class PortalService {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(FormalService) private readonly formalService: FormalService,
+    @Inject(AuthService) private readonly authService: AuthService
+  ) {}
+
+  // Shared include shape for a wali-facing student profile: biodata, cabang/wilayah,
+  // and formal-track class placement.
+  private readonly studentInclude = {
+    biodata: true,
+    cabang: true,
+    wilayah: true,
+    siswaFormal: { include: { kelas: true } }
+  };
+
+  // Ownership gate — every wali-facing method that touches a specific studentId must
+  // call this FIRST, before doing anything else. Not covered by the guard (which only
+  // checks scope, not per-resource ownership).
+  async assertOwnsStudent(userId: string, studentId: string): Promise<void> {
+    const link = await this.prisma.waliSantri.findUnique({
+      where: { userId_studentId: { userId, studentId } }
+    });
+    if (!link) throw new ForbiddenException('Anda tidak memiliki akses ke data santri ini');
+  }
+
+  // --- WALI-FACING ---
+
+  async getStudents(userId: string) {
+    return this.prisma.waliSantri.findMany({
+      where: { userId },
+      include: { student: { include: this.studentInclude } }
+    });
+  }
+
+  async getStudentById(userId: string, studentId: string) {
+    await this.assertOwnsStudent(userId, studentId);
+    return this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: this.studentInclude
+    });
+  }
+
+  async getRiwayatKelas(userId: string, studentId: string) {
+    await this.assertOwnsStudent(userId, studentId);
+    // FormalService.getRiwayatKelasByStudent does its own internal scope filtering via
+    // checkStudentScope(studentId, user) for staff callers. We've already asserted WALI
+    // ownership above, so we pass a synthesized GLOBAL user to bypass that internal
+    // check (checkStudentScope short-circuits/returns immediately for GLOBAL scope).
+    return this.formalService.getRiwayatKelasByStudent(studentId, { scope: 'GLOBAL' });
+  }
+
+  async getRaporRiwayat(userId: string, studentId: string) {
+    await this.assertOwnsStudent(userId, studentId);
+    return this.formalService.getNilaiHistoryByStudent(studentId, { scope: 'GLOBAL' });
+  }
+
+  async getRaporCetak(userId: string, studentId: string, tahunAjaran: string, semester: string) {
+    await this.assertOwnsStudent(userId, studentId);
+    // getERaporCetak takes no user param at all (no internal scope filtering) — call directly.
+    return this.formalService.getERaporCetak(studentId, tahunAjaran, semester);
+  }
+
+  async getHafalan(userId: string, studentId: string, tahunAjaran: string, semester: string) {
+    await this.assertOwnsStudent(userId, studentId);
+    // getHafalanByStudent also takes no user param — call directly.
+    return this.formalService.getHafalanByStudent(studentId, tahunAjaran, semester);
+  }
+
+  async getKehadiran(userId: string, studentId: string, startDate?: string, endDate?: string) {
+    await this.assertOwnsStudent(userId, studentId);
+
+    const dateFilter: any = {};
+    if (startDate) dateFilter.gte = new Date(startDate);
+    if (endDate) dateFilter.lte = new Date(`${endDate}T23:59:59`);
+
+    const records = await this.prisma.kehadiran.findMany({
+      where: {
+        studentId,
+        ...(Object.keys(dateFilter).length > 0 ? { program: { date: dateFilter } } : {})
+      },
+      include: { program: true },
+      orderBy: { program: { date: 'desc' } }
+    });
+
+    const tally = { hadir: 0, sakit: 0, izin: 0, alpa: 0 };
+    for (const record of records) {
+      if (record.status === 'HADIR') tally.hadir++;
+      else if (record.status === 'SAKIT') tally.sakit++;
+      else if (record.status === 'IZIN') tally.izin++;
+      else if (record.status === 'ALPA') tally.alpa++;
+    }
+
+    return { records, tally };
+  }
+
+  async getPengumuman() {
+    return this.prisma.pengumuman.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async getPermohonanIzinList(userId: string, studentId?: string) {
+    return this.prisma.permohonanIzinSantri.findMany({
+      where: {
+        createdById: userId,
+        ...(studentId ? { studentId } : {})
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async createPermohonanIzin(userId: string, dto: CreatePermohonanIzinDto) {
+    await this.assertOwnsStudent(userId, dto.studentId);
+
+    const tanggalMulai = new Date(dto.tanggalMulai);
+    const tanggalSelesai = new Date(dto.tanggalSelesai);
+    if (tanggalSelesai < tanggalMulai) {
+      throw new BadRequestException('Tanggal selesai tidak boleh sebelum tanggal mulai');
+    }
+
+    return this.prisma.permohonanIzinSantri.create({
+      data: {
+        studentId: dto.studentId,
+        createdById: userId,
+        jenisIzin: dto.jenisIzin,
+        keterangan: dto.keterangan,
+        tanggalMulai,
+        tanggalSelesai,
+        status: 'PENDING'
+      }
+    });
+  }
+
+  async getPermohonanIzinById(userId: string, id: string) {
+    const record = await this.prisma.permohonanIzinSantri.findUnique({ where: { id } });
+    // Not found and not-owned are reported identically to avoid leaking whether a
+    // given id exists to a wali who doesn't own it.
+    if (!record || record.createdById !== userId) {
+      throw new NotFoundException('Permohonan izin tidak ditemukan');
+    }
+    return record;
+  }
+
+  async updateProfile(userId: string, data: any) {
+    // isGlobalAdmin is always false here — wali accounts are never GLOBAL scope, and
+    // AuthService.updateProfile uses this flag to gate username changes.
+    return this.authService.updateProfile(userId, data, false);
+  }
+
+  // --- STAFF-FACING ---
+
+  // Pattern-A scope filter on the student's cabang/wilayah, following the same style
+  // as FormalService.getKelas/getPermohonanKelas. PermohonanIzinSantri has no cabangId/
+  // wilayahId of its own, so the filter goes through the `student` relation.
+  async listPermohonanIzinStaff(user: any) {
+    let where: any = {};
+    if (user.scope === 'CABANG') {
+      where = { student: { cabangId: user.cabangId } };
+    } else if (user.scope === 'WILAYAH') {
+      where = { student: { wilayahId: user.wilayahId } };
+    }
+    return this.prisma.permohonanIzinSantri.findMany({
+      where,
+      include: {
+        student: { include: { biodata: true } },
+        createdBy: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async approvePermohonanIzin(id: string, user: any, catatanAdmin?: string) {
+    const record = await this.prisma.permohonanIzinSantri.findUnique({ where: { id } });
+    if (!record) throw new NotFoundException('Permohonan izin tidak ditemukan');
+    // Reuse FormalService's own scope check as the ownership assertion for staff callers.
+    await this.formalService.checkStudentScope(record.studentId, user);
+
+    return this.prisma.permohonanIzinSantri.update({
+      where: { id },
+      data: {
+        status: 'APPROVED',
+        approvedById: user.id,
+        catatanAdmin: catatanAdmin || null
+      }
+    });
+  }
+
+  async rejectPermohonanIzin(id: string, user: any, catatanAdmin: string) {
+    const record = await this.prisma.permohonanIzinSantri.findUnique({ where: { id } });
+    if (!record) throw new NotFoundException('Permohonan izin tidak ditemukan');
+    await this.formalService.checkStudentScope(record.studentId, user);
+
+    return this.prisma.permohonanIzinSantri.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        approvedById: user.id,
+        catatanAdmin
+      }
+    });
+  }
+}

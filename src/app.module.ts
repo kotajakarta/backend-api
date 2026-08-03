@@ -19,6 +19,7 @@ import { SarprasModule } from './modules/sarpras/sarpras.module.js';
 import { KegiatanModule } from './modules/kegiatan/kegiatan.module.js';
 import { PembelajaranModule } from './modules/pembelajaran/pembelajaran.module.js';
 import { SuratModule } from './modules/surat/surat.module.js';
+import { PortalModule } from './modules/portal/portal.module.js';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { SuratModule } from './modules/surat/surat.module.js';
     KegiatanModule,
     PembelajaranModule,
     SuratModule,
+    PortalModule,
     ScheduleModule.forRoot()
   ],
   controllers: [],
