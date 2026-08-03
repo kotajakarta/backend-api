@@ -1215,6 +1215,17 @@ export class MasterDataService {
         targetTingkat12: Number(row['Tingkat 12'] || row['Target Tingkat 12'] || 0) || 0,
       };
 
+      const rawKapasitas = row['Kapasitas Cabang'] ?? row['Kapasitas Santri'] ?? row['Kapasitas'];
+      if (rawKapasitas !== undefined && rawKapasitas !== null && rawKapasitas !== '') {
+        const kap = Number(rawKapasitas);
+        if (!isNaN(kap)) {
+          await this.prisma.cabang.update({
+            where: { id: cabangId },
+            data: { kapasitasSantri: kap }
+          });
+        }
+      }
+
       const res = await this.prisma.targetKuotaCabang.upsert({
         where: { cabangId_tahunAjaran: { cabangId, tahunAjaran } },
         update: targetObj,
