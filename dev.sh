@@ -24,10 +24,9 @@ npx prisma migrate deploy
 echo "=== 5. Generate Prisma Client ==="
 npx prisma generate
 
-# Menghentikan secara paksa proses di port 8080 & tsx yang menggantung
+# Menghentikan secara paksa proses backend di port 8080 (tanpa mengganggu app lain)
 fuser -k -9 8080/tcp 2>/dev/null || true
-pkill -9 -f "tsx" 2>/dev/null || true
-pkill -9 -f "node.*src/main.ts" 2>/dev/null || true
-kill -9 $(lsof -t -i:8080) 2>/dev/null || true
+lsof -t -i:8080 | xargs -r kill -9 2>/dev/null || true
+pkill -9 -f "src/main.ts" 2>/dev/null || true
 
 npm run dev
