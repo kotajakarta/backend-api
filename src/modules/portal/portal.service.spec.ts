@@ -223,6 +223,88 @@ describe('PortalService — createPermohonanIzin date validation', () => {
   });
 });
 
+describe('PortalService — approvePermohonanIzin / rejectPermohonanIzin PENDING-status guard', () => {
+  it('approvePermohonanIzin throws BadRequestException when the record is already APPROVED', async () => {
+    const prisma = makePrisma({
+      permohonanIzinSantri: {
+        findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'APPROVED' })
+      }
+    });
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+
+    await assert.rejects(
+      () => service.approvePermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }),
+      (err: unknown) => err instanceof BadRequestException
+    );
+  });
+
+  it('approvePermohonanIzin throws BadRequestException when the record is already REJECTED', async () => {
+    const prisma = makePrisma({
+      permohonanIzinSantri: {
+        findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'REJECTED' })
+      }
+    });
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+
+    await assert.rejects(
+      () => service.approvePermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }),
+      (err: unknown) => err instanceof BadRequestException
+    );
+  });
+
+  it('rejectPermohonanIzin throws BadRequestException when the record is already APPROVED', async () => {
+    const prisma = makePrisma({
+      permohonanIzinSantri: {
+        findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'APPROVED' })
+      }
+    });
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+
+    await assert.rejects(
+      () => service.rejectPermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }, 'Alasan penolakan'),
+      (err: unknown) => err instanceof BadRequestException
+    );
+  });
+
+  it('rejectPermohonanIzin throws BadRequestException when the record is already REJECTED', async () => {
+    const prisma = makePrisma({
+      permohonanIzinSantri: {
+        findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'REJECTED' })
+      }
+    });
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+
+    await assert.rejects(
+      () => service.rejectPermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }, 'Alasan penolakan'),
+      (err: unknown) => err instanceof BadRequestException
+    );
+  });
+
+  it('approvePermohonanIzin succeeds and transitions status when the record is PENDING', async () => {
+    const prisma = makePrisma({
+      permohonanIzinSantri: {
+        findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'PENDING' })
+      }
+    });
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+
+    const result = await service.approvePermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' });
+    assert.equal(result.status, 'APPROVED');
+  });
+
+  it('rejectPermohonanIzin succeeds and transitions status when the record is PENDING', async () => {
+    const prisma = makePrisma({
+      permohonanIzinSantri: {
+        findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'PENDING' })
+      }
+    });
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+
+    const result = await service.rejectPermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }, 'Alasan penolakan');
+    assert.equal(result.status, 'REJECTED');
+  });
+});
+
 describe('PortalService — getPermohonanIzinById caller-ownership check', () => {
   it('returns the record when createdById matches the caller', async () => {
     const prisma = makePrisma({

@@ -181,6 +181,7 @@ export class PortalService {
   async approvePermohonanIzin(id: string, user: any, catatanAdmin?: string) {
     const record = await this.prisma.permohonanIzinSantri.findUnique({ where: { id } });
     if (!record) throw new NotFoundException('Permohonan izin tidak ditemukan');
+    if (record.status !== 'PENDING') throw new BadRequestException('Permohonan ini sudah diproses.');
     // Reuse FormalService's own scope check as the ownership assertion for staff callers.
     await this.formalService.checkStudentScope(record.studentId, user);
 
@@ -197,6 +198,7 @@ export class PortalService {
   async rejectPermohonanIzin(id: string, user: any, catatanAdmin: string) {
     const record = await this.prisma.permohonanIzinSantri.findUnique({ where: { id } });
     if (!record) throw new NotFoundException('Permohonan izin tidak ditemukan');
+    if (record.status !== 'PENDING') throw new BadRequestException('Permohonan ini sudah diproses.');
     await this.formalService.checkStudentScope(record.studentId, user);
 
     return this.prisma.permohonanIzinSantri.update({
