@@ -177,7 +177,7 @@ export class FormalController {
 
   @Post('mapel-grup/toggle')
   @UseGuards(AccessControlGuard)
-  toggleKeaktifanMapelGrup(@Request() req: any, @Body() data: { mataPelajaranId: string, grupDaimiId: string, isActive: boolean }) {
+  toggleKeaktifanMapelGrup(@Request() req: any, @Body() data: { mataPelajaranId: string, grupDaimiId?: string, jenisGrupName?: string, isActive: boolean }) {
     return this.formalService.toggleKeaktifanMapelGrup(data, req.user);
   }
 

@@ -514,29 +514,65 @@ export class FormalService {
     });
   }
 
-  async toggleKeaktifanMapelGrup(data: { mataPelajaranId: string, grupDaimiId: string, isActive: boolean }, user?: any) {
-    const result = await this.prisma.keaktifanMapelGrup.upsert({
-      where: {
-        mataPelajaranId_grupDaimiId: {
-          mataPelajaranId: data.mataPelajaranId,
-          grupDaimiId: data.grupDaimiId,
-        }
-      },
-      update: {
-        isActive: data.isActive,
-      },
-      create: {
-        mataPelajaranId: data.mataPelajaranId,
-        grupDaimiId: data.grupDaimiId,
-        isActive: data.isActive,
-      }
-    });
+  async toggleKeaktifanMapelGrup(data: { mataPelajaranId: string, grupDaimiId?: string, jenisGrupName?: string, isActive: boolean }, user?: any) {
+    if (data.jenisGrupName) {
+      const allGrups = await this.prisma.grupDaimi.findMany({ select: { id: true, name: true, jenis: true } });
+      const targetGrupIds = allGrups
+        .filter(g => (g.jenis && g.jenis.toLowerCase() === data.jenisGrupName!.toLowerCase()) || (g.name && g.name.toLowerCase() === data.jenisGrupName!.toLowerCase()))
+        .map(g => g.id);
 
-    if (user) {
-      await this.auditLogService.log('UPDATE', 'MAPEL_GRUP', `${data.mataPelajaranId}-${data.grupDaimiId}`, 'Keaktifan Mapel Grup', user, `Mengubah status mapel grup menjadi ${data.isActive ? 'Aktif' : 'Nonaktif'}`);
+      if (targetGrupIds.length > 0) {
+        await Promise.all(
+          targetGrupIds.map(grupId =>
+            this.prisma.keaktifanMapelGrup.upsert({
+              where: {
+                mataPelajaranId_grupDaimiId: {
+                  mataPelajaranId: data.mataPelajaranId,
+                  grupDaimiId: grupId,
+                }
+              },
+              update: { isActive: data.isActive },
+              create: {
+                mataPelajaranId: data.mataPelajaranId,
+                grupDaimiId: grupId,
+                isActive: data.isActive,
+              }
+            })
+          )
+        );
+      }
+
+      if (user) {
+        await this.auditLogService.log('UPDATE', 'MAPEL_GRUP', `${data.mataPelajaranId}-${data.jenisGrupName}`, 'Keaktifan Mapel Jenis Grup', user, `Mengubah status mapel jenis grup "${data.jenisGrupName}" menjadi ${data.isActive ? 'Aktif' : 'Nonaktif'}`);
+      }
+
+      return { success: true, count: targetGrupIds.length };
     }
 
-    return result;
+    if (data.grupDaimiId) {
+      const result = await this.prisma.keaktifanMapelGrup.upsert({
+        where: {
+          mataPelajaranId_grupDaimiId: {
+            mataPelajaranId: data.mataPelajaranId,
+            grupDaimiId: data.grupDaimiId,
+          }
+        },
+        update: {
+          isActive: data.isActive,
+        },
+        create: {
+          mataPelajaranId: data.mataPelajaranId,
+          grupDaimiId: data.grupDaimiId,
+          isActive: data.isActive,
+        }
+      });
+
+      if (user) {
+        await this.auditLogService.log('UPDATE', 'MAPEL_GRUP', `${data.mataPelajaranId}-${data.grupDaimiId}`, 'Keaktifan Mapel Grup', user, `Mengubah status mapel grup menjadi ${data.isActive ? 'Aktif' : 'Nonaktif'}`);
+      }
+
+      return result;
+    }
   }
 
   async checkStudentScope(studentId: string, user: any) {
