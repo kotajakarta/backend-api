@@ -314,13 +314,13 @@ export class FormalController {
 
   @Post('muadalah')
   @UseGuards(AccessControlGuard)
-  createLembagaMuadalah(@Request() req: any, @Body() data: { name: string; code: string; npsn?: string; nspp?: string; namaKetua?: string; ttdKetua?: string; skSpm?: string; isActive?: boolean }) {
+  createLembagaMuadalah(@Request() req: any, @Body() data: any) {
     return this.formalService.createLembagaMuadalah(data, req.user);
   }
 
   @Put('muadalah/:id')
   @UseGuards(AccessControlGuard)
-  updateLembagaMuadalah(@Request() req: any, @Param('id') id: string, @Body() data: { name: string; code: string; npsn?: string; nspp?: string; namaKetua?: string; ttdKetua?: string; skSpm?: string }) {
+  updateLembagaMuadalah(@Request() req: any, @Param('id') id: string, @Body() data: any) {
     return this.formalService.updateLembagaMuadalah(id, data, req.user);
   }
 

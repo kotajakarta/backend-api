@@ -44,25 +44,33 @@ model Kelas {
 }
 
 model LembagaMuadalah {
-  id           String   @id @default(uuid())
-  name         String
-  code         String   @unique
-  npsn         String?
-  nspp         String?
-  namaKetua    String?  @map("nama_ketua")
-  ttdKetua     String?  @map("ttd_ketua")
-  skSpm        String?  @map("sk_spm")
-  isActive     Boolean  @default(true) @map("is_active")
-  namaLain     String?  @map("nama_lain")
-  jenjang      String?  // ULA, WUSTHA, ULYA
-  provinsi     String?
-  kabupaten    String?
-  kecamatan    String?
-  kelurahan    String?
-  alamatDetail String?  @map("alamat_detail")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  kelas        Kelas[]
+  id                      String   @id @default(uuid())
+  name                    String
+  code                    String   @unique
+  npsn                    String?
+  nspp                    String?
+  pesantrenInduk          String?  @map("pesantren_induk")
+  tahunBerdiri            String?  @map("tahun_berdiri")
+  namaKetua               String?  @map("nama_ketua")
+  operator                String?  @map("operator")
+  emisPontren             String?  @map("emis_pontren")
+  emisSpm                 String?  @map("emis_spm")
+  ttdKetua                String?  @map("ttd_ketua")
+  skSpm                   String?  @map("sk_spm")
+  skStruktur              String?  @map("sk_struktur")
+  skDewanMasyayikh        String?  @map("sk_dewan_masyayikh")
+  skPengangkatanKepalaSpm String?  @map("sk_pengangkatan_kepala_spm")
+  isActive                Boolean  @default(true) @map("is_active")
+  namaLain                String?  @map("nama_lain")
+  jenjang                 String?  // ULA, WUSTHA, ULYA
+  provinsi                String?
+  kabupaten               String?
+  kecamatan               String?
+  kelurahan               String?
+  alamatDetail            String?  @map("alamat_detail")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  kelas                   Kelas[]
 
   @@map("lembaga_muadalah")
   @@schema("formal")

@@ -1093,7 +1093,7 @@ export class FormalService {
       };
     }
 
-    return this.prisma.lembagaMuadalah.findMany({
+    const list = await this.prisma.lembagaMuadalah.findMany({
       where,
       orderBy: { name: 'asc' },
       include: {
@@ -1104,10 +1104,76 @@ export class FormalService {
               include: {
                 wilayah: true
               }
+            },
+            siswaFormal: {
+              include: {
+                student: {
+                  include: {
+                    biodata: true
+                  }
+                }
+              }
             }
           }
         }
       }
+    });
+
+    return list.map(item => {
+      let t7L = 0, t7P = 0;
+      let t8L = 0, t8P = 0;
+      let t9L = 0, t9P = 0;
+      let t10L = 0, t10P = 0;
+      let t11L = 0, t11P = 0;
+      let t12L = 0, t12P = 0;
+
+      item.kelas?.forEach(k => {
+        const rawT = (k.tingkat || '').toString().trim();
+        k.siswaFormal?.forEach(sf => {
+          const st = sf.student;
+          if (!st) return;
+          const jk = (st.biodata?.jenisKelamin || (st as any).jenisKelamin || 'L').toUpperCase();
+          const isP = jk.startsWith('P') || jk.startsWith('F') || jk.includes('PEREMPUAN') || jk.includes('WANITA');
+
+          if (rawT.includes('7') || rawT.includes('VII')) {
+            if (isP) t7P++; else t7L++;
+          } else if (rawT.includes('8') || rawT.includes('VIII')) {
+            if (isP) t8P++; else t8L++;
+          } else if (rawT.includes('9') || rawT.includes('IX')) {
+            if (isP) t9P++; else t9L++;
+          } else if (rawT.includes('10') || rawT.includes('X')) {
+            if (isP) t10P++; else t10L++;
+          } else if (rawT.includes('11') || rawT.includes('XI')) {
+            if (isP) t11P++; else t11L++;
+          } else if (rawT.includes('12') || rawT.includes('XII')) {
+            if (isP) t12P++; else t12L++;
+          }
+        });
+      });
+
+      const totalL = t7L + t8L + t9L + t10L + t11L + t12L;
+      const totalP = t7P + t8P + t9P + t10P + t11P + t12P;
+
+      return {
+        ...item,
+        jumlahSantri: {
+          wustha: {
+            tingkat7: { l: t7L, p: t7P, total: t7L + t7P },
+            tingkat8: { l: t8L, p: t8P, total: t8L + t8P },
+            tingkat9: { l: t9L, p: t9P, total: t9L + t9P },
+            total: { l: t7L + t8L + t9L, p: t7P + t8P + t9P, total: t7L + t8L + t9L + t7P + t8P + t9P }
+          },
+          ulya: {
+            tingkat10: { l: t10L, p: t10P, total: t10L + t10P },
+            tingkat11: { l: t11L, p: t11P, total: t11L + t11P },
+            tingkat12: { l: t12L, p: t12P, total: t12L + t12P },
+            total: { l: t10L + t11L + t12L, p: t10P + t11P + t12P, total: t10L + t11L + t12L + t10P + t11P + t12P }
+          },
+          totalL,
+          totalP,
+          totalAll: totalL + totalP
+        }
+      };
     });
   }
 
@@ -1116,9 +1182,17 @@ export class FormalService {
     code: string; 
     npsn?: string; 
     nspp?: string; 
+    pesantrenInduk?: string;
+    tahunBerdiri?: string;
     namaKetua?: string; 
+    operator?: string;
+    emisPontren?: string;
+    emisSpm?: string;
     ttdKetua?: string; 
     skSpm?: string; 
+    skStruktur?: string;
+    skDewanMasyayikh?: string;
+    skPengangkatanKepalaSpm?: string;
     isActive?: boolean;
     namaLain?: string;
     jenjang?: string;
@@ -1140,9 +1214,17 @@ export class FormalService {
         code: data.code,
         npsn: data.npsn || null,
         nspp: data.nspp || null,
+        pesantrenInduk: data.pesantrenInduk || null,
+        tahunBerdiri: data.tahunBerdiri || null,
         namaKetua: data.namaKetua || null,
+        operator: data.operator || null,
+        emisPontren: data.emisPontren || null,
+        emisSpm: data.emisSpm || null,
         ttdKetua: data.ttdKetua || null,
         skSpm: data.skSpm || null,
+        skStruktur: data.skStruktur || null,
+        skDewanMasyayikh: data.skDewanMasyayikh || null,
+        skPengangkatanKepalaSpm: data.skPengangkatanKepalaSpm || null,
         isActive: data.isActive !== undefined ? data.isActive : true,
         namaLain: data.namaLain || null,
         jenjang: data.jenjang || null,
@@ -1164,9 +1246,17 @@ export class FormalService {
     code: string; 
     npsn?: string; 
     nspp?: string; 
+    pesantrenInduk?: string;
+    tahunBerdiri?: string;
     namaKetua?: string; 
+    operator?: string;
+    emisPontren?: string;
+    emisSpm?: string;
     ttdKetua?: string; 
     skSpm?: string;
+    skStruktur?: string;
+    skDewanMasyayikh?: string;
+    skPengangkatanKepalaSpm?: string;
     namaLain?: string;
     jenjang?: string;
     provinsi?: string;
@@ -1192,9 +1282,17 @@ export class FormalService {
         code: data.code,
         npsn: data.npsn || null,
         nspp: data.nspp || null,
+        pesantrenInduk: data.pesantrenInduk || null,
+        tahunBerdiri: data.tahunBerdiri || null,
         namaKetua: data.namaKetua || null,
+        operator: data.operator || null,
+        emisPontren: data.emisPontren || null,
+        emisSpm: data.emisSpm || null,
         ttdKetua: data.ttdKetua || null,
         skSpm: data.skSpm || null,
+        skStruktur: data.skStruktur || null,
+        skDewanMasyayikh: data.skDewanMasyayikh || null,
+        skPengangkatanKepalaSpm: data.skPengangkatanKepalaSpm || null,
         namaLain: data.namaLain !== undefined ? data.namaLain : undefined,
         jenjang: data.jenjang !== undefined ? data.jenjang : undefined,
         provinsi: data.provinsi !== undefined ? data.provinsi : undefined,
