@@ -1187,7 +1187,9 @@ export class FormalService {
     namaKetua?: string; 
     operator?: string;
     emisPontren?: string;
+    emisPontrenPass?: string;
     emisSpm?: string;
+    emisSpmPass?: string;
     ttdKetua?: string; 
     skSpm?: string; 
     skStruktur?: string;
@@ -1219,7 +1221,9 @@ export class FormalService {
         namaKetua: data.namaKetua || null,
         operator: data.operator || null,
         emisPontren: data.emisPontren || null,
+        emisPontrenPass: data.emisPontrenPass || null,
         emisSpm: data.emisSpm || null,
+        emisSpmPass: data.emisSpmPass || null,
         ttdKetua: data.ttdKetua || null,
         skSpm: data.skSpm || null,
         skStruktur: data.skStruktur || null,
@@ -1251,7 +1255,9 @@ export class FormalService {
     namaKetua?: string; 
     operator?: string;
     emisPontren?: string;
+    emisPontrenPass?: string;
     emisSpm?: string;
+    emisSpmPass?: string;
     ttdKetua?: string; 
     skSpm?: string;
     skStruktur?: string;
@@ -1287,7 +1293,9 @@ export class FormalService {
         namaKetua: data.namaKetua || null,
         operator: data.operator || null,
         emisPontren: data.emisPontren || null,
+        emisPontrenPass: data.emisPontrenPass || null,
         emisSpm: data.emisSpm || null,
+        emisSpmPass: data.emisSpmPass || null,
         ttdKetua: data.ttdKetua || null,
         skSpm: data.skSpm || null,
         skStruktur: data.skStruktur || null,
