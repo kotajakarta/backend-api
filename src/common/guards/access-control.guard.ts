@@ -57,19 +57,27 @@ export class AccessControlGuard implements CanActivate {
         context.getClass(),
       ]);
 
-      if (requiredDivisi) {
+      if (requiredDivisi && payload.scope !== 'WALI') {
         if (payload.divisi !== requiredDivisi && payload.divisi !== 'ALL') {
           throw new ForbiddenException('Insufficient Divisi access');
         }
       }
 
       if (requiredScope) {
-        if (requiredScope === 'GLOBAL' && payload.scope !== 'GLOBAL') {
-          throw new ForbiddenException('Requires GLOBAL scope');
+        if (requiredScope === 'WALI') {
+          if (payload.scope !== 'WALI') throw new ForbiddenException('Endpoint khusus portal wali santri');
+        } else if (requiredScope === 'GLOBAL') {
+          if (payload.scope !== 'GLOBAL') throw new ForbiddenException('Requires GLOBAL scope');
+        } else if (requiredScope === 'WILAYAH') {
+          if (payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH') throw new ForbiddenException('Requires WILAYAH scope');
         }
-        if (requiredScope === 'WILAYAH' && payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH') {
-          throw new ForbiddenException('Requires WILAYAH scope');
-        }
+        // 'CABANG' branch intentionally left as a pre-existing no-op — out of scope for this task,
+        // do not add CABANG-hierarchy enforcement here, that's a separate pre-existing gap.
+      }
+
+      // WALI tokens may only ever reach routes explicitly opted into WALI via @RequireScope('WALI').
+      if (payload.scope === 'WALI' && requiredScope !== 'WALI') {
+        throw new ForbiddenException('Akun wali santri tidak memiliki akses ke endpoint ini');
       }
 
       return true;
