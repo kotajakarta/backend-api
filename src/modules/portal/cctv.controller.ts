@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Requ
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireScope } from '../../common/decorators/access-control.decorator.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { encryptStreamUrl, decryptStreamUrl } from '../../common/utils/cctv-crypto.js';
 
 @Controller('cctv')
 @UseGuards(AccessControlGuard)
@@ -22,11 +23,17 @@ export class CctvController {
       where.cabangId = cabangId;
     }
 
-    return this.prisma.cctvChannel.findMany({
+    const channels = await this.prisma.cctvChannel.findMany({
       where,
       include: { cabang: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     });
+
+    return channels.map((c: any) => ({
+      ...c,
+      streamUrl: encryptStreamUrl(c.streamUrl),
+      rawStreamUrl: decryptStreamUrl(c.streamUrl),
+    }));
   }
 
   @Post('channels')
@@ -38,12 +45,14 @@ export class CctvController {
       throw new ForbiddenException('Cabang ID wajib diisi');
     }
 
+    const encryptedUrl = encryptStreamUrl(decryptStreamUrl(body.streamUrl));
+
     return this.prisma.cctvChannel.create({
       data: {
         cabangId: targetCabangId,
         name: body.name,
         category: body.category || 'KELAS',
-        streamUrl: body.streamUrl,
+        streamUrl: encryptedUrl,
         location: body.location || null,
         description: body.description || null,
         isActive: body.isActive !== undefined ? body.isActive : true,
@@ -60,12 +69,14 @@ export class CctvController {
       throw new ForbiddenException('Anda tidak memiliki akses ke CCTV cabang lain');
     }
 
+    const encryptedUrl = body.streamUrl ? encryptStreamUrl(decryptStreamUrl(body.streamUrl)) : undefined;
+
     return this.prisma.cctvChannel.update({
       where: { id },
       data: {
         ...(body.name && { name: body.name }),
         ...(body.category && { category: body.category }),
-        ...(body.streamUrl && { streamUrl: body.streamUrl }),
+        ...(encryptedUrl && { streamUrl: encryptedUrl }),
         ...(body.location !== undefined && { location: body.location }),
         ...(body.description !== undefined && { description: body.description }),
         ...(body.isActive !== undefined && { isActive: body.isActive }),
