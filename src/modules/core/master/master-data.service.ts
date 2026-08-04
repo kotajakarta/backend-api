@@ -577,9 +577,40 @@ export class MasterDataService {
     
     const cabangs = await this.prisma.cabang.findMany({
       where: whereClause,
-      include: {
+      select: {
+        id: true,
+        name: true,
+        wilayahId: true,
+        nameGlodemy: true,
+        nameResmi: true,
+        kapasitasSantri: true,
+        totalSantriManual: true,
+        ketuaCabangId: true,
+        ketuaMuadalahId: true,
+        ketuaIslerId: true,
+        alamatProvId: true,
+        alamatProvName: true,
+        alamatKabId: true,
+        alamatKabName: true,
+        alamatKecId: true,
+        alamatKecName: true,
+        alamatKelId: true,
+        alamatKelName: true,
+        alamatJalan: true,
+        alamatNegara: true,
+        statusTanah: true,
+        statusBangunan: true,
         wilayah: true,
-        staff: true,
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            jenisKelamin: true,
+            mapelUmum: true,
+            statusPool: true
+          }
+        },
         targetKuota: true,
         students: {
           select: {

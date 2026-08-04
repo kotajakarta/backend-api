@@ -142,14 +142,18 @@ export class DashboardService {
 
     const cabangs = await this.prisma.cabang.findMany({
       where: cabangWhere,
-      include: {
+      select: {
+        id: true,
+        name: true,
+        wilayahId: true,
         wilayah: { select: { name: true } },
         kelas: {
           where: { isActive: true },
-          include: {
+          select: {
+            id: true,
             guruMapelKelas: {
-              include: {
-                mataPelajaran: true
+              select: {
+                mataPelajaran: { select: { name: true } }
               }
             }
           }
@@ -351,6 +355,7 @@ export class DashboardService {
     } else if (user.scope === 'WILAYAH') {
       const cabangs = await this.prisma.cabang.findMany({
         where: { wilayahId: user.wilayahId },
+        select: { id: true, name: true },
         orderBy: { name: 'asc' }
       });
       for (const c of cabangs) {

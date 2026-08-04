@@ -1463,17 +1463,26 @@ export class StudentService {
 
     const students = await this.prisma.student.findMany({
       where: whereClause,
-      include: { 
+      select: {
+        id: true,
+        wilayahId: true,
+        cabangId: true,
+        jenisSiswa: true,
+        grupDaimi: true,
+        isActive: true,
         biodata: true,
-        wilayah: true,
-        cabang: {
-          include: { wilayah: true }
-        },
+        wilayah: { select: { id: true, name: true } },
+        cabang: { select: { id: true, name: true, wilayahId: true } },
         siswaFormal: {
-          include: { kelas: { include: { lembagaMuadalah: true } } }
+          select: {
+            kelasId: true,
+            kelas: { select: { id: true, tingkat: true, lembagaMuadalah: { select: { id: true } } } }
+          }
         },
         dataDaimi: {
-          include: { grup: true }
+          select: {
+            grup: { select: { jenis: true } }
+          }
         }
       }
     });
