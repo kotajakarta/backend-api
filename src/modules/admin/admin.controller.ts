@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, UseGuards, Inject, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, UseGuards, Inject, Body, Param, Request } from '@nestjs/common';
 import { AdminService } from './admin.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireScope } from '../../common/decorators/access-control.decorator.js';
@@ -12,8 +12,8 @@ export class AdminController {
   @Get('users')
   @UseGuards(AccessControlGuard)
   @RequireScope('CABANG')
-  getUsersAndWilayah() {
-    return this.adminService.getUsers();
+  getUsersAndWilayah(@Request() req: any) {
+    return this.adminService.getUsers(req.user);
   }
 
   @Post('users')

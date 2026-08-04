@@ -6,8 +6,43 @@ import bcrypt from 'bcrypt';
 export class AdminService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async getUsers() {
+  async getUsers(user?: any) {
+    const where: any = {};
+    if (user && user.scope === 'CABANG' && user.cabangId) {
+      where.OR = [
+        { cabangId: user.cabangId },
+        {
+          scope: 'WALI',
+          waliSantri: {
+            some: {
+              student: {
+                cabangId: user.cabangId
+              }
+            }
+          }
+        }
+      ];
+    } else if (user && user.scope === 'WILAYAH' && user.wilayahId) {
+      where.OR = [
+        { wilayahId: user.wilayahId },
+        { cabang: { wilayahId: user.wilayahId } },
+        {
+          scope: 'WALI',
+          waliSantri: {
+            some: {
+              student: {
+                cabang: {
+                  wilayahId: user.wilayahId
+                }
+              }
+            }
+          }
+        }
+      ];
+    }
+
     return this.prisma.user.findMany({
+      where,
       include: {
         wilayah: true,
         cabang: true,
@@ -15,12 +50,14 @@ export class AdminService {
           include: {
             student: {
               include: {
-                biodata: { select: { fullName: true } }
+                biodata: { select: { fullName: true } },
+                cabang: { select: { id: true, name: true } }
               }
             }
           }
         }
-      }
+      },
+      orderBy: { id: 'desc' }
     });
   }
 

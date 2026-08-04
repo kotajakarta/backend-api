@@ -12,15 +12,14 @@ export class CctvController {
   @Get('channels')
   async getChannels(@Request() req: any, @Query('cabangId') cabangId?: string) {
     const user = req.user;
-    let targetCabangId = cabangId;
+    const where: any = {};
 
     if (user.scope === 'CABANG') {
-      targetCabangId = user.cabangId;
-    }
-
-    const where: any = {};
-    if (targetCabangId) {
-      where.cabangId = targetCabangId;
+      where.cabangId = user.cabangId;
+    } else if (user.scope === 'WILAYAH') {
+      where.cabang = { wilayahId: user.wilayahId };
+    } else if (cabangId) {
+      where.cabangId = cabangId;
     }
 
     return this.prisma.cctvChannel.findMany({

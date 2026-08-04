@@ -106,4 +106,43 @@ export class PengaturanService {
       return this.prisma.kalenderAkademik.delete({ where: { id } });
     }
   }
+
+  // --- PENGATURAN MODUL SYSTEM (FEATURE TOGGLES) ---
+
+  private getModuleSettingsFilePath() {
+    const uploadDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    return path.join(uploadDir, 'module-settings.json');
+  }
+
+  async getModuleSettings() {
+    const filePath = this.getModuleSettingsFilePath();
+    if (fs.existsSync(filePath)) {
+      try {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        return JSON.parse(raw);
+      } catch (e) {
+        // Fallback default
+      }
+    }
+    return {
+      portalWalsanEnabled: true,
+      raporMuadalahEnabled: true,
+    };
+  }
+
+  async updateModuleSettings(data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean }) {
+    const current = await this.getModuleSettings();
+    const updated = {
+      ...current,
+      ...(data.portalWalsanEnabled !== undefined && { portalWalsanEnabled: data.portalWalsanEnabled }),
+      ...(data.raporMuadalahEnabled !== undefined && { raporMuadalahEnabled: data.raporMuadalahEnabled }),
+    };
+
+    const filePath = this.getModuleSettingsFilePath();
+    fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
+    return updated;
+  }
 }

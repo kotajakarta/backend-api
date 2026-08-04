@@ -5,10 +5,24 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { PengaturanService } from './pengaturan.service.js';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
+import { RequireScope } from '../../../common/decorators/access-control.decorator.js';
 
 @Controller('pengaturan')
 export class PengaturanController {
   constructor(@Inject(PengaturanService) private readonly pengaturanService: PengaturanService) {}
+
+  // --- MODUL SYSTEM (FEATURE TOGGLES) ---
+  @Get('modules')
+  getModuleSettings() {
+    return this.pengaturanService.getModuleSettings();
+  }
+
+  @Put('modules')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  updateModuleSettings(@Body() data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean }) {
+    return this.pengaturanService.updateModuleSettings(data);
+  }
 
   // --- AKADEMIK ---
   @Get('akademik')
