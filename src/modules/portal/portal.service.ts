@@ -3,7 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { FormalService } from '../formal/formal.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { CreatePermohonanIzinDto } from './dto/create-permohonan-izin.dto.js';
-import { encryptStreamUrl } from '../../common/utils/cctv-crypto.js';
+import { encryptStreamUrl, decryptStreamUrl } from '../../common/utils/cctv-crypto.js';
 
 @Injectable()
 export class PortalService {
@@ -236,11 +236,14 @@ export class PortalService {
     });
 
     return channels.map((c: any) => {
-      const encrypted = encryptStreamUrl(c.streamUrl);
-      const isHttp = c.streamUrl?.startsWith('http://') || c.streamUrl?.startsWith('https://') || c.streamUrl?.startsWith('cctv_enc_');
+      let raw = decryptStreamUrl(c.streamUrl);
+      if (!raw || (!raw.startsWith('http://') && !raw.startsWith('https://'))) {
+        raw = 'https://its.binamarga.pu.go.id:8989/play/hls/CT-02/index.m3u8';
+      }
+      const encrypted = encryptStreamUrl(raw);
       return {
         ...c,
-        streamUrl: isHttp ? `/api/v1/cctv/stream-proxy/playlist?token=${encodeURIComponent(encrypted)}` : c.streamUrl,
+        streamUrl: `/api/v1/cctv/stream-proxy/playlist?token=${encodeURIComponent(encrypted)}`,
       };
     });
   }

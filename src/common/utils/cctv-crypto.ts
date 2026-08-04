@@ -21,25 +21,30 @@ export function encryptStreamUrl(url: string): string {
 
 export function decryptStreamUrl(encryptedUrl: string): string {
   if (!encryptedUrl) return '';
-  const decodedStr = decodeURIComponent(encryptedUrl);
-  if (!decodedStr.startsWith('cctv_enc_')) return decodedStr;
+  let str = decodeURIComponent(encryptedUrl).trim();
 
-  try {
-    const rawCipher = decodedStr.replace('cctv_enc_', '');
-    const colonIdx = rawCipher.indexOf(':');
-    if (colonIdx === -1) return decodedStr;
+  // Unwrap up to 5 times if double-encrypted or nested
+  let attempts = 0;
+  while (str.startsWith('cctv_enc_') && attempts < 5) {
+    attempts++;
+    try {
+      const rawCipher = str.replace('cctv_enc_', '');
+      const colonIdx = rawCipher.indexOf(':');
+      if (colonIdx === -1) break;
 
-    const ivHex = rawCipher.substring(0, colonIdx);
-    const encryptedText = rawCipher.substring(colonIdx + 1);
+      const ivHex = rawCipher.substring(0, colonIdx);
+      const encryptedText = rawCipher.substring(colonIdx + 1);
 
-    const iv = Buffer.from(ivHex, 'hex');
-    const key = crypto.createHash('sha256').update(SECRET_KEY).digest();
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (err) {
-    console.error('Error decrypting stream URL:', err);
-    return encryptedUrl;
+      const iv = Buffer.from(ivHex, 'hex');
+      const key = crypto.createHash('sha256').update(SECRET_KEY).digest();
+      const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+      let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      str = decrypted.trim();
+    } catch (err) {
+      break;
+    }
   }
+
+  return str;
 }

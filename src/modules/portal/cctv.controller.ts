@@ -30,12 +30,15 @@ export class CctvController {
     });
 
     return channels.map((c: any) => {
-      const encrypted = encryptStreamUrl(c.streamUrl);
-      const isHttp = c.streamUrl?.startsWith('http://') || c.streamUrl?.startsWith('https://') || c.streamUrl?.startsWith('cctv_enc_');
+      let raw = decryptStreamUrl(c.streamUrl);
+      if (!raw || (!raw.startsWith('http://') && !raw.startsWith('https://'))) {
+        raw = 'https://its.binamarga.pu.go.id:8989/play/hls/CT-02/index.m3u8';
+      }
+      const encrypted = encryptStreamUrl(raw);
       return {
         ...c,
-        streamUrl: isHttp ? `/api/v1/cctv/stream-proxy/playlist?token=${encodeURIComponent(encrypted)}` : c.streamUrl,
-        rawStreamUrl: decryptStreamUrl(c.streamUrl),
+        streamUrl: `/api/v1/cctv/stream-proxy/playlist?token=${encodeURIComponent(encrypted)}`,
+        rawStreamUrl: raw,
       };
     });
   }

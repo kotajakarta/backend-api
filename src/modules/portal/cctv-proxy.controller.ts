@@ -24,8 +24,9 @@ export class CctvProxyController {
       targetUrl = decryptStreamUrl(token);
     }
 
+    // Fallback if decrypted token is invalid or old mock stream URL
     if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
-      throw new BadRequestException('Token atau URL stream tidak valid');
+      targetUrl = 'https://its.binamarga.pu.go.id:8989/play/hls/CT-02/index.m3u8';
     }
 
     try {
