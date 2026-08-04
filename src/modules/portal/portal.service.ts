@@ -210,4 +210,28 @@ export class PortalService {
       }
     });
   }
+
+  async getCctvChannelsForWali(userId: string, studentId?: string) {
+    let cabangId: string | undefined;
+    if (studentId) {
+      await this.assertOwnsStudent(userId, studentId);
+      const student = await this.prisma.student.findUnique({ where: { id: studentId } });
+      cabangId = student?.cabangId || undefined;
+    } else {
+      const link = await this.prisma.waliSantri.findFirst({
+        where: { userId },
+        include: { student: true }
+      });
+      cabangId = link?.student?.cabangId || undefined;
+    }
+
+    return this.prisma.cctvChannel.findMany({
+      where: {
+        ...(cabangId ? { cabangId } : {}),
+        isActive: true
+      },
+      include: { cabang: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
 }

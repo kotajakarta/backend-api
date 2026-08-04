@@ -40,3 +40,31 @@ model PermohonanIzinSantri {
   @@map("permohonan_izin_santri")
   @@schema("core")
 }
+
+enum CctvCategory {
+  KELAS
+  MASJID
+  MAKAN
+  ASRAMA
+  HALAMAN
+  LAINNYA
+
+  @@schema("core")
+}
+
+model CctvChannel {
+  id          String       @id @default(uuid())
+  cabangId    String       @map("cabang_id")
+  name        String
+  category    CctvCategory @default(KELAS)
+  streamUrl   String       @map("stream_url")
+  location    String?
+  description String?
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  cabang      Cabang       @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+
+  @@map("cctv_channels")
+  @@schema("core")
+}

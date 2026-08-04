@@ -63,6 +63,7 @@ model Cabang {
   grupDaimi                 GrupDaimi[]           @relation("GrupDaimiCabang")
   permohonanKelas           PermohonanKelas[]
   targetKuota               TargetKuotaCabang[]
+  cctvChannels              CctvChannel[]
 
   @@map("cabang")
   @@schema("core")

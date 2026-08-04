@@ -90,4 +90,9 @@ export class PortalController {
   updateProfile(@Request() req: any, @Body() body: any) {
     return this.portalService.updateProfile(req.user.id, body);
   }
+
+  @Get('cctv/channels')
+  getCctvChannels(@Request() req: any, @Query('studentId') studentId?: string) {
+    return this.portalService.getCctvChannelsForWali(req.user.id, studentId);
+  }
 }
