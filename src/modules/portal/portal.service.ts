@@ -3,6 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { FormalService } from '../formal/formal.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { CreatePermohonanIzinDto } from './dto/create-permohonan-izin.dto.js';
+import { encryptStreamUrl } from '../../common/utils/cctv-crypto.js';
 
 @Injectable()
 export class PortalService {
@@ -225,13 +226,22 @@ export class PortalService {
       cabangId = link?.student?.cabangId || undefined;
     }
 
-    return this.prisma.cctvChannel.findMany({
+    const channels = await this.prisma.cctvChannel.findMany({
       where: {
         ...(cabangId ? { cabangId } : {}),
         isActive: true
       },
       include: { cabang: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' }
+    });
+
+    return channels.map((c: any) => {
+      const encrypted = encryptStreamUrl(c.streamUrl);
+      const isHttp = c.streamUrl?.startsWith('http://') || c.streamUrl?.startsWith('https://') || c.streamUrl?.startsWith('cctv_enc_');
+      return {
+        ...c,
+        streamUrl: isHttp ? `/api/v1/cctv/stream-proxy/playlist?token=${encodeURIComponent(encrypted)}` : c.streamUrl,
+      };
     });
   }
 }

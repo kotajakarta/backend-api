@@ -29,11 +29,15 @@ export class CctvController {
       orderBy: { createdAt: 'desc' },
     });
 
-    return channels.map((c: any) => ({
-      ...c,
-      streamUrl: encryptStreamUrl(c.streamUrl),
-      rawStreamUrl: decryptStreamUrl(c.streamUrl),
-    }));
+    return channels.map((c: any) => {
+      const encrypted = encryptStreamUrl(c.streamUrl);
+      const isHttp = c.streamUrl?.startsWith('http://') || c.streamUrl?.startsWith('https://') || c.streamUrl?.startsWith('cctv_enc_');
+      return {
+        ...c,
+        streamUrl: isHttp ? `/api/v1/cctv/stream-proxy/playlist?token=${encodeURIComponent(encrypted)}` : c.streamUrl,
+        rawStreamUrl: decryptStreamUrl(c.streamUrl),
+      };
+    });
   }
 
   @Post('channels')
