@@ -3,6 +3,7 @@ import { AccessControlGuard } from '../../common/guards/access-control.guard.js'
 import { RequireScope } from '../../common/decorators/access-control.decorator.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { encryptStreamUrl, decryptStreamUrl } from '../../common/utils/cctv-crypto.js';
+import { assertModuleEnabled } from '../../common/utils/module-guard.js';
 
 @Controller('cctv')
 @UseGuards(AccessControlGuard)
@@ -12,6 +13,7 @@ export class CctvController {
 
   @Get('channels')
   async getChannels(@Request() req: any, @Query('cabangId') cabangId?: string) {
+    assertModuleEnabled('portalWalsanEnabled');
     const user = req.user;
     const where: any = {};
 
