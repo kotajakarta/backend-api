@@ -582,11 +582,24 @@ export class MasterDataService {
         staff: true,
         targetKuota: true,
         students: {
-          include: {
-            siswaFormal: true,
+          select: {
+            id: true,
+            isActive: true,
+            jenisSiswa: true,
+            grupDaimi: true,
+            siswaFormal: {
+              select: {
+                tingkat: true
+              }
+            },
             dataDaimi: {
-              include: {
-                grup: true
+              select: {
+                grup: {
+                  select: {
+                    jenis: true,
+                    name: true
+                  }
+                }
               }
             }
           }
@@ -682,8 +695,10 @@ export class MasterDataService {
             targetTingkat12: 0,
           };
 
+      const { students: _rawStudents, ...cabangClean } = cabang;
+
       return {
-        ...cabang,
+        ...cabangClean,
         pimpinanCabang,
         pjMuadalah,
         targetKuota: targetObj,

@@ -13,6 +13,7 @@ import fs from 'fs';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware.js';
 import { loginRateLimiter, globalRateLimiter, daftarUlangRateLimiter, setRateLimitRedisClient } from './common/middleware/rate-limit.middleware.js';
 import { createUploadAuthMiddleware } from './common/middleware/upload-auth.middleware.js';
@@ -21,6 +22,9 @@ import { RedisService } from './common/redis/redis.service.js';
 async function bootstrap() {
   const server = express();
   
+  // HTTP Response Compression (Gzip/Deflate)
+  server.use(compression());
+
   // ════════════════════════════════════════════════════════════════
   //  LAYER 1: Security Headers (Helmet)
   //  Sets X-Frame-Options, X-Content-Type-Options, HSTS,

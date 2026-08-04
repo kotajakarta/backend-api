@@ -670,10 +670,6 @@ export class StudentService {
             grup: true
           }
         },
-        riwayatPendidikan: {
-          include: { cabang: true },
-          orderBy: { tanggalMasuk: 'desc' },
-        },
       },
     });
   }
