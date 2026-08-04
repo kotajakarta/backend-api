@@ -19,7 +19,7 @@ export class FormalService {
     return this.prisma.kelas.findMany({
       where: whereClause,
       include: {
-        cabang: { include: { wilayah: true } },
+        cabang: { select: { id: true, name: true, wilayah: true } },
         lembagaMuadalah: true,
         waliKelas: true,
         ruang: true,
@@ -1099,17 +1099,28 @@ export class FormalService {
       include: {
         kelas: {
           where: user?.scope === 'CABANG' ? { cabangId: user.cabangId } : undefined,
-          include: {
+          select: {
+            id: true,
+            name: true,
+            tingkat: true,
             cabang: {
-              include: {
-                wilayah: true
+              select: {
+                id: true,
+                name: true,
+                wilayah: {
+                  select: { id: true, name: true }
+                }
               }
             },
             siswaFormal: {
-              include: {
+              select: {
                 student: {
-                  include: {
-                    biodata: true
+                  select: {
+                    biodata: {
+                      select: {
+                        jenisKelamin: true
+                      }
+                    }
                   }
                 }
               }
