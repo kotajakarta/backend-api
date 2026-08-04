@@ -103,7 +103,7 @@ async function main() {
   for (let i = 1; i <= 60; i++) {
     const isPool = i % 5 === 0; // Every 5th student is in the pool (no cabang)
     const cabang = cabangs[i % cabangs.length];
-    
+
     // First create biodata
     const biodata = await prisma.biodata.create({
       data: {
