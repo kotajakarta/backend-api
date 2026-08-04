@@ -84,7 +84,7 @@ model AbsensiMapel {
   kelas         Kelas         @relation(fields: [kelasId], references: [id], onDelete: Cascade)
   student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
-  @@unique([silabusId, kelasId, studentId, tanggal])
+  @@unique([mataPelajaranId, kelasId, studentId, tanggal])
   @@map("absensi_mapel")
   @@schema("formal")
 }

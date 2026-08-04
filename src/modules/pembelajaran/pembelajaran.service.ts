@@ -222,9 +222,9 @@ export class PembelajaranService {
     // Catatan absensi terikat pada (silabusId + tanggal)
     const absensiList = mapelIds.length > 0 ? await this.prisma.absensiMapel.findMany({
       where: { kelasId, mataPelajaranId: { in: mapelIds } },
-      select: { silabusId: true, tanggal: true, status: true }
+      select: { silabusId: true, mataPelajaranId: true, tanggal: true, status: true }
     }) : [];
-    const absensiSet = new Set(absensiList.map(a => `${a.silabusId}__${a.tanggal.toISOString().slice(0, 10)}`));
+    const absensiSet = new Set(absensiList.map(a => `${a.mataPelajaranId}__${a.tanggal.toISOString().slice(0, 10)}`));
 
     // Rekap kehadiran (H/I/S/A) per baris silabus (satu baris = satu sesi materi).
     const kehadiranMap = new Map<string, { hadir: number; izin: number; sakit: number; alpa: number; total: number }>();
@@ -251,7 +251,7 @@ export class PembelajaranService {
         catatan: p.catatan || '',
         guruId: p.guruId || defaultGuru?.id || null,
         guruName: p.guru?.name || defaultGuru?.name || null,
-        hasAbsensi: p.silabusId && tglStr ? absensiSet.has(`${p.silabusId}__${tglStr}`) : false
+        hasAbsensi: p.mataPelajaranId && tglStr ? absensiSet.has(`${p.mataPelajaranId}__${tglStr}`) : false
       };
     });
 
@@ -413,14 +413,14 @@ export class PembelajaranService {
       logs.map(log =>
         this.prisma.absensiMapel.upsert({
           where: {
-            silabusId_kelasId_studentId_tanggal: {
-              silabusId,
+            mataPelajaranId_kelasId_studentId_tanggal: {
+              mataPelajaranId: silabus.mataPelajaranId,
               kelasId,
               studentId: log.studentId,
               tanggal: date
             }
           },
-          update: { status: log.status, catatan: log.catatan || null },
+          update: { silabusId, status: log.status, catatan: log.catatan || null },
           create: {
             silabusId,
             mataPelajaranId: silabus.mataPelajaranId,
