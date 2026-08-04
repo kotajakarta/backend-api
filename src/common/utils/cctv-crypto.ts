@@ -21,13 +21,18 @@ export function encryptStreamUrl(url: string): string {
 
 export function decryptStreamUrl(encryptedUrl: string): string {
   if (!encryptedUrl) return '';
-  if (!encryptedUrl.startsWith('cctv_enc_')) return encryptedUrl;
+  const decodedStr = decodeURIComponent(encryptedUrl);
+  if (!decodedStr.startsWith('cctv_enc_')) return decodedStr;
 
   try {
-    const parts = encryptedUrl.replace('cctv_enc_', '').split(':');
-    if (parts.length !== 2) return encryptedUrl;
-    const iv = Buffer.from(parts[0], 'hex');
-    const encryptedText = parts[1];
+    const rawCipher = decodedStr.replace('cctv_enc_', '');
+    const colonIdx = rawCipher.indexOf(':');
+    if (colonIdx === -1) return decodedStr;
+
+    const ivHex = rawCipher.substring(0, colonIdx);
+    const encryptedText = rawCipher.substring(colonIdx + 1);
+
+    const iv = Buffer.from(ivHex, 'hex');
     const key = crypto.createHash('sha256').update(SECRET_KEY).digest();
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
     let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
