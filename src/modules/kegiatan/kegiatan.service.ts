@@ -539,4 +539,30 @@ export class KegiatanService {
       }
     });
   }
+
+  async unconfirmKegiatan(id: string) {
+    const exists = await this.prisma.kegiatan.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException('Laporan BAP kegiatan tidak ditemukan');
+
+    return this.prisma.kegiatan.update({
+      where: { id },
+      data: {
+        isConfirmed: false,
+        confirmedAt: null,
+        confirmedByUserId: null
+      },
+      include: {
+        template: {
+          include: {
+            jenis: true,
+            dokumen: true
+          }
+        },
+        cabang: true,
+        asrama: true,
+        panitia: { include: { staff: true } },
+        dokumen: true
+      }
+    });
+  }
 }

@@ -173,6 +173,15 @@ export class KegiatanController {
     return this.kegiatanService.confirmKegiatan(id, req.user.id);
   }
 
+  @Post(':id/unconfirm')
+  @UseGuards(AccessControlGuard)
+  async unconfirmKegiatan(@Param('id') id: string, @Request() req: any) {
+    if (req.user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Pusat (GLOBAL) yang dapat membatalkan konfirmasi BAP.');
+    }
+    return this.kegiatanService.unconfirmKegiatan(id);
+  }
+
   @Get(':id')
   @UseGuards(AccessControlGuard)
   async findOne(@Param('id') id: string, @Request() req: any) {
