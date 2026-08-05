@@ -110,15 +110,13 @@ export class StudentService {
 
       await this._processTempAndDocUrls(tx, biodata.id, data);
 
-      if (targetCabangId) {
-        await tx.riwayatPendidikan.create({
-          data: {
-            studentId: student.id,
-            cabangId: targetCabangId,
-            tanggalMasuk: tanggalMasuk ? new Date(tanggalMasuk) : new Date(),
-          }
-        });
-      }
+      await tx.riwayatPendidikan.create({
+        data: {
+          studentId: student.id,
+          cabangId: targetCabangId || null,
+          tanggalMasuk: tanggalMasuk ? new Date(tanggalMasuk) : new Date(),
+        }
+      });
 
       if (data.isVerval !== undefined) {
         await tx.siswaFormal.create({
@@ -528,6 +526,30 @@ export class StudentService {
 
       await this._processTempAndDocUrls(tx, student.biodataId, data);
 
+      if (tanggalMasuk) {
+        const existingRiwayat = await tx.riwayatPendidikan.findFirst({
+          where: { studentId: id },
+          orderBy: { tanggalMasuk: 'desc' }
+        });
+        if (existingRiwayat) {
+          await tx.riwayatPendidikan.update({
+            where: { id: existingRiwayat.id },
+            data: {
+              tanggalMasuk: new Date(tanggalMasuk),
+              cabangId: targetCabangId !== undefined ? targetCabangId : existingRiwayat.cabangId,
+            }
+          });
+        } else {
+          await tx.riwayatPendidikan.create({
+            data: {
+              studentId: id,
+              cabangId: targetCabangId || student.cabangId || null,
+              tanggalMasuk: new Date(tanggalMasuk),
+            }
+          });
+        }
+      }
+
       if (data.isVerval !== undefined) {
         const existingFormal = await tx.siswaFormal.findUnique({ where: { studentId: id } });
         if (existingFormal) {
@@ -717,6 +739,14 @@ export class StudentService {
               }
             }
           }
+        },
+        riwayatPendidikan: {
+          select: {
+            id: true,
+            tanggalMasuk: true,
+            cabangId: true,
+          },
+          orderBy: { tanggalMasuk: 'desc' }
         },
       }
     });

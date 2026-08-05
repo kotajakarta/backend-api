@@ -25,6 +25,30 @@ const storage = multer.diskStorage({
   }
 });
 
+const uploadOptions: any = {
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter: (req: ExpressRequest, file: any, cb: any) => {
+    const allowedMimeTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword'
+    ];
+    if (allowedMimeTypes.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format berkas tidak didukung. Hanya PDF dan Gambar yang diperbolehkan.'), false);
+    }
+  }
+};
+
 @Controller('kegiatan')
 export class KegiatanController {
   constructor(@Inject(KegiatanService) private readonly kegiatanService: KegiatanService) {}
@@ -75,7 +99,7 @@ export class KegiatanController {
 
   @Post('templates')
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FilesInterceptor('files', 10, { storage }))
+  @UseInterceptors(FilesInterceptor('files', 10, uploadOptions))
   async createTemplate(
     @Request() req: any,
     @Body() body: any,
@@ -89,7 +113,7 @@ export class KegiatanController {
 
   @Put('templates/:id')
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FilesInterceptor('files', 10, { storage }))
+  @UseInterceptors(FilesInterceptor('files', 10, uploadOptions))
   async updateTemplate(
     @Param('id') id: string,
     @Request() req: any,
@@ -125,7 +149,7 @@ export class KegiatanController {
 
   @Post()
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FilesInterceptor('files', 10, { storage }))
+  @UseInterceptors(FilesInterceptor('files', 10, uploadOptions))
   async create(
     @Request() req: any,
     @Body() body: any,
@@ -157,7 +181,7 @@ export class KegiatanController {
 
   @Put(':id')
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FilesInterceptor('files', 10, { storage }))
+  @UseInterceptors(FilesInterceptor('files', 10, uploadOptions))
   async update(
     @Param('id') id: string,
     @Request() req: any,
