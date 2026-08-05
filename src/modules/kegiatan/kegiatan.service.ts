@@ -288,6 +288,112 @@ export class KegiatanService {
       ? Math.min(100, Math.round((totalBapSubmitted / expectedTotalSubmissions) * 100))
       : 0;
 
+    // Aggregation by Wilayah and by Cabang
+    const allWilayah = await this.prisma.wilayah.findMany({
+      include: {
+        cabangs: {
+          select: {
+            id: true,
+            name: true,
+            wilayahId: true
+          }
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    const allCabang = await this.prisma.cabang.findMany({
+      include: {
+        wilayah: { select: { id: true, name: true } },
+        kegiatan: {
+          select: {
+            id: true,
+            isConfirmed: true,
+            totalSantri: true,
+            totalGuru: true,
+            jumlahPeserta: true
+          }
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    // 1. Cabang progress breakdown
+    const byCabangProgress = allCabang.map(c => {
+      const submitted = c.kegiatan.length;
+      const confirmed = c.kegiatan.filter(k => k.isConfirmed).length;
+      let santri = 0;
+      let guru = 0;
+      let totalPeserta = 0;
+
+      c.kegiatan.forEach(k => {
+        const s = k.totalSantri || 0;
+        const g = k.totalGuru || 0;
+        santri += s;
+        guru += g;
+        totalPeserta += k.jumlahPeserta || (s + g);
+      });
+
+      const rate = totalTemplates > 0 ? Math.min(100, Math.round((submitted / totalTemplates) * 100)) : 0;
+      let status = 'BELUM_ADA';
+      if (rate >= 100) status = 'SELESAI';
+      else if (submitted > 0) status = 'SEBAGIAN';
+
+      return {
+        cabangId: c.id,
+        cabangName: c.name,
+        wilayahId: c.wilayahId || 'tanpa-wilayah',
+        wilayahName: c.wilayah?.name || 'Tanpa Wilayah',
+        totalBapSubmitted: submitted,
+        totalBapConfirmed: confirmed,
+        totalSantri: santri,
+        totalGuru: guru,
+        totalPeserta: totalPeserta,
+        completionRate: rate,
+        status: status
+      };
+    });
+
+    // 2. Wilayah progress breakdown
+    const byWilayah = allWilayah.map(w => {
+      const cabangInWilayah = byCabangProgress.filter(c => c.wilayahId === w.id);
+      const totalCabangInWilayah = cabangInWilayah.length;
+
+      let submittedBap = 0;
+      let confirmedBap = 0;
+      let santri = 0;
+      let guru = 0;
+      let totalPeserta = 0;
+      let activeCabangCount = 0;
+
+      cabangInWilayah.forEach(c => {
+        if (c.totalBapSubmitted > 0) activeCabangCount += 1;
+        submittedBap += c.totalBapSubmitted;
+        confirmedBap += c.totalBapConfirmed;
+        santri += c.totalSantri;
+        guru += c.totalGuru;
+        totalPeserta += c.totalPeserta;
+      });
+
+      const expectedWilayahBaps = totalTemplates * Math.max(totalCabangInWilayah, 1);
+      const rate = expectedWilayahBaps > 0
+        ? Math.min(100, Math.round((submittedBap / expectedWilayahBaps) * 100))
+        : 0;
+
+      return {
+        wilayahId: w.id,
+        wilayahName: w.name,
+        totalCabang: totalCabangInWilayah,
+        activeCabangCount,
+        totalBapSubmitted: submittedBap,
+        totalBapConfirmed: confirmedBap,
+        totalSantri: santri,
+        totalGuru: guru,
+        totalPeserta: totalPeserta,
+        completionRate: rate
+      };
+    });
+
     return {
       summary: {
         totalTemplates,
@@ -304,6 +410,8 @@ export class KegiatanService {
         byJenis,
         topCabang,
         byTemplate: Object.values(templateMap),
+        byWilayah,
+        byCabangProgress,
         byStatus: {
           confirmed: totalBapConfirmed,
           pending: totalBapPending,
