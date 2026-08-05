@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFiles, Res, Inject, ForbiddenException } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
 import { KegiatanService } from './kegiatan.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { Response } from 'express';
@@ -149,7 +149,7 @@ export class KegiatanController {
 
   @Post()
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FilesInterceptor('files', 10, uploadOptions))
+  @UseInterceptors(AnyFilesInterceptor(uploadOptions))
   async create(
     @Request() req: any,
     @Body() body: any,
@@ -190,7 +190,7 @@ export class KegiatanController {
 
   @Put(':id')
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FilesInterceptor('files', 10, uploadOptions))
+  @UseInterceptors(AnyFilesInterceptor(uploadOptions))
   async update(
     @Param('id') id: string,
     @Request() req: any,

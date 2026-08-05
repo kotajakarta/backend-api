@@ -188,47 +188,57 @@ export class KegiatanService {
 
   // === TRANSAKSI BAP KEGIATAN CABANG (Dengan Multi-Upload File dari Cabang) ===
 
+  private getFileType(file: any): string {
+    if (file.fieldname === 'photoFiles') {
+      return 'PHOTO';
+    }
+    if (file.fieldname === 'suratPengantarFiles') {
+      return 'SURAT_PENGANTAR';
+    }
+    if (file.fieldname === 'docFiles') {
+      return 'DOCUMENT';
+    }
+    return file.mimetype?.startsWith('image/') ? 'PHOTO' : 'DOCUMENT';
+  }
+
   async create(data: any, files: any[], user: any) {
-    let effectiveCabangId = data.cabangId || user.cabangId;
-    if (!effectiveCabangId) {
-      throw new BadRequestException('Cabang ID is required to submit Kegiatan BAP');
+    let cabangId = user.cabangId;
+    if (user.scope === 'GLOBAL' && data.cabangId) {
+      cabangId = data.cabangId;
+    }
+    if (!cabangId && user.scope === 'CABANG') {
+      throw new ForbiddenException('User cabang tidak memiliki cabangId yang valid');
     }
 
-    const template = await this.prisma.templateKegiatan.findUnique({ where: { id: data.templateId } });
-    if (!template) {
-      throw new NotFoundException('Template kegiatan tidak ditemukan.');
-    }
-
-    const existingBAP = await this.prisma.kegiatan.findFirst({
-      where: {
-        templateId: data.templateId,
-        cabangId: effectiveCabangId
-      }
+    const template = await this.prisma.templateKegiatan.findUnique({
+      where: { id: data.templateId }
     });
-    if (existingBAP) {
-      throw new BadRequestException('Cabang Anda sudah mengirimkan laporan BAP untuk kegiatan ini.');
-    }
+    if (!template) throw new NotFoundException('Template kegiatan tidak ditemukan');
+
+    const totalSantri = data.totalSantri !== undefined ? Number(data.totalSantri) : null;
+    const totalGuru = data.totalGuru !== undefined ? Number(data.totalGuru) : null;
+    const jumlahPeserta = data.jumlahPeserta !== undefined ? Number(data.jumlahPeserta) : (totalSantri || 0) + (totalGuru || 0);
 
     return this.prisma.$transaction(async (tx) => {
       const kegiatan = await tx.kegiatan.create({
         data: {
           templateId: data.templateId,
-          cabangId: effectiveCabangId,
+          cabangId: cabangId,
           asramaId: data.asramaId || null,
-          deskripsi: data.deskripsi || null,
+          deskripsi: data.deskripsi || template.bentukKegiatan || template.judul,
           tanggalKegiatan: data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null,
           waktuKegiatan: data.waktuKegiatan || null,
           tempatKegiatan: data.tempatKegiatan || null,
-          jumlahPeserta: data.jumlahPeserta ? Number(data.jumlahPeserta) : null,
-          totalSantri: data.totalSantri ? Number(data.totalSantri) : null,
-          totalGuru: data.totalGuru ? Number(data.totalGuru) : null,
-          evaluasiBaik: data.evaluasiBaik || null,
-          evaluasiPerbaikan: data.evaluasiPerbaikan || null,
+          totalSantri: totalSantri,
+          totalGuru: totalGuru,
+          jumlahPeserta: jumlahPeserta,
           bentukKegiatan: data.bentukKegiatan || null,
           rangkaianKegiatan: data.rangkaianKegiatan || null,
           hasilPelaksanaan: data.hasilPelaksanaan || null,
-          ringkasanKegiatan: data.ringkasanKegiatan || data.bentukKegiatan || null,
-          kesimpulan: data.kesimpulan || data.hasilPelaksanaan || null,
+          evaluasiBaik: data.evaluasiBaik || null,
+          evaluasiPerbaikan: data.evaluasiPerbaikan || null,
+          ringkasanKegiatan: data.ringkasanKegiatan || null,
+          kesimpulan: data.kesimpulan || null,
         }
       });
 
@@ -262,13 +272,13 @@ export class KegiatanService {
 
       if (files && files.length > 0) {
         for (const file of files) {
-          const isPhoto = file.mimetype.startsWith('image/');
+          const fileType = this.getFileType(file);
           await tx.dokumenKegiatan.create({
             data: {
               kegiatanId: kegiatan.id,
               filePath: `/kegiatan/uploads/${file.filename}`,
               fileName: file.originalname,
-              fileType: isPhoto ? 'PHOTO' : 'DOCUMENT'
+              fileType: fileType
             }
           });
         }
@@ -443,13 +453,13 @@ export class KegiatanService {
 
       if (files && files.length > 0) {
         for (const file of files) {
-          const isPhoto = file.mimetype.startsWith('image/');
+          const fileType = this.getFileType(file);
           await tx.dokumenKegiatan.create({
             data: {
               kegiatanId: id,
               filePath: `/kegiatan/uploads/${file.filename}`,
               fileName: file.originalname,
-              fileType: isPhoto ? 'PHOTO' : 'DOCUMENT'
+              fileType: fileType
             }
           });
         }
