@@ -34,6 +34,7 @@ async function bootstrap() {
     contentSecurityPolicy: false, // Disabled to allow Swagger UI assets
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    xFrameOptions: false,
   }));
 
   // ════════════════════════════════════════════════════════════════
