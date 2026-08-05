@@ -198,10 +198,21 @@ export class KegiatanService {
     });
 
     const totalTemplates = templateId ? 1 : templatesList.length;
-    const totalCabang = await this.prisma.cabang.count();
 
-    const whereKegiatan = templateId ? { templateId } : {};
+    // Scoping filters based on user.scope
+    const whereCabangFilter: any = {};
+    const whereKegiatan: any = {};
+    if (templateId) whereKegiatan.templateId = templateId;
 
+    if (user.scope === 'CABANG' && user.cabangId) {
+      whereCabangFilter.id = user.cabangId;
+      whereKegiatan.cabangId = user.cabangId;
+    } else if (user.scope === 'WILAYAH' && user.wilayahId) {
+      whereCabangFilter.wilayahId = user.wilayahId;
+      whereKegiatan.cabang = { wilayahId: user.wilayahId };
+    }
+
+    const totalCabang = await this.prisma.cabang.count({ where: whereCabangFilter });
     const totalBapSubmitted = await this.prisma.kegiatan.count({ where: whereKegiatan });
     const totalBapConfirmed = await this.prisma.kegiatan.count({ where: { ...whereKegiatan, isConfirmed: true } });
     const totalBapPending = Math.max(0, totalBapSubmitted - totalBapConfirmed);
@@ -209,7 +220,7 @@ export class KegiatanService {
     const baps = await this.prisma.kegiatan.findMany({
       where: whereKegiatan,
       include: {
-        cabang: { select: { id: true, name: true } },
+        cabang: { select: { id: true, name: true, wilayahId: true } },
         template: { include: { jenis: true } }
       }
     });
@@ -305,8 +316,17 @@ export class KegiatanService {
       ? Math.min(100, Math.round((totalBapSubmitted / expectedTotalSubmissions) * 100))
       : 0;
 
-    // Aggregation by Wilayah and by Cabang
+    // Aggregation by Wilayah
+    const whereWilayahFilter: any = {};
+    if (user.scope === 'WILAYAH' && user.wilayahId) {
+      whereWilayahFilter.id = user.wilayahId;
+    } else if (user.scope === 'CABANG' && user.cabangId) {
+      const cb = await this.prisma.cabang.findUnique({ where: { id: user.cabangId } });
+      if (cb?.wilayahId) whereWilayahFilter.id = cb.wilayahId;
+    }
+
     const allWilayah = await this.prisma.wilayah.findMany({
+      where: whereWilayahFilter,
       include: {
         cabangs: {
           select: {
@@ -320,6 +340,7 @@ export class KegiatanService {
     });
 
     const allCabang = await this.prisma.cabang.findMany({
+      where: whereCabangFilter,
       include: {
         wilayah: { select: { id: true, name: true } },
         kegiatan: {
@@ -424,6 +445,9 @@ export class KegiatanService {
         totalPesertaTerjangkau,
         completionRate
       },
+      userScope: user.scope,
+      userWilayahName: user.scope === 'WILAYAH' ? (allWilayah[0]?.name || 'Wilayah Anda') : null,
+      userCabangName: user.scope === 'CABANG' ? (allCabang[0]?.name || 'Cabang Anda') : null,
       templatesOptions: templatesList,
       charts: {
         byJenis,
