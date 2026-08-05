@@ -185,6 +185,134 @@ export class KegiatanService {
     return this.prisma.dokumenTemplate.delete({ where: { id } });
   }
 
+  async getDashboardStats(user: any) {
+    const totalTemplates = await this.prisma.templateKegiatan.count();
+    const totalCabang = await this.prisma.cabang.count();
+    const totalBapSubmitted = await this.prisma.kegiatan.count();
+    const totalBapConfirmed = await this.prisma.kegiatan.count({ where: { isConfirmed: true } });
+    const totalBapPending = Math.max(0, totalBapSubmitted - totalBapConfirmed);
+
+    const baps = await this.prisma.kegiatan.findMany({
+      include: {
+        cabang: { select: { id: true, name: true } },
+        template: { include: { jenis: true } }
+      }
+    });
+
+    let totalSantriTerjangkau = 0;
+    let totalGuruTerjangkau = 0;
+    let totalPesertaTerjangkau = 0;
+
+    const cabangMap: Record<string, { cabangName: string; totalBap: number; totalPeserta: number }> = {};
+    const templateMap: Record<string, {
+      templateId: string;
+      judul: string;
+      jenisNama: string;
+      deadline: Date;
+      totalReported: number;
+      totalConfirmed: number;
+      totalSantri: number;
+      totalGuru: number;
+    }> = {};
+
+    baps.forEach(b => {
+      const santri = b.totalSantri || 0;
+      const guru = b.totalGuru || 0;
+      const peserta = b.jumlahPeserta || (santri + guru);
+
+      totalSantriTerjangkau += santri;
+      totalGuruTerjangkau += guru;
+      totalPesertaTerjangkau += peserta;
+
+      if (b.cabang) {
+        if (!cabangMap[b.cabang.id]) {
+          cabangMap[b.cabang.id] = { cabangName: b.cabang.name, totalBap: 0, totalPeserta: 0 };
+        }
+        cabangMap[b.cabang.id].totalBap += 1;
+        cabangMap[b.cabang.id].totalPeserta += peserta;
+      }
+
+      if (b.template) {
+        if (!templateMap[b.template.id]) {
+          templateMap[b.template.id] = {
+            templateId: b.template.id,
+            judul: b.template.judul,
+            jenisNama: b.template.jenis?.nama || 'Lainnya',
+            deadline: b.template.deadline,
+            totalReported: 0,
+            totalConfirmed: 0,
+            totalSantri: 0,
+            totalGuru: 0
+          };
+        }
+        templateMap[b.template.id].totalReported += 1;
+        if (b.isConfirmed) templateMap[b.template.id].totalConfirmed += 1;
+        templateMap[b.template.id].totalSantri += santri;
+        templateMap[b.template.id].totalGuru += guru;
+      }
+    });
+
+    const jenisList = await this.prisma.jenisKegiatan.findMany({
+      include: {
+        templates: {
+          include: {
+            kegiatan: true
+          }
+        }
+      }
+    });
+
+    const byJenis = jenisList.map(j => {
+      let bapCount = 0;
+      let confirmedCount = 0;
+      j.templates.forEach(t => {
+        bapCount += t.kegiatan.length;
+        confirmedCount += t.kegiatan.filter(k => k.isConfirmed).length;
+      });
+
+      return {
+        id: j.id,
+        jenisName: j.nama,
+        templateCount: j.templates.length,
+        bapCount,
+        confirmedCount
+      };
+    });
+
+    const topCabang = Object.values(cabangMap)
+      .sort((a, b) => b.totalBap - a.totalBap)
+      .slice(0, 10);
+
+    const expectedTotalSubmissions = totalTemplates * Math.max(totalCabang, 1);
+    const completionRate = expectedTotalSubmissions > 0
+      ? Math.min(100, Math.round((totalBapSubmitted / expectedTotalSubmissions) * 100))
+      : 0;
+
+    return {
+      summary: {
+        totalTemplates,
+        totalCabang,
+        totalBapSubmitted,
+        totalBapConfirmed,
+        totalBapPending,
+        totalSantriTerjangkau,
+        totalGuruTerjangkau,
+        totalPesertaTerjangkau,
+        completionRate
+      },
+      charts: {
+        byJenis,
+        topCabang,
+        byTemplate: Object.values(templateMap),
+        byStatus: {
+          confirmed: totalBapConfirmed,
+          pending: totalBapPending,
+          expectedMissing: Math.max(0, expectedTotalSubmissions - totalBapSubmitted)
+        }
+      }
+    };
+  }
+
 
   // === TRANSAKSI BAP KEGIATAN CABANG (Dengan Multi-Upload File dari Cabang) ===
 

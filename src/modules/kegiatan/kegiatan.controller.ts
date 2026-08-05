@@ -182,6 +182,12 @@ export class KegiatanController {
     return this.kegiatanService.unconfirmKegiatan(id);
   }
 
+  @Get('stats')
+  @UseGuards(AccessControlGuard)
+  async getStats(@Request() req: any) {
+    return this.kegiatanService.getDashboardStats(req.user);
+  }
+
   @Get(':id')
   @UseGuards(AccessControlGuard)
   async findOne(@Param('id') id: string, @Request() req: any) {
