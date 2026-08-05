@@ -31,7 +31,8 @@
     "papaparse": "^5.5.4",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.23",
@@ -44,6 +45,7 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.20.0",
+    "@types/sharp": "^0.31.1",
     "prisma": "^7.8.0",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"

@@ -1,9 +1,10 @@
-import { Injectable, BadRequestException, Inject, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { StatusPool } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import sharp from 'sharp';
 
 // Jenis dokumen yang didukung
 export const DOKUMEN_JENIS = [
@@ -768,6 +769,42 @@ export class StudentService {
     return student;
   }
 
+  async getPhotoThumbnail(photoUrl: string, res: any) {
+    if (!photoUrl) throw new BadRequestException('URL foto tidak diberikan');
+
+    const cleanPath = photoUrl.startsWith('/') ? photoUrl.slice(1) : photoUrl;
+    const fullPath = path.join(process.cwd(), cleanPath);
+
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fullPath.startsWith(uploadsDir)) {
+      throw new ForbiddenException('Akses ditolak');
+    }
+
+    if (!fs.existsSync(fullPath)) {
+      throw new NotFoundException('Foto tidak ditemukan');
+    }
+
+    const ext = path.extname(fullPath);
+    const dir = path.dirname(fullPath);
+    const baseName = path.basename(fullPath, ext);
+    const thumbPath = path.join(dir, `thumb_${baseName}.webp`);
+
+    if (!fs.existsSync(thumbPath)) {
+      try {
+        await sharp(fullPath)
+          .resize(96, 96, { fit: 'cover' })
+          .webp({ quality: 75 })
+          .toFile(thumbPath);
+      } catch (e) {
+        return res.sendFile(fullPath);
+      }
+    }
+
+    res.setHeader('Content-Type', 'image/webp');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.sendFile(thumbPath);
+  }
+
   async exportStudentDetail(user: any) {
     const { scope, wilayahId, cabangId } = user;
     
@@ -1473,6 +1510,18 @@ export class StudentService {
     }
 
     fs.writeFileSync(filePath, file.buffer);
+
+    if (jenis === 'passfoto' && ext !== '.pdf') {
+      const thumbPath = path.join(uploadDir, `thumb_biodata_${biodataId}_${jenis}.webp`);
+      try {
+        await sharp(file.buffer)
+          .resize(96, 96, { fit: 'cover' })
+          .webp({ quality: 75 })
+          .toFile(thumbPath);
+      } catch (e) {
+        console.error('Gagal membuat thumbnail:', e);
+      }
+    }
 
     const fileUrl = `/uploads/${jenis}/${filename}`;
     await this.prisma.biodata.update({

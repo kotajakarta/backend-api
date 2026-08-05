@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Request, Inject, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Res, UseGuards, Request, Inject, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudentService, DOKUMEN_JENIS, DokumenJenis } from './student.service.js';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
@@ -12,6 +12,11 @@ export class StudentController {
   @UseGuards(AccessControlGuard)
   getStudents(@Request() req: any) {
     return this.studentService.getStudents(req.user);
+  }
+
+  @Get('photo-thumbnail')
+  getPhotoThumbnail(@Query('url') photoUrl: string, @Res() res: any) {
+    return this.studentService.getPhotoThumbnail(photoUrl, res);
   }
 
   @Get('export/detail')
