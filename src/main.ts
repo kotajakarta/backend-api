@@ -33,6 +33,7 @@ async function bootstrap() {
   server.use(helmet({
     contentSecurityPolicy: false, // Disabled to allow Swagger UI assets
     crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   }));
 
   // ════════════════════════════════════════════════════════════════

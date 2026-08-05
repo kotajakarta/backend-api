@@ -807,6 +807,7 @@ export class StudentService {
       }
     }
 
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Content-Type', 'image/webp');
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     return res.sendFile(thumbPath);

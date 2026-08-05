@@ -185,6 +185,8 @@ export class KegiatanController {
     const filePath = path.join(uploadDir, safeFilename);
 
     if (fs.existsSync(filePath)) {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       return res.sendFile(filePath);
     }
     return res.status(404).send('File not found');
