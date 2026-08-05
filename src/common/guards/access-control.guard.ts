@@ -66,13 +66,21 @@ export class AccessControlGuard implements CanActivate {
         }
       }
 
+      // AUDITOR enforcement: AUDITOR is strictly read-only for write operations (POST, PUT, PATCH, DELETE)
+      const httpMethod = req.method?.toUpperCase();
+      if (payload.scope === 'AUDITOR' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(httpMethod)) {
+        if (!req.url.includes('/auth/logout')) {
+          throw new ForbiddenException('Role AUDITOR hanya memiliki akses Baca (Read-Only). Anda tidak diizinkan membuat, mengubah, atau menghapus data.');
+        }
+      }
+
       if (requiredScope) {
         if (requiredScope === 'WALI') {
           if (payload.scope !== 'WALI') throw new ForbiddenException('Endpoint khusus portal wali santri');
         } else if (requiredScope === 'GLOBAL') {
-          if (payload.scope !== 'GLOBAL') throw new ForbiddenException('Requires GLOBAL scope');
+          if (payload.scope !== 'GLOBAL' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires GLOBAL scope');
         } else if (requiredScope === 'WILAYAH') {
-          if (payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH') throw new ForbiddenException('Requires WILAYAH scope');
+          if (payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires WILAYAH scope');
         }
         // 'CABANG' branch intentionally left as a pre-existing no-op — out of scope for this task,
         // do not add CABANG-hierarchy enforcement here, that's a separate pre-existing gap.
