@@ -184,8 +184,8 @@ export class KegiatanController {
 
   @Get('stats')
   @UseGuards(AccessControlGuard)
-  async getStats(@Request() req: any) {
-    return this.kegiatanService.getDashboardStats(req.user);
+  async getStats(@Query('templateId') templateId: string, @Request() req: any) {
+    return this.kegiatanService.getDashboardStats(req.user, templateId);
   }
 
   @Get(':id')

@@ -185,14 +185,29 @@ export class KegiatanService {
     return this.prisma.dokumenTemplate.delete({ where: { id } });
   }
 
-  async getDashboardStats(user: any) {
-    const totalTemplates = await this.prisma.templateKegiatan.count();
+  async getDashboardStats(user: any, templateId?: string) {
+    const templatesList = await this.prisma.templateKegiatan.findMany({
+      select: {
+        id: true,
+        judul: true,
+        tanggalKegiatan: true,
+        deadline: true,
+        jenis: { select: { nama: true } }
+      },
+      orderBy: { deadline: 'desc' }
+    });
+
+    const totalTemplates = templateId ? 1 : templatesList.length;
     const totalCabang = await this.prisma.cabang.count();
-    const totalBapSubmitted = await this.prisma.kegiatan.count();
-    const totalBapConfirmed = await this.prisma.kegiatan.count({ where: { isConfirmed: true } });
+
+    const whereKegiatan = templateId ? { templateId } : {};
+
+    const totalBapSubmitted = await this.prisma.kegiatan.count({ where: whereKegiatan });
+    const totalBapConfirmed = await this.prisma.kegiatan.count({ where: { ...whereKegiatan, isConfirmed: true } });
     const totalBapPending = Math.max(0, totalBapSubmitted - totalBapConfirmed);
 
     const baps = await this.prisma.kegiatan.findMany({
+      where: whereKegiatan,
       include: {
         cabang: { select: { id: true, name: true } },
         template: { include: { jenis: true } }
@@ -256,7 +271,9 @@ export class KegiatanService {
       include: {
         templates: {
           include: {
-            kegiatan: true
+            kegiatan: {
+              where: whereKegiatan
+            }
           }
         }
       }
@@ -306,6 +323,7 @@ export class KegiatanService {
       include: {
         wilayah: { select: { id: true, name: true } },
         kegiatan: {
+          where: whereKegiatan,
           select: {
             id: true,
             isConfirmed: true,
@@ -406,6 +424,7 @@ export class KegiatanService {
         totalPesertaTerjangkau,
         completionRate
       },
+      templatesOptions: templatesList,
       charts: {
         byJenis,
         topCabang,
