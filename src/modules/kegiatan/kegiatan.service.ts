@@ -87,12 +87,18 @@ export class KegiatanService {
       const template = await tx.templateKegiatan.create({
         data: {
           judul: data.judul,
-          deskripsi: data.deskripsi,
+          deskripsi: data.deskripsi || null,
           deadline: new Date(data.deadline),
           jenisId: data.jenisId,
           tanggalKegiatan: data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null,
           waktuKegiatan: data.waktuKegiatan || null,
           tujuanKegiatan: data.tujuanKegiatan || null,
+          tema: data.tema || null,
+          latarBelakang: data.latarBelakang || null,
+          bentukKegiatan: data.bentukKegiatan || null,
+          rangkaianKegiatan: data.rangkaianKegiatan || null,
+          hasilPelaksanaan: data.hasilPelaksanaan || null,
+          penutup: data.penutup || null,
         }
       });
 
@@ -129,12 +135,18 @@ export class KegiatanService {
         where: { id },
         data: {
           judul: data.judul,
-          deskripsi: data.deskripsi,
+          deskripsi: data.deskripsi !== undefined ? data.deskripsi : undefined,
           deadline: data.deadline ? new Date(data.deadline) : undefined,
           jenisId: data.jenisId,
           tanggalKegiatan: data.tanggalKegiatan !== undefined ? (data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null) : undefined,
           waktuKegiatan: data.waktuKegiatan !== undefined ? data.waktuKegiatan : undefined,
           tujuanKegiatan: data.tujuanKegiatan !== undefined ? data.tujuanKegiatan : undefined,
+          tema: data.tema !== undefined ? data.tema : undefined,
+          latarBelakang: data.latarBelakang !== undefined ? data.latarBelakang : undefined,
+          bentukKegiatan: data.bentukKegiatan !== undefined ? data.bentukKegiatan : undefined,
+          rangkaianKegiatan: data.rangkaianKegiatan !== undefined ? data.rangkaianKegiatan : undefined,
+          hasilPelaksanaan: data.hasilPelaksanaan !== undefined ? data.hasilPelaksanaan : undefined,
+          penutup: data.penutup !== undefined ? data.penutup : undefined,
         }
       });
 
@@ -203,23 +215,50 @@ export class KegiatanService {
           templateId: data.templateId,
           cabangId: effectiveCabangId,
           asramaId: data.asramaId || null,
-          deskripsi: data.deskripsi,
+          deskripsi: data.deskripsi || null,
           tanggalKegiatan: data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null,
           waktuKegiatan: data.waktuKegiatan || null,
           tempatKegiatan: data.tempatKegiatan || null,
           jumlahPeserta: data.jumlahPeserta ? Number(data.jumlahPeserta) : null,
-          ringkasanKegiatan: data.ringkasanKegiatan || null,
-          kesimpulan: data.kesimpulan || null,
+          totalSantri: data.totalSantri ? Number(data.totalSantri) : null,
+          totalGuru: data.totalGuru ? Number(data.totalGuru) : null,
+          evaluasiBaik: data.evaluasiBaik || null,
+          evaluasiPerbaikan: data.evaluasiPerbaikan || null,
+          bentukKegiatan: data.bentukKegiatan || null,
+          rangkaianKegiatan: data.rangkaianKegiatan || null,
+          hasilPelaksanaan: data.hasilPelaksanaan || null,
+          ringkasanKegiatan: data.ringkasanKegiatan || data.bentukKegiatan || null,
+          kesimpulan: data.kesimpulan || data.hasilPelaksanaan || null,
         }
       });
 
-      await tx.panitia.create({
-        data: {
-          kegiatanId: kegiatan.id,
-          staffId: data.ketuaPanitiaId,
-          jabatan: 'KETUA'
-        }
-      });
+      if (data.ketuaPanitiaId) {
+        await tx.panitia.create({
+          data: {
+            kegiatanId: kegiatan.id,
+            staffId: data.ketuaPanitiaId,
+            jabatan: 'KETUA'
+          }
+        });
+      }
+      if (data.sekretarisPanitiaId) {
+        await tx.panitia.create({
+          data: {
+            kegiatanId: kegiatan.id,
+            staffId: data.sekretarisPanitiaId,
+            jabatan: 'SEKRETARIS'
+          }
+        });
+      }
+      if (data.bendaharaPanitiaId) {
+        await tx.panitia.create({
+          data: {
+            kegiatanId: kegiatan.id,
+            staffId: data.bendaharaPanitiaId,
+            jabatan: 'BENDAHARA'
+          }
+        });
+      }
 
       if (files && files.length > 0) {
         for (const file of files) {
@@ -351,28 +390,55 @@ export class KegiatanService {
       await tx.kegiatan.update({
         where: { id },
         data: {
-          deskripsi: data.deskripsi,
+          deskripsi: data.deskripsi !== undefined ? data.deskripsi : undefined,
           asramaId: data.asramaId !== undefined ? data.asramaId : undefined,
           tanggalKegiatan: data.tanggalKegiatan !== undefined ? (data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null) : undefined,
           waktuKegiatan: data.waktuKegiatan !== undefined ? data.waktuKegiatan : undefined,
           tempatKegiatan: data.tempatKegiatan !== undefined ? data.tempatKegiatan : undefined,
           jumlahPeserta: data.jumlahPeserta !== undefined ? (data.jumlahPeserta ? Number(data.jumlahPeserta) : null) : undefined,
+          totalSantri: data.totalSantri !== undefined ? (data.totalSantri ? Number(data.totalSantri) : null) : undefined,
+          totalGuru: data.totalGuru !== undefined ? (data.totalGuru ? Number(data.totalGuru) : null) : undefined,
+          evaluasiBaik: data.evaluasiBaik !== undefined ? data.evaluasiBaik : undefined,
+          evaluasiPerbaikan: data.evaluasiPerbaikan !== undefined ? data.evaluasiPerbaikan : undefined,
+          bentukKegiatan: data.bentukKegiatan !== undefined ? data.bentukKegiatan : undefined,
+          rangkaianKegiatan: data.rangkaianKegiatan !== undefined ? data.rangkaianKegiatan : undefined,
+          hasilPelaksanaan: data.hasilPelaksanaan !== undefined ? data.hasilPelaksanaan : undefined,
           ringkasanKegiatan: data.ringkasanKegiatan !== undefined ? data.ringkasanKegiatan : undefined,
           kesimpulan: data.kesimpulan !== undefined ? data.kesimpulan : undefined,
         }
       });
 
-      if (data.ketuaPanitiaId) {
+      if (data.ketuaPanitiaId || data.sekretarisPanitiaId || data.bendaharaPanitiaId) {
         await tx.panitia.deleteMany({
-          where: { kegiatanId: id, jabatan: 'KETUA' }
+          where: { kegiatanId: id }
         });
-        await tx.panitia.create({
-          data: {
-            kegiatanId: id,
-            staffId: data.ketuaPanitiaId,
-            jabatan: 'KETUA'
-          }
-        });
+        if (data.ketuaPanitiaId) {
+          await tx.panitia.create({
+            data: {
+              kegiatanId: id,
+              staffId: data.ketuaPanitiaId,
+              jabatan: 'KETUA'
+            }
+          });
+        }
+        if (data.sekretarisPanitiaId) {
+          await tx.panitia.create({
+            data: {
+              kegiatanId: id,
+              staffId: data.sekretarisPanitiaId,
+              jabatan: 'SEKRETARIS'
+            }
+          });
+        }
+        if (data.bendaharaPanitiaId) {
+          await tx.panitia.create({
+            data: {
+              kegiatanId: id,
+              staffId: data.bendaharaPanitiaId,
+              jabatan: 'BENDAHARA'
+            }
+          });
+        }
       }
 
       if (files && files.length > 0) {
