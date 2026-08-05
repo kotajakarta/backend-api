@@ -662,6 +662,13 @@ export class StudentService {
         cabangId: true,
         statusPool: true,
         isActive: true,
+        jenisSiswa: true,
+        grupDaimi: true,
+        statusHafidz: true,
+        daftarUlangAt: true,
+        daftarUlangJenis: true,
+        daftarUlangTahunAjaran: true,
+        daftarUlangSemester: true,
         biodata: true,
         wilayah: {
           select: {
