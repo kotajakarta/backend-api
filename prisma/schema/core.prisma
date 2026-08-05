@@ -326,6 +326,7 @@ enum UserScope {
   WILAYAH
   CABANG
   WALI
+  AUDITOR
 
   @@schema("core")
 }
