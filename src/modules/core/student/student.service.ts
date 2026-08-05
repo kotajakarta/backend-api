@@ -64,7 +64,7 @@ export class StudentService {
     }
 
     // determine initial pool status
-    const initialStatus = targetCabangId ? StatusPool.AKTIF_CABANG : StatusPool.TERSEDIA;
+    const initialStatus = (targetCabangId || targetWilayahId) ? StatusPool.AKTIF_CABANG : StatusPool.TERSEDIA;
 
     return this.prisma.$transaction(async (tx) => {
       const biodata = await tx.biodata.create({
@@ -661,17 +661,7 @@ export class StudentService {
         cabangId: true,
         statusPool: true,
         isActive: true,
-        biodata: {
-          select: {
-            id: true,
-            fullName: true,
-            jenisKelamin: true,
-            nisLokal: true,
-            nisn: true,
-            noGlodemy: true,
-            nik: true,
-          }
-        },
+        biodata: true,
         wilayah: {
           select: {
             id: true,
@@ -722,6 +712,60 @@ export class StudentService {
         },
       }
     });
+  }
+
+  async getStudentById(id: string, user?: any) {
+    const student = await this.prisma.student.findUnique({
+      where: { id },
+      include: {
+        biodata: true,
+        wilayah: {
+          select: {
+            id: true,
+            name: true,
+          }
+        },
+        cabang: {
+          select: {
+            id: true,
+            name: true,
+            wilayahId: true,
+          }
+        },
+        riwayatPendidikan: {
+          include: {
+            cabang: true
+          }
+        },
+        siswaFormal: {
+          include: {
+            kelas: {
+              include: {
+                lembagaMuadalah: true
+              }
+            }
+          }
+        },
+        dataDaimi: {
+          include: {
+            grup: true
+          }
+        }
+      }
+    });
+
+    if (!student) throw new BadRequestException('Student not found');
+
+    if (user && user.scope !== 'GLOBAL') {
+      if (user.scope === 'WILAYAH' && student.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Akses ditolak: Siswa berada di luar wilayah Anda.');
+      }
+      if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Akses ditolak: Siswa berada di luar cabang Anda.');
+      }
+    }
+
+    return student;
   }
 
   async exportStudentDetail(user: any) {

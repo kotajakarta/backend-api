@@ -80,6 +80,12 @@ export class StudentController {
     return this.studentService.getPermintaanTarik(req.user);
   }
 
+  @Get(':id')
+  @UseGuards(AccessControlGuard)
+  getStudentById(@Param('id') id: string, @Request() req: any) {
+    return this.studentService.getStudentById(id, req.user);
+  }
+
   @Post('permintaan-tarik/:id/approve')
   @UseGuards(AccessControlGuard)
   approvePermintaanTarik(@Param('id') id: string, @Request() req: any) {
