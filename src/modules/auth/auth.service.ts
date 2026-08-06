@@ -1,6 +1,9 @@
 import { Injectable, UnauthorizedException, Inject, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { generateSecret, generateURI, verifySync } from 'otplib';
+import QRCode from 'qrcode';
+import crypto from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 
 /**
@@ -39,6 +42,20 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Check if 2FA is enabled for this account
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      const tempToken = jwt.sign(
+        { id: user.id, is2FATemp: true },
+        JWT_SECRET as string,
+        { expiresIn: '5m', issuer: JWT_ISSUER, audience: JWT_AUDIENCE }
+      );
+      return {
+        requires2FA: true,
+        tempToken,
+        username: user.username
+      };
+    }
+
     const payload = {
       id: user.id,
       username: user.username,
@@ -49,6 +66,7 @@ export class AuthService {
       cabangId: user.cabangId,
       wilayahName: user.wilayah?.name || null,
       cabangName: user.cabang?.name || null,
+      twoFactorEnabled: false
     };
 
     const token = jwt.sign(payload, JWT_SECRET as string, {
@@ -61,6 +79,172 @@ export class AuthService {
       token,
       user: payload,
     };
+  }
+
+  async verify2FALogin(tempToken: string, code: string) {
+    if (!tempToken || !code) {
+      throw new BadRequestException('Token verifikasi dan Kode 2FA wajib diisi');
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(tempToken, JWT_SECRET as string, {
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      });
+    } catch (e) {
+      throw new UnauthorizedException('Sesi verifikasi 2FA telah kadaluarsa, silakan login kembali');
+    }
+
+    if (!decoded || !decoded.is2FATemp || !decoded.id) {
+      throw new UnauthorizedException('Sesi verifikasi 2FA tidak valid');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: decoded.id },
+      include: {
+        wilayah: true,
+        cabang: true
+      }
+    });
+
+    if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+      throw new BadRequestException('Pengaturan 2FA tidak ditemukan pada akun ini');
+    }
+
+    const cleanCode = code.trim().replace(/\s+/g, '');
+    const totpResult = verifySync({ token: cleanCode, secret: user.twoFactorSecret });
+    let isValidCode = !!(totpResult && totpResult.valid);
+    let isBackupUsed = false;
+    let updatedBackupCodes = user.twoFactorBackupCodes || [];
+
+    if (!isValidCode && updatedBackupCodes.length > 0) {
+      const backupIndex = updatedBackupCodes.findIndex(b => b.toUpperCase() === cleanCode.toUpperCase());
+      if (backupIndex !== -1) {
+        isValidCode = true;
+        isBackupUsed = true;
+        updatedBackupCodes.splice(backupIndex, 1);
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { twoFactorBackupCodes: updatedBackupCodes }
+        });
+      }
+    }
+
+    if (!isValidCode) {
+      throw new UnauthorizedException('Kode Authenticator atau Kode Cadangan tidak sesuai');
+    }
+
+    const payload = {
+      id: user.id,
+      username: user.username,
+      operatorName: user.operatorName || null,
+      scope: user.scope,
+      divisi: user.divisi,
+      wilayahId: user.wilayahId,
+      cabangId: user.cabangId,
+      wilayahName: user.wilayah?.name || null,
+      cabangName: user.cabang?.name || null,
+      twoFactorEnabled: true
+    };
+
+    const token = jwt.sign(payload, JWT_SECRET as string, {
+      expiresIn: '8h',
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    });
+
+    return {
+      token,
+      user: payload,
+      isBackupUsed
+    };
+  }
+
+  async get2FAStatus(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+    return {
+      enabled: !!user.twoFactorEnabled,
+      backupCodesLeft: user.twoFactorBackupCodes?.length || 0
+    };
+  }
+
+  async generate2FASecret(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+
+    const secret = generateSecret();
+    const otpauthUrl = generateURI({ secret, label: user.username, issuer: 'Pusdatin e-Santri' });
+    const qrCodeUrl = await QRCode.toDataURL(otpauthUrl);
+
+    return {
+      secret,
+      qrCodeUrl
+    };
+  }
+
+  async enable2FA(userId: string, secret: string, code: string) {
+    if (!secret || !code) {
+      throw new BadRequestException('Kunci rahasia dan Kode Verifikasi wajib diisi');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+
+    const cleanCode = code.trim().replace(/\s+/g, '');
+    const totpResult = verifySync({ token: cleanCode, secret });
+    const isValid = !!(totpResult && totpResult.valid);
+    if (!isValid) {
+      throw new BadRequestException('Kode verifikasi 2FA tidak sesuai. Pastikan jam HP Anda akurat.');
+    }
+
+    // Generate 8 backup recovery codes
+    const backupCodes: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const codePart = crypto.randomBytes(4).toString('hex').toUpperCase();
+      backupCodes.push(`${codePart.slice(0, 4)}-${codePart.slice(4)}`);
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        twoFactorEnabled: true,
+        twoFactorSecret: secret,
+        twoFactorBackupCodes: backupCodes
+      }
+    });
+
+    return {
+      success: true,
+      backupCodes
+    };
+  }
+
+  async disable2FA(userId: string, codeOrPassword?: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+
+    if (codeOrPassword && user.twoFactorSecret) {
+      const cleanCode = codeOrPassword.trim().replace(/\s+/g, '');
+      const totpResult = verifySync({ token: cleanCode, secret: user.twoFactorSecret });
+      const isValidTOTP = !!(totpResult && totpResult.valid);
+      const isPasswordMatch = await bcrypt.compare(codeOrPassword, user.password);
+      if (!isValidTOTP && !isPasswordMatch) {
+        throw new BadRequestException('Kode Authenticator atau Password tidak sesuai');
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        twoFactorBackupCodes: []
+      }
+    });
+
+    return { success: true };
   }
 
   async updateProfile(userId: string, data: any, isGlobalAdmin: boolean) {
@@ -115,6 +299,7 @@ export class AuthService {
       cabangId: updatedUser.cabangId,
       wilayahName: updatedUser.wilayah?.name || null,
       cabangName: updatedUser.cabang?.name || null,
+      twoFactorEnabled: !!updatedUser.twoFactorEnabled
     };
 
     const token = jwt.sign(payload, JWT_SECRET as string, {
