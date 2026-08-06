@@ -1386,10 +1386,6 @@ export class FormalService {
       where: { studentId }
     });
 
-    if (existing && existing.tingkat && kelas.tingkat && existing.tingkat !== kelas.tingkat) {
-      throw new BadRequestException(`Siswa memiliki tingkat ${existing.tingkat}, tidak dapat dimasukkan ke rombel tingkat ${kelas.tingkat}`);
-    }
-
     // Automatically set student's jenisSiswa to 'MUADALAH' when they enter a rombel
     await this.prisma.student.update({
       where: { id: studentId },

@@ -118,7 +118,23 @@ export class StudentService {
         }
       });
 
-      if (data.isVerval !== undefined) {
+      if (data.kelasId) {
+        const targetKelas = await tx.kelas.findUnique({ where: { id: data.kelasId } });
+        if (targetKelas) {
+          await tx.siswaFormal.upsert({
+            where: { studentId: student.id },
+            update: { kelasId: targetKelas.id, tingkat: targetKelas.tingkat },
+            create: {
+              studentId: student.id,
+              kelasId: targetKelas.id,
+              tingkat: targetKelas.tingkat,
+              nisn: nisn?.trim() ? nisn.trim() : null,
+              nis: nisLokal?.trim() ? nisLokal.trim() : null,
+              isVerval: data.isVerval ?? false
+            }
+          });
+        }
+      } else if (data.isVerval !== undefined) {
         await tx.siswaFormal.create({
           data: {
             studentId: student.id,
@@ -550,7 +566,32 @@ export class StudentService {
         }
       }
 
-      if (data.isVerval !== undefined) {
+      if (data.kelasId !== undefined) {
+        if (data.kelasId) {
+          const targetKelas = await tx.kelas.findUnique({ where: { id: data.kelasId } });
+          if (targetKelas) {
+            await tx.siswaFormal.upsert({
+              where: { studentId: id },
+              update: { kelasId: targetKelas.id, tingkat: targetKelas.tingkat, ...(data.isVerval !== undefined ? { isVerval: data.isVerval } : {}) },
+              create: {
+                studentId: id,
+                kelasId: targetKelas.id,
+                tingkat: targetKelas.tingkat,
+                isVerval: data.isVerval ?? false
+              }
+            });
+          }
+        } else {
+          // Unassign from class if empty string / null
+          const existingFormal = await tx.siswaFormal.findUnique({ where: { studentId: id } });
+          if (existingFormal) {
+            await tx.siswaFormal.update({
+              where: { studentId: id },
+              data: { kelasId: null, ...(data.isVerval !== undefined ? { isVerval: data.isVerval } : {}) }
+            });
+          }
+        }
+      } else if (data.isVerval !== undefined) {
         const existingFormal = await tx.siswaFormal.findUnique({ where: { studentId: id } });
         if (existingFormal) {
           await tx.siswaFormal.update({
