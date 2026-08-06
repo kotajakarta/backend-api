@@ -1,10 +1,26 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import bcrypt from 'bcrypt';
 
 @Injectable()
 export class AdminService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  async reset2FA(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        twoFactorBackupCodes: [],
+      },
+    });
+
+    return { message: 'Autentikasi 2FA berhasil dinonaktifkan / di-reset' };
+  }
 
   async getUsers(user?: any) {
     const where: any = {};

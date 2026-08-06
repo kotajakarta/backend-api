@@ -43,4 +43,11 @@ export class AdminController {
   deleteUser(@Param('id') id: string) {
     return this.adminService.deleteUser(id);
   }
+
+  @Post('users/:id/reset-2fa')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  reset2FA(@Param('id') id: string) {
+    return this.adminService.reset2FA(id);
+  }
 }
