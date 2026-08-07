@@ -45,29 +45,86 @@ export class DashboardService {
       where: studentWhere
     });
 
-    // 1. Chart Grup Daimi
-    const allGrupDaimi = ['HAZIRLIK', 'HAFIZLIK', 'IBTIDAI', 'IHZARI', 'No. Grup'];
-    const grupDaimiGroup = await this.prisma.student.groupBy({
-      by: ['grupDaimi'],
-      _count: {
-        id: true,
-      },
-      where: studentWhere
+    // 1. Chart Distribusi Grup Daimi (Sinkron dengan Jenis Grup Daimi & DataDaimi)
+    const masterJenisList = await this.prisma.jenisGrupDaimi.findMany({
+      orderBy: { createdAt: 'asc' }
     });
 
-    const chartGrupDaimi = allGrupDaimi.map(grup => {
-      let count = 0;
-      if (grup === 'No. Grup') {
-        const found = grupDaimiGroup.find(g => g.grupDaimi === null);
-        count = found ? found._count.id : 0;
-      } else {
-        const found = grupDaimiGroup.find(g => g.grupDaimi === grup);
-        count = found ? found._count.id : 0;
+    const activeGrupDaimiList = await this.prisma.grupDaimi.findMany({
+      select: { id: true, name: true, jenis: true }
+    });
+
+    const categoryNamesSet = new Set<string>();
+    
+    if (masterJenisList.length > 0) {
+      masterJenisList.forEach(j => {
+        if (j.name && j.name.trim()) {
+          categoryNamesSet.add(j.name.trim().toUpperCase());
+        }
+      });
+    } else {
+      ['HAZIRLIK', 'HAFIZLIK', 'IBTIDAI', 'IHZARI'].forEach(c => categoryNamesSet.add(c));
+    }
+
+    activeGrupDaimiList.forEach(g => {
+      if (g.jenis && g.jenis.trim()) {
+        categoryNamesSet.add(g.jenis.trim().toUpperCase());
       }
-      return {
-        name: grup,
-        value: count
-      };
+    });
+
+    const categoryList = Array.from(categoryNamesSet);
+
+    const countsMap = new Map<string, number>();
+    categoryList.forEach(cat => countsMap.set(cat, 0));
+    countsMap.set('NO_GRUP', 0);
+
+    const studentsWithDaimi = await this.prisma.student.findMany({
+      where: studentWhere,
+      select: {
+        id: true,
+        grupDaimi: true,
+        dataDaimi: {
+          select: {
+            grup: {
+              select: {
+                name: true,
+                jenis: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    studentsWithDaimi.forEach(s => {
+      const rawCat = s.dataDaimi?.grup?.jenis || s.dataDaimi?.grup?.name || s.grupDaimi;
+      if (!rawCat || !rawCat.trim() || rawCat === '-' || rawCat.toLowerCase().includes('tanpa') || rawCat.toLowerCase().includes('no.')) {
+        countsMap.set('NO_GRUP', (countsMap.get('NO_GRUP') || 0) + 1);
+      } else {
+        const upperRaw = rawCat.trim().toUpperCase();
+        let matchedCategory = categoryList.find(c => upperRaw === c);
+        if (!matchedCategory) {
+          matchedCategory = categoryList.find(c => upperRaw.includes(c) || c.includes(upperRaw));
+        }
+
+        if (matchedCategory) {
+          countsMap.set(matchedCategory, (countsMap.get(matchedCategory) || 0) + 1);
+        } else {
+          if (!countsMap.has(upperRaw)) {
+            countsMap.set(upperRaw, 0);
+          }
+          countsMap.set(upperRaw, (countsMap.get(upperRaw) || 0) + 1);
+        }
+      }
+    });
+
+    const chartGrupDaimi: { name: string; value: number }[] = [];
+    countsMap.forEach((val, key) => {
+      const displayName = key === 'NO_GRUP' ? 'No. Grup' : key;
+      chartGrupDaimi.push({
+        name: displayName,
+        value: val
+      });
     });
 
     // 2. Chart Statistik Tambahan (Tingkat 7-12 & Non Muadalah)
