@@ -922,10 +922,11 @@ export class StudentService {
     });
   }
 
-  async getPoolStudents(user: any) {
+  async getPoolStudents(user: any, query: { search?: string; limit?: string } = {}) {
     const { scope, wilayahId, cabangId } = user;
-    // For Cabang users, they can pull from TERSEDIA and AKTIF_CABANG from other branches
-    let whereClause: any = {
+    const search = query.search?.trim();
+
+    const poolCondition: any = {
       OR: [
         { statusPool: StatusPool.TERSEDIA },
         ...(scope === 'CABANG' && cabangId ? [{
@@ -942,17 +943,39 @@ export class StudentService {
       ]
     };
 
+    let whereClause: any = poolCondition;
+
+    if (search) {
+      whereClause = {
+        AND: [
+          poolCondition,
+          {
+            OR: [
+              { biodata: { fullName: { contains: search, mode: 'insensitive' } } },
+              { biodata: { nik: { contains: search, mode: 'insensitive' } } },
+              { biodata: { nisn: { contains: search, mode: 'insensitive' } } }
+            ]
+          }
+        ]
+      };
+    }
+
+    const takeLimit = query.limit ? parseInt(query.limit, 10) : (search ? 200 : 500);
+
     return this.prisma.student.findMany({
       where: whereClause,
+      take: takeLimit,
+      orderBy: { id: 'desc' },
       include: {
         biodata: true,
         wilayah: true,
         cabang: true,
         riwayatPendidikan: {
-          include: { cabang: true },
+          take: 1,
           orderBy: { tanggalMasuk: 'desc' },
-        },
-      },
+          include: { cabang: true }
+        }
+      }
     });
   }
 

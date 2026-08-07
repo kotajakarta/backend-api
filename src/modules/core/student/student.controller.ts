@@ -63,8 +63,8 @@ export class StudentController {
 
   @Get('pool')
   @UseGuards(AccessControlGuard)
-  getPoolStudents(@Request() req: any) {
-    return this.studentService.getPoolStudents(req.user);
+  getPoolStudents(@Query() query: { search?: string; limit?: string }, @Request() req: any) {
+    return this.studentService.getPoolStudents(req.user, query);
   }
 
   @Get('daftar-ulang/list')
