@@ -360,14 +360,46 @@ export class FormalService {
 
     return this.prisma.student.findMany({
       where: whereClause,
-      include: {
-        biodata: true,
-        cabang: true,
+      select: {
+        id: true,
+        wilayahId: true,
+        cabangId: true,
+        biodata: {
+          select: {
+            fullName: true,
+            nik: true,
+            nisn: true,
+            nisLokal: true,
+            tempatLahir: true,
+            tanggalLahir: true,
+            namaIbu: true,
+            jenisKelamin: true
+          }
+        },
+        cabang: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
         siswaFormal: {
-          include: {
+          select: {
+            isVerval: true,
+            nis: true,
+            nisn: true,
+            kelasId: true,
             kelas: {
-              include: {
-                lembagaMuadalah: true
+              select: {
+                id: true,
+                name: true,
+                tingkat: true,
+                lembagaMuadalahId: true,
+                lembagaMuadalah: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
               }
             }
           }

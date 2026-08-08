@@ -1559,10 +1559,30 @@ export class StudentService {
 
     return this.prisma.student.findMany({
       where: whereClause,
-      include: {
-        biodata: true,
-        wilayah: true,
-        cabang: true
+      select: {
+        id: true,
+        statusPool: true,
+        daftarUlangAt: true,
+        daftarUlangJenis: true,
+        daftarUlangTahunAjaran: true,
+        daftarUlangSemester: true,
+        biodata: {
+          select: {
+            fullName: true,
+            nik: true,
+            nisn: true
+          }
+        },
+        wilayah: {
+          select: {
+            name: true
+          }
+        },
+        cabang: {
+          select: {
+            name: true
+          }
+        }
       },
       orderBy: { daftarUlangAt: 'desc' }
     });
