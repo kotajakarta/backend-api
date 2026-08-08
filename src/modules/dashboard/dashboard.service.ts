@@ -352,7 +352,7 @@ export class DashboardService {
     };
 
     // Kelengkapan Data Guru
-    const staffWhere: any = { statusPool: 'TERSEDIA' };
+    const staffWhere: any = { statusPool: 'AKTIF_CABANG' };
     if (cabangWhere.id) staffWhere.cabangId = cabangWhere.id;
     else if (cabangWhere.wilayahId) staffWhere.wilayahId = cabangWhere.wilayahId;
 
@@ -397,10 +397,10 @@ export class DashboardService {
         });
         
         const totalGuru = await this.prisma.staff.count({
-          where: { statusPool: 'TERSEDIA', wilayahId: w.id }
+          where: { statusPool: 'AKTIF_CABANG', wilayahId: w.id }
         });
         const lengkapGuru = totalGuru === 0 ? 0 : await this.prisma.staff.count({
-          where: { statusPool: 'TERSEDIA', wilayahId: w.id, ...guruLengkapCondition }
+          where: { statusPool: 'AKTIF_CABANG', wilayahId: w.id, ...guruLengkapCondition }
         });
 
         kelengkapanEntities.push({
@@ -424,10 +424,10 @@ export class DashboardService {
         });
 
         const totalGuru = await this.prisma.staff.count({
-          where: { statusPool: 'TERSEDIA', cabangId: c.id }
+          where: { statusPool: 'AKTIF_CABANG', cabangId: c.id }
         });
         const lengkapGuru = totalGuru === 0 ? 0 : await this.prisma.staff.count({
-          where: { statusPool: 'TERSEDIA', cabangId: c.id, ...guruLengkapCondition }
+          where: { statusPool: 'AKTIF_CABANG', cabangId: c.id, ...guruLengkapCondition }
         });
 
         kelengkapanEntities.push({
