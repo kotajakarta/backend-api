@@ -6,3 +6,4 @@ dist/
 *.log
 runlocal.sh
 pull.sh
+.claude/worktrees/

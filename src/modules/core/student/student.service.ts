@@ -962,18 +962,42 @@ export class StudentService {
 
     const takeLimit = query.limit ? parseInt(query.limit, 10) : (search ? 200 : 500);
 
+    // Select hanya kolom yang dipakai tabel Pool Siswa. `biodata` dan `cabang`
+    // punya kolom dokumen/foto berisi data base64 ratusan KB per baris -
+    // memuatnya (lewat include: true) untuk ratusan siswa sekaligus adalah
+    // penyebab utama halaman pool sangat lambat.
     return this.prisma.student.findMany({
       where: whereClause,
       take: takeLimit,
       orderBy: { id: 'desc' },
-      include: {
-        biodata: true,
-        wilayah: true,
-        cabang: true,
+      select: {
+        id: true,
+        statusPool: true,
+        wilayahId: true,
+        cabangId: true,
+        biodata: {
+          select: {
+            id: true,
+            fullName: true,
+            nik: true,
+            nisn: true,
+            phone: true,
+          }
+        },
+        wilayah: { select: { id: true, name: true } },
+        cabang: { select: { id: true, name: true } },
         riwayatPendidikan: {
           take: 1,
           orderBy: { tanggalMasuk: 'desc' },
-          include: { cabang: true }
+          select: {
+            id: true,
+            tanggalMasuk: true,
+            tanggalKeluar: true,
+            statusAkhir: true,
+            catatan: true,
+            cabangId: true,
+            cabang: { select: { id: true, name: true, wilayahId: true } }
+          }
         }
       }
     });

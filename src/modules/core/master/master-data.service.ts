@@ -492,12 +492,20 @@ export class MasterDataService {
     if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause.wilayahId = user.wilayahId;
     }
+    // Select hanya kolom yang dipakai tabel Pool Guru. Kolom dokumen
+    // (ifadahUrl/ktpUrl/ijazahUrl) berisi data base64 ratusan KB per baris -
+    // memuatnya untuk seluruh daftar membuat halaman sangat lambat.
     return this.prisma.staff.findMany({
       where: whereClause,
-      include: {
-        wilayah: true,
-        cabang: true,
-        grupDaimi: true
+      select: {
+        id: true,
+        name: true,
+        position: true,
+        wilayahId: true,
+        cabangId: true,
+        statusPool: true,
+        wilayah: { select: { id: true, name: true } },
+        cabang: { select: { id: true, name: true } },
       }
     });
   }
