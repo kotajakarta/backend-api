@@ -636,16 +636,27 @@ export class PembelajaranService {
         const key = `${kelas.id}__${m.id}`;
         const records = pelaksanaanPeriodeMap.get(key) || [];
 
-        let expectedTarget = periodMultiplier;
-        let completedCount = 0;
-
+        // Group records by distinct date (tanggalDiajar)
+        const dateMap = new Map<string, typeof records>();
         records.forEach(p => {
-          if (p.status === 'LIBUR') {
-            expectedTarget = Math.max(0, expectedTarget - 1);
-          } else if (p.status === 'COMPLETED') {
-            completedCount++;
+          const tglKey = p.tanggalDiajar ? p.tanggalDiajar.toISOString().slice(0, 10) : 'no_date';
+          if (!dateMap.has(tglKey)) dateMap.set(tglKey, []);
+          dateMap.get(tglKey)!.push(p);
+        });
+
+        let liburDatesCount = 0;
+        let completedDatesCount = 0;
+
+        dateMap.forEach((dateRecords) => {
+          if (dateRecords.some(p => p.status === 'LIBUR')) {
+            liburDatesCount++;
+          } else if (dateRecords.some(p => p.status === 'COMPLETED')) {
+            completedDatesCount++;
           }
         });
+
+        let expectedTarget = Math.max(0, periodMultiplier - liburDatesCount);
+        let completedCount = Math.min(expectedTarget, completedDatesCount);
 
         entry.pelaksanaanTotal += expectedTarget;
         entry.pelaksanaanCompleted += completedCount;
