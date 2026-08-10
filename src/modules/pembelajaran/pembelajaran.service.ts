@@ -568,6 +568,7 @@ export class PembelajaranService {
       cabangId: string;
       cabangName: string;
       wilayahName: string;
+      jumlahRombel: number;
       silabusCompleted: number;
       silabusTotal: number;
       hadir: number;
@@ -583,6 +584,7 @@ export class PembelajaranService {
           cabangId: id,
           cabangName: kelas.cabang?.name || 'Tanpa Cabang',
           wilayahName: kelas.cabang?.wilayah?.name || '-',
+          jumlahRombel: 0,
           silabusCompleted: 0,
           silabusTotal: 0,
           hadir: 0,
@@ -596,6 +598,14 @@ export class PembelajaranService {
 
     const isKelasAktifBersiswa = (k: (typeof kelasList)[number]) =>
       k.isActive !== false && (k._count?.siswaFormal || 0) > 0;
+
+    // Count jumlahRombel aktif per Cabang
+    kelasList.forEach(kelas => {
+      const entry = ensureCabang(kelas);
+      if (isKelasAktifBersiswa(kelas)) {
+        entry.jumlahRombel++;
+      }
+    });
 
     // A. Progres Silabus calculation per Cabang
     kelasList.forEach(kelas => {
@@ -676,6 +686,7 @@ export class PembelajaranService {
       cabangId: e.cabangId,
       cabangName: e.cabangName,
       wilayahName: e.wilayahName,
+      jumlahRombel: e.jumlahRombel,
       persenSilabus: e.silabusTotal > 0 ? Math.round((e.silabusCompleted / e.silabusTotal) * 100) : 0,
       silabusCompleted: e.silabusCompleted,
       silabusTotal: e.silabusTotal,
