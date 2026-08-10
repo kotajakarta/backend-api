@@ -511,37 +511,57 @@ export class PembelajaranService {
     const kelasIds = kelasList.map(k => k.id);
     const tingkatSet = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
 
-    // Mode 'semester' cocokkan silabus lewat label tahunAjaran+semester persis seperti Kontrol
-    // Silabus (getPelaksanaan) — bukan lewat rentang tanggalTarget, supaya tidak "putus" kalau
-    // Pengaturan Akademik telat diperbarui terhadap tanggal kalender riil. Mode weekly/monthly
-    // memang butuh jendela tanggal karena tidak ada label periode eksplisit untuk dicocokkan.
+    // Silabus untuk PROGRES SILABUS (seluruh bab/section aktif di tingkat terkait)
     const silabusList = await this.prisma.silabusMapel.findMany({
       where: {
         tingkat: { in: tingkatSet },
         isActive: true,
         mataPelajaran: { aktifPembelajaran: true },
-        ...(filters.mode === 'semester'
+        ...(filters.mode === 'semester' && filters.tahunAjaran && filters.semester
           ? { tahunAjaran: filters.tahunAjaran, semester: filters.semester }
-          : { tanggalTarget: dateRange }),
+          : {}),
         ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
       }
     });
-    const pelaksanaanList = await this.prisma.pelaksanaanSilabus.findMany({
-      where: { kelasId: { in: kelasIds }, silabusId: { in: silabusList.map(s => s.id) } }
-    });
-    const pelaksanaanMap = new Map(pelaksanaanList.map(p => [`${p.silabusId}__${p.kelasId}`, p]));
 
-    // AbsensiMapel tidak punya kolom tahunAjaran/semester (hanya tanggal mentah), jadi untuk
-    // mode 'semester' kita hitung semua catatan yang ada di kelas terkait (tanpa batas tanggal)
-    // supaya selalu terhubung dengan apa yang sudah diinput di tab Absensi Mapel.
-    const absensiList = await this.prisma.absensiMapel.findMany({
+    const silabusIds = silabusList.map(s => s.id);
+
+    // Record pelaksanaan silabus untuk progres silabus
+    const pelaksanaanSilabusList = kelasIds.length > 0 ? await this.prisma.pelaksanaanSilabus.findMany({
+      where: {
+        kelasId: { in: kelasIds },
+        ...(silabusIds.length > 0 ? { silabusId: { in: silabusIds } } : {})
+      }
+    }) : [];
+    const pelaksanaanSilabusMap = new Map(pelaksanaanSilabusList.map(p => [`${p.silabusId}__${p.kelasId}`, p]));
+
+    // Record pelaksanaan silabus dalam dateRange (untuk PELAKSANAAN PEMBELAJARAN)
+    const pelaksanaanPeriodeList = kelasIds.length > 0 ? await this.prisma.pelaksanaanSilabus.findMany({
+      where: {
+        kelasId: { in: kelasIds },
+        tanggalDiajar: dateRange,
+        mataPelajaran: { aktifPembelajaran: true },
+        ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
+      }
+    }) : [];
+
+    const mepelListAktif = await this.prisma.mataPelajaran.findMany({
+      where: {
+        aktifPembelajaran: true,
+        ...(filters.mataPelajaranId ? { id: filters.mataPelajaranId } : {})
+      }
+    });
+
+    // Record Absensi Mapel
+    const absensiList = kelasIds.length > 0 ? await this.prisma.absensiMapel.findMany({
       where: {
         kelasId: { in: kelasIds },
         mataPelajaran: { aktifPembelajaran: true },
         ...(filters.mode === 'semester' ? {} : { tanggal: dateRange }),
         ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
       }
-    });
+    }) : [];
+
     const kelasById = new Map(kelasList.map(k => [k.id, k]));
 
     type CabangAgg = {
@@ -577,27 +597,62 @@ export class PembelajaranService {
     const isKelasAktifBersiswa = (k: (typeof kelasList)[number]) =>
       k.isActive !== false && (k._count?.siswaFormal || 0) > 0;
 
+    // A. Progres Silabus calculation per Cabang
     kelasList.forEach(kelas => {
       if (!kelas.tingkat) return;
-      const aktifBersiswa = isKelasAktifBersiswa(kelas);
-
       silabusList
         .filter(s => s.tingkat === kelas.tingkat)
         .forEach(s => {
-          const p = pelaksanaanMap.get(`${s.id}__${kelas.id}`);
+          const p = pelaksanaanSilabusMap.get(`${s.id}__${kelas.id}`);
           const status = p?.status || 'PENDING';
           if (status === 'LIBUR') return;
           const entry = ensureCabang(kelas);
           entry.silabusTotal++;
           if (status === 'COMPLETED') entry.silabusCompleted++;
-
-          if (aktifBersiswa) {
-            entry.pelaksanaanTotal++;
-            if (status === 'COMPLETED') entry.pelaksanaanCompleted++;
-          }
         });
     });
 
+    // B. Pelaksanaan Pembelajaran calculation per Cabang in dateRange
+    let periodMultiplier = 1;
+    if (filters.mode === 'monthly') {
+      const daysInMonth = new Date(dateRange.lte.getFullYear(), dateRange.lte.getMonth() + 1, 0).getDate();
+      periodMultiplier = Math.max(1, Math.ceil(daysInMonth / 7));
+    } else if (filters.mode === 'semester') {
+      periodMultiplier = 18;
+    }
+
+    const pelaksanaanPeriodeMap = new Map<string, typeof pelaksanaanPeriodeList>();
+    pelaksanaanPeriodeList.forEach(p => {
+      const key = `${p.kelasId}__${p.mataPelajaranId}`;
+      if (!pelaksanaanPeriodeMap.has(key)) pelaksanaanPeriodeMap.set(key, []);
+      pelaksanaanPeriodeMap.get(key)!.push(p);
+    });
+
+    kelasList.forEach(kelas => {
+      if (!isKelasAktifBersiswa(kelas)) return;
+      const entry = ensureCabang(kelas);
+
+      mepelListAktif.forEach(m => {
+        const key = `${kelas.id}__${m.id}`;
+        const records = pelaksanaanPeriodeMap.get(key) || [];
+
+        let expectedTarget = periodMultiplier;
+        let completedCount = 0;
+
+        records.forEach(p => {
+          if (p.status === 'LIBUR') {
+            expectedTarget = Math.max(0, expectedTarget - 1);
+          } else if (p.status === 'COMPLETED') {
+            completedCount++;
+          }
+        });
+
+        entry.pelaksanaanTotal += expectedTarget;
+        entry.pelaksanaanCompleted += completedCount;
+      });
+    });
+
+    // C. Absensi Mapel calculation per Cabang
     absensiList.forEach(a => {
       const kelas = kelasById.get(a.kelasId);
       if (!kelas) return;
