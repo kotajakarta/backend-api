@@ -442,9 +442,14 @@ export class PembelajaranService {
     params: { weekStart?: string; month?: string; tahunAjaran?: string; semester?: string }
   ): { gte: Date; lte: Date } {
     if (mode === 'weekly' && params.weekStart) {
-      const start = new Date(params.weekStart);
+      const inputDate = new Date(params.weekStart);
+      const day = inputDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      const start = new Date(inputDate);
+      start.setDate(inputDate.getDate() - day);
+      start.setHours(0, 0, 0, 0);
+
       const end = new Date(start);
-      end.setDate(end.getDate() + 6);
+      end.setDate(start.getDate() + 6);
       end.setHours(23, 59, 59, 999);
       return { gte: start, lte: end };
     }
@@ -498,7 +503,10 @@ export class PembelajaranService {
 
     const kelasList = await this.prisma.kelas.findMany({
       where: kelasWhere,
-      include: { cabang: { include: { wilayah: true } } }
+      include: {
+        cabang: { include: { wilayah: true } },
+        _count: { select: { siswaFormal: true } }
+      }
     });
     const kelasIds = kelasList.map(k => k.id);
     const tingkatSet = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
@@ -544,6 +552,8 @@ export class PembelajaranService {
       silabusTotal: number;
       hadir: number;
       totalAbsensi: number;
+      pelaksanaanCompleted: number;
+      pelaksanaanTotal: number;
     };
     const cabangMap = new Map<string, CabangAgg>();
     const ensureCabang = (kelas: (typeof kelasList)[number]) => {
@@ -556,14 +566,21 @@ export class PembelajaranService {
           silabusCompleted: 0,
           silabusTotal: 0,
           hadir: 0,
-          totalAbsensi: 0
+          totalAbsensi: 0,
+          pelaksanaanCompleted: 0,
+          pelaksanaanTotal: 0
         });
       }
       return cabangMap.get(id)!;
     };
 
+    const isKelasAktifBersiswa = (k: (typeof kelasList)[number]) =>
+      k.isActive !== false && (k._count?.siswaFormal || 0) > 0;
+
     kelasList.forEach(kelas => {
       if (!kelas.tingkat) return;
+      const aktifBersiswa = isKelasAktifBersiswa(kelas);
+
       silabusList
         .filter(s => s.tingkat === kelas.tingkat)
         .forEach(s => {
@@ -573,6 +590,11 @@ export class PembelajaranService {
           const entry = ensureCabang(kelas);
           entry.silabusTotal++;
           if (status === 'COMPLETED') entry.silabusCompleted++;
+
+          if (aktifBersiswa) {
+            entry.pelaksanaanTotal++;
+            if (status === 'COMPLETED') entry.pelaksanaanCompleted++;
+          }
         });
     });
 
@@ -593,7 +615,10 @@ export class PembelajaranService {
       silabusTotal: e.silabusTotal,
       persenKehadiran: e.totalAbsensi > 0 ? Math.round((e.hadir / e.totalAbsensi) * 100) : 0,
       hadir: e.hadir,
-      totalAbsensi: e.totalAbsensi
+      totalAbsensi: e.totalAbsensi,
+      persenPelaksanaan: e.pelaksanaanTotal > 0 ? Math.round((e.pelaksanaanCompleted / e.pelaksanaanTotal) * 100) : 0,
+      pelaksanaanCompleted: e.pelaksanaanCompleted,
+      pelaksanaanTotal: e.pelaksanaanTotal
     }));
 
     return {
