@@ -13,8 +13,12 @@ ContainerName=esantri-api
 # Menghubungkan container langsung ke jaringan Podman 'global_net'
 Network=global_net
 
-# Mount direktori kode aplikasi (dengan label keamanan SELinux ':Z')
-Volume=/webku/appsku/esantri/backend-api:/app:Z
+# 1. Mount kode aplikasi sebagai READ-ONLY (:ro,Z) untuk keamanan
+Volume=/webku/appsku/esantri/backend-api:/app:ro,Z
+
+# 2. [Opsional] Un-comment jika API ini juga menangani upload berkas di root /app/uploads
+
+Volume=/webku/appsku/esantri/backend-api/uploads:/app/uploads:Z
 
 # Menjalankan backend API
 Exec=node dist/main.js
