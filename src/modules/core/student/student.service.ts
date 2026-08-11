@@ -34,27 +34,97 @@ export class StudentService {
     @Inject(AuditLogService) private readonly auditLogService: AuditLogService
   ) {}
 
-  private validateIdentityNumbers(data: any) {
-    const { nik, noKk, nisn, nikAyah, statusHidupAyah, nikIbu, statusHidupIbu } = data;
-    if (nik && nik.trim() !== '' && !/^\d{16}$/.test(nik.trim())) {
-      throw new BadRequestException('NIK Siswa harus 16 digit angka.');
+  async checkDuplicate({ nik, nisn, excludeStudentId }: { nik?: string; nisn?: string; excludeStudentId?: string }) {
+    let nikDuplicate: { exists: boolean; fullName?: string } = { exists: false };
+    let nisnDuplicate: { exists: boolean; fullName?: string } = { exists: false };
+
+    if (nik && nik.trim()) {
+      const cleanNik = nik.trim();
+      const where: any = { nik: cleanNik };
+      if (excludeStudentId) {
+        where.student = { id: { not: excludeStudentId } };
+      }
+      const existing = await this.prisma.biodata.findFirst({
+        where,
+        select: { fullName: true }
+      });
+      if (existing) {
+        nikDuplicate = { exists: true, fullName: existing.fullName };
+      }
     }
+
+    if (nisn && nisn.trim()) {
+      const cleanNisn = nisn.trim();
+      const where: any = { nisn: cleanNisn };
+      if (excludeStudentId) {
+        where.student = { id: { not: excludeStudentId } };
+      }
+      const existing = await this.prisma.biodata.findFirst({
+        where,
+        select: { fullName: true }
+      });
+      if (existing) {
+        nisnDuplicate = { exists: true, fullName: existing.fullName };
+      }
+    }
+
+    return { nikDuplicate, nisnDuplicate };
+  }
+
+  private async validateIdentityNumbers(data: any, excludeStudentId?: string) {
+    const { nik, noKk, nisn, nikAyah, statusHidupAyah, nikIbu, statusHidupIbu } = data;
+
+    if (nik && nik.trim() !== '') {
+      const cleanNik = nik.trim();
+      if (!/^\d{16}$/.test(cleanNik)) {
+        throw new BadRequestException('NIK Siswa harus 16 digit angka.');
+      }
+      const where: any = { nik: cleanNik };
+      if (excludeStudentId) {
+        where.student = { id: { not: excludeStudentId } };
+      }
+      const existing = await this.prisma.biodata.findFirst({
+        where,
+        select: { fullName: true }
+      });
+      if (existing) {
+        throw new BadRequestException(`NIK sudah terpakai atas nama ${existing.fullName}`);
+      }
+    }
+
     if (noKk && noKk.trim() !== '' && !/^\d{16}$/.test(noKk.trim())) {
       throw new BadRequestException('Nomor KK harus 16 digit angka.');
     }
-    if (nisn && nisn.trim() !== '' && !/^\d{10}$/.test(nisn.trim())) {
-      throw new BadRequestException('NISN harus 10 digit angka.');
+
+    if (nisn && nisn.trim() !== '') {
+      const cleanNisn = nisn.trim();
+      if (!/^\d{10}$/.test(cleanNisn)) {
+        throw new BadRequestException('NISN harus 10 digit angka.');
+      }
+      const where: any = { nisn: cleanNisn };
+      if (excludeStudentId) {
+        where.student = { id: { not: excludeStudentId } };
+      }
+      const existing = await this.prisma.biodata.findFirst({
+        where,
+        select: { fullName: true }
+      });
+      if (existing) {
+        throw new BadRequestException(`NISN sudah terpakai atas nama ${existing.fullName}`);
+      }
     }
+
     if (nikAyah && statusHidupAyah !== 'Wafat' && nikAyah.trim() !== '' && !/^\d{16}$/.test(nikAyah.trim())) {
       throw new BadRequestException('NIK Ayah harus 16 digit angka.');
     }
+
     if (nikIbu && statusHidupIbu !== 'Wafat' && nikIbu.trim() !== '' && !/^\d{16}$/.test(nikIbu.trim())) {
       throw new BadRequestException('NIK Ibu harus 16 digit angka.');
     }
   }
 
   async createStudent(user: any, data: any) {
-    this.validateIdentityNumbers(data);
+    await this.validateIdentityNumbers(data);
 
     const { 
       nisn, nik, noKk, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
@@ -457,7 +527,7 @@ export class StudentService {
   }
 
   async updateStudent(id: string, data: any, user?: any) {
-    this.validateIdentityNumbers(data);
+    await this.validateIdentityNumbers(data, id);
     const { 
       nisn, nik, noKk, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
       jumlahSaudara, anakKe,

@@ -25,6 +25,15 @@ export class StudentController {
     return this.studentService.exportStudentDetail(req.user);
   }
 
+  @Get('check-duplicate')
+  checkDuplicate(
+    @Query('nik') nik?: string,
+    @Query('nisn') nisn?: string,
+    @Query('excludeStudentId') excludeStudentId?: string
+  ) {
+    return this.studentService.checkDuplicate({ nik, nisn, excludeStudentId });
+  }
+
   @Get('residu')
   @UseGuards(AccessControlGuard)
   getResiduStudents(@Request() req: any) {
