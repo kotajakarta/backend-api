@@ -34,7 +34,28 @@ export class StudentService {
     @Inject(AuditLogService) private readonly auditLogService: AuditLogService
   ) {}
 
+  private validateIdentityNumbers(data: any) {
+    const { nik, noKk, nisn, nikAyah, statusHidupAyah, nikIbu, statusHidupIbu } = data;
+    if (nik && nik.trim() !== '' && !/^\d{16}$/.test(nik.trim())) {
+      throw new BadRequestException('NIK Siswa harus 16 digit angka.');
+    }
+    if (noKk && noKk.trim() !== '' && !/^\d{16}$/.test(noKk.trim())) {
+      throw new BadRequestException('Nomor KK harus 16 digit angka.');
+    }
+    if (nisn && nisn.trim() !== '' && !/^\d{10}$/.test(nisn.trim())) {
+      throw new BadRequestException('NISN harus 10 digit angka.');
+    }
+    if (nikAyah && statusHidupAyah !== 'Wafat' && nikAyah.trim() !== '' && !/^\d{16}$/.test(nikAyah.trim())) {
+      throw new BadRequestException('NIK Ayah harus 16 digit angka.');
+    }
+    if (nikIbu && statusHidupIbu !== 'Wafat' && nikIbu.trim() !== '' && !/^\d{16}$/.test(nikIbu.trim())) {
+      throw new BadRequestException('NIK Ibu harus 16 digit angka.');
+    }
+  }
+
   async createStudent(user: any, data: any) {
+    this.validateIdentityNumbers(data);
+
     const { 
       nisn, nik, noKk, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
       jumlahSaudara, anakKe,
@@ -436,6 +457,7 @@ export class StudentService {
   }
 
   async updateStudent(id: string, data: any, user?: any) {
+    this.validateIdentityNumbers(data);
     const { 
       nisn, nik, noKk, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,
       jumlahSaudara, anakKe,
