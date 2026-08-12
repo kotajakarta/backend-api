@@ -628,7 +628,13 @@ export class MasterDataService {
             grupDaimi: true,
             siswaFormal: {
               select: {
-                tingkat: true
+                tingkat: true,
+                kelasId: true,
+                kelas: {
+                  select: {
+                    tingkat: true
+                  }
+                }
               }
             },
             dataDaimi: {
@@ -710,7 +716,7 @@ export class MasterDataService {
         else if (gd.includes('IBTIDAI')) ibtidai++;
         else if (gd.includes('IHZARI')) ihzari++;
 
-        const t = st.siswaFormal?.tingkat || '';
+        const t = st.siswaFormal?.kelas?.tingkat || st.siswaFormal?.tingkat || '';
         if (t === '7' || t.includes('7') || t.includes('VII')) tingkat7++;
         else if (t === '8' || t.includes('8') || t.includes('VIII')) tingkat8++;
         else if (t === '9' || t.includes('9') || t.includes('IX')) tingkat9++;

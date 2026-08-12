@@ -434,6 +434,14 @@ export class FormalService {
       where: { studentId }
     });
 
+    let targetTingkat: string | undefined = undefined;
+    if (kelasId) {
+      const targetKelas = await this.prisma.kelas.findUnique({ where: { id: kelasId } });
+      if (targetKelas?.tingkat) {
+        targetTingkat = targetKelas.tingkat;
+      }
+    }
+
     let result;
     try {
       if (existing) {
@@ -443,6 +451,7 @@ export class FormalService {
             nis,
             nisn,
             kelasId,
+            ...(targetTingkat && { tingkat: targetTingkat }),
             ...(data.isVerval !== undefined && { isVerval: data.isVerval }),
           }
         });
@@ -453,6 +462,7 @@ export class FormalService {
             nis,
             nisn,
             kelasId,
+            ...(targetTingkat && { tingkat: targetTingkat }),
             isVerval: data.isVerval || false,
           }
         });
