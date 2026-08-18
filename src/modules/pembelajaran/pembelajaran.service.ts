@@ -992,12 +992,16 @@ export class PembelajaranService {
     // ===== Unit breakdown =====
     type KelasT = (typeof kelasList)[number];
     type UnitAgg = {
-      id: string; name: string; parentName: string; jumlahSiswa: number;
+      id: string; name: string; parentName: string;
+      jumlahCabang: number; jumlahKelas: number; jumlahSiswa: number;
       silabusCompleted: number; silabusTotal: number;
       hadir: number; totalAbsensi: number;
+      cabangSet: Set<string>; kelasSet: Set<string>;
       detailsMap: Map<string, any>;
     };
     const unitMap = new Map<string, UnitAgg>();
+    const classToUnitIdMap = new Map<string, string>();
+
     const unitKeyOf = (kelas: KelasT): { id: string; name: string; parentName: string } => {
       if (scopeLevel === 'GLOBAL') return {
         id: kelas.cabang?.wilayahId || 'unknown',
@@ -1018,16 +1022,24 @@ export class PembelajaranService {
 
     const ensureUnit = (kelas: KelasT) => {
       const key = unitKeyOf(kelas);
+      classToUnitIdMap.set(kelas.id, key.id);
+
       if (!unitMap.has(key.id)) {
         unitMap.set(key.id, {
           id: key.id, name: key.name, parentName: key.parentName,
-          jumlahSiswa: kelas.siswaFormal ? kelas.siswaFormal.length : 0,
-          silabusCompleted: 0, silabusTotal: targetDenominator,
+          jumlahCabang: 0, jumlahKelas: 0, jumlahSiswa: 0,
+          silabusCompleted: 0, silabusTotal: 0,
           hadir: 0, totalAbsensi: 0,
+          cabangSet: new Set(), kelasSet: new Set(),
           detailsMap: new Map()
         });
       }
-      return unitMap.get(key.id)!;
+      const u = unitMap.get(key.id)!;
+      if (kelas.cabangId) u.cabangSet.add(kelas.cabangId);
+      u.kelasSet.add(kelas.id);
+      u.jumlahCabang = u.cabangSet.size;
+      u.jumlahKelas = u.kelasSet.size;
+      return u;
     };
 
     let totalSilabusCompleted = 0;
@@ -1036,17 +1048,21 @@ export class PembelajaranService {
     kelasList.forEach(kelas => {
       if (!kelas.tingkat) return;
       const u = ensureUnit(kelas);
-      u.jumlahSiswa = Math.max(u.jumlahSiswa, kelas.siswaFormal ? kelas.siswaFormal.length : 0);
+      const classStudents = kelas.siswaFormal ? kelas.siswaFormal.length : 0;
+      u.jumlahSiswa += classStudents;
 
-      // Count completed mapels in execution logs
+      // Count completed mapels in execution logs for this class
       const completedCount = pelaksanaanList.filter(
         p => p.kelasId === kelas.id && p.status === 'COMPLETED'
       ).length;
 
-      u.silabusCompleted = completedCount;
-      u.silabusTotal = targetDenominator;
+      u.silabusCompleted += completedCount;
       totalSilabusCompleted += completedCount;
-      totalSilabusTarget += targetDenominator;
+    });
+
+    unitMap.forEach(u => {
+      u.silabusTotal = Math.max(1, u.jumlahKelas) * targetDenominator;
+      totalSilabusTarget += u.silabusTotal;
     });
 
     absensiList.forEach(a => {
@@ -1134,15 +1150,17 @@ export class PembelajaranService {
           wEndDate.setHours(23, 59, 59, 999);
           const isFuture = wStartDate.getTime() > now.getTime();
 
+          const isClassInUnit = (kId: string) => classToUnitIdMap.get(kId) === u.id;
+
           const wPel = pelaksanaanList.filter(
-            p => p.kelasId === u.id && p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'COMPLETED'
+            p => isClassInUnit(p.kelasId) && p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'COMPLETED'
           );
           const wMapelCompleted = wPel.length;
-          const wMapelTarget = 5;
+          const wMapelTarget = Math.max(1, u.jumlahKelas) * 5;
           const wPersenMapel = isFuture ? 0 : Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
 
           const wAbsAll = absensiList.filter(
-            a => a.kelasId === u.id && a.tanggal >= wStartDate && a.tanggal <= wEndDate
+            a => isClassInUnit(a.kelasId) && a.tanggal >= wStartDate && a.tanggal <= wEndDate
           );
           const wHadir = wAbsAll.filter(a => a.status === 'HADIR').length;
           const wTotalAbs = wAbsAll.length;
@@ -1171,6 +1189,8 @@ export class PembelajaranService {
           id: u.id,
           name: u.name,
           parentName: u.parentName,
+          jumlahCabang: u.jumlahCabang,
+          jumlahKelas: u.jumlahKelas,
           jumlahSiswa: u.jumlahSiswa,
           silabusCompleted: u.silabusCompleted,
           silabusTotal: u.silabusTotal,
