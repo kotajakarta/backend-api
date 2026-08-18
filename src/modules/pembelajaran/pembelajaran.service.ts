@@ -1107,9 +1107,8 @@ export class PembelajaranService {
     // Build unitBreakdown with multi-week breakdown array
     const unitBreakdown = Array.from(unitMap.values())
       .map(u => {
-        const pctSilabus = u.silabusTotal > 0 ? Math.round((u.silabusCompleted / u.silabusTotal) * 100) : 0;
-        const targetKehadiran = u.jumlahSiswa > 0 ? u.jumlahSiswa * 5 : u.totalAbsensi;
-        const pctKehadiran = targetKehadiran > 0 ? Math.round(((u.hadir * 5) / targetKehadiran) * 100) : (u.totalAbsensi > 0 ? Math.round((u.hadir / u.totalAbsensi) * 100) : 0);
+        const pctSilabus = u.silabusTotal > 0 ? Math.min(100, Math.round((u.silabusCompleted / u.silabusTotal) * 100)) : 0;
+        const pctKehadiran = u.totalAbsensi > 0 ? Math.min(100, Math.round((u.hadir / u.totalAbsensi) * 100)) : 0;
 
         const details = Array.from(u.detailsMap.values()).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
 
@@ -1119,30 +1118,38 @@ export class PembelajaranService {
           const wEndDay = Math.min(daysInMonth, (wIdx + 1) * 7);
           const wStartDate = new Date(Date.UTC(selYear, selMonthIdx, wStartDay, 0, 0, 0));
           const wEndDate = new Date(Date.UTC(selYear, selMonthIdx, wEndDay, 23, 59, 59, 999));
+          const isFuture = wStartDate.getTime() > now.getTime();
 
           const wPel = pelaksanaanList.filter(
             p => p.kelasId === u.id && p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'COMPLETED'
           );
           const wMapelCompleted = wPel.length;
           const wMapelTarget = 5;
-          const wPersenMapel = Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
+          const wPersenMapel = isFuture ? 0 : Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
 
-          const wAbs = absensiList.filter(
-            a => a.kelasId === u.id && a.tanggal >= wStartDate && a.tanggal <= wEndDate && a.status === 'HADIR'
+          const wAbsAll = absensiList.filter(
+            a => a.kelasId === u.id && a.tanggal >= wStartDate && a.tanggal <= wEndDate
           );
-          const wHadir = wAbs.length;
-          const wTargetAbs = u.jumlahSiswa > 0 ? u.jumlahSiswa * 5 : 1;
-          const wPersenHadir = wTargetAbs > 0 ? Math.min(100, Math.round(((wHadir * 5) / wTargetAbs) * 100)) : 0;
+          const wHadir = wAbsAll.filter(a => a.status === 'HADIR').length;
+          const wTotalAbs = wAbsAll.length;
+          const wPersenHadir = isFuture ? 0 : (wTotalAbs > 0 ? Math.min(100, Math.round((wHadir / wTotalAbs) * 100)) : 0);
+
+          const wDetails = details.filter(d => {
+            const dDate = new Date(d.tanggal);
+            return dDate >= wStartDate && dDate <= wEndDate;
+          });
 
           return {
             weekNumber: wIdx + 1,
             dateLabel: wInfo.dateLabel,
-            mapelCompleted: wMapelCompleted,
+            isFuture,
+            mapelCompleted: isFuture ? 0 : wMapelCompleted,
             mapelTarget: wMapelTarget,
             persenMapel: wPersenMapel,
-            hadir: wHadir,
-            totalAbsensi: wTargetAbs,
-            persenKehadiran: wPersenHadir
+            hadir: isFuture ? 0 : wHadir,
+            totalAbsensi: wTotalAbs,
+            persenKehadiran: wPersenHadir,
+            details: wDetails
           };
         });
 
@@ -1155,7 +1162,7 @@ export class PembelajaranService {
           silabusTotal: u.silabusTotal,
           persenSilabus: pctSilabus,
           hadir: u.hadir,
-          totalAbsensi: targetKehadiran,
+          totalAbsensi: u.totalAbsensi,
           persenKehadiran: pctKehadiran,
           status: this.statusForPercent(pctSilabus),
           weeks,
