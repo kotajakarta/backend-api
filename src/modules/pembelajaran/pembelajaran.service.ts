@@ -559,18 +559,48 @@ export class PembelajaranService {
 
     return this.prisma.$transaction(async (tx) => {
       const results = [];
+
+      // Pre-fetch kelas tingkat map for quick fallback silabus lookup
+      const kelasList = await tx.kelas.findMany({
+        where: { id: { in: Array.from(new Set(logs.map(l => l.kelasId))) } },
+        select: { id: true, tingkat: true }
+      });
+      const kelasTingkatMap = new Map(kelasList.map(k => [k.id, k.tingkat]));
+
+      // Pre-fetch first active silabus per (tingkat + mapel)
+      const tingkatList = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
+      const silabusList = await tx.silabusMapel.findMany({
+        where: { tingkat: { in: tingkatList }, isActive: true },
+        orderBy: { urutanBab: 'asc' }
+      });
+      const defaultSilabusMap = new Map<string, string>();
+      silabusList.forEach(s => {
+        const key = `${s.tingkat}__${s.mataPelajaranId}`;
+        if (!defaultSilabusMap.has(key)) {
+          defaultSilabusMap.set(key, s.id);
+        }
+      });
+
       for (const log of logs) {
         if (!log.kelasId || !log.mataPelajaranId) continue;
 
-        if (!log.silabusId && log.status !== 'LIBUR') {
+        if (log.status === 'PENDING') {
+          // If status is reset to PENDING, remove execution record
           await tx.pelaksanaanSilabus.deleteMany({
             where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date }
           });
           continue;
         }
 
+        // Determine silabusId (use provided or fallback to first silabus section)
+        let silabusId = log.silabusId;
+        if (!silabusId) {
+          const tingkat = kelasTingkatMap.get(log.kelasId);
+          silabusId = defaultSilabusMap.get(`${tingkat}__${log.mataPelajaranId}`) || null;
+        }
+
         const dataPayload = {
-          silabusId: log.silabusId || null,
+          silabusId: silabusId || null,
           status: log.status,
           catatan: log.catatan || null,
           guruId: log.guruId || null,
