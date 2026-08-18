@@ -54,7 +54,25 @@ export class PembelajaranController {
     return this.pembelajaranService.deleteSilabus(id);
   }
 
-  // --- Kontrol Silabus (User Cabang) ---
+  // --- Kontrol Silabus (User Cabang & Batch Tanggal Pelaksanaan) ---
+
+  @Get('pelaksanaan/daily')
+  @UseGuards(AccessControlGuard)
+  getDailyPelaksanaan(
+    @Query('cabangId') cabangId: string,
+    @Query('tanggal') tanggal: string,
+    @Query('tahunAjaran') tahunAjaran: string,
+    @Query('semester') semester: string,
+    @Request() req: any
+  ) {
+    return this.pembelajaranService.getDailyPelaksanaan(req.user, cabangId, tanggal, tahunAjaran, semester);
+  }
+
+  @Post('pelaksanaan/daily-bulk')
+  @UseGuards(AccessControlGuard)
+  saveDailyPelaksanaanBulk(@Body() body: { cabangId?: string; tanggal: string; logs: any[] }, @Request() req: any) {
+    return this.pembelajaranService.bulkSaveDailyPelaksanaan(req.user, body);
+  }
 
   @Get('pelaksanaan')
   @UseGuards(AccessControlGuard)

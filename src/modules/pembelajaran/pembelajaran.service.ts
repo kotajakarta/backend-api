@@ -356,6 +356,206 @@ export class PembelajaranService {
     });
   }
 
+  // ===== Daily Batch Kontrol Silabus (Per Tanggal Pelaksanaan untuk Seluruh Rombel Cabang) =====
+
+  async getDailyPelaksanaan(user: any, cabangIdParam?: string, tanggalParam?: string, reqTahunAjaran?: string, reqSemester?: string) {
+    const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
+    const tahunAjaran = reqTahunAjaran || pengaturan?.tahunAjaran || '';
+    const semester = reqSemester || pengaturan?.semesterAktif || '';
+
+    let cabangId = user?.cabangId;
+    if (user?.scope === 'GLOBAL' || user?.scope === 'WILAYAH') {
+      cabangId = cabangIdParam || user?.cabangId;
+    }
+    if (!cabangId) {
+      return { tanggal: tanggalParam || new Date().toISOString().slice(0, 10), cabangId: null, guruOptions: [], classes: [] };
+    }
+
+    const targetDateStr = (tanggalParam && /^\d{4}-\d{2}-\d{2}$/.test(tanggalParam))
+      ? tanggalParam
+      : new Date().toISOString().slice(0, 10);
+    const dateObj = new Date(`${targetDateStr}T00:00:00`);
+
+    const kelasList = await this.prisma.kelas.findMany({
+      where: {
+        cabangId,
+        isActive: true
+      },
+      include: {
+        siswaFormal: {
+          where: { student: { isActive: true } }
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    const activeClasses = kelasList.filter(k => (k.siswaFormal?.length || 0) > 0);
+    const kelasIds = activeClasses.map(k => k.id);
+    const tingkatSet = Array.from(new Set(activeClasses.map(k => k.tingkat).filter((t): t is string => !!t)));
+
+    const guruOptions = await this.prisma.staff.findMany({
+      where: { cabangId, statusPool: 'AKTIF_CABANG' },
+      select: { id: true, name: true, position: true },
+      orderBy: { name: 'asc' }
+    });
+
+    if (kelasIds.length === 0 || tingkatSet.length === 0) {
+      return {
+        tanggal: targetDateStr,
+        cabangId,
+        guruOptions,
+        classes: activeClasses.map(k => ({
+          kelasId: k.id,
+          kelasName: k.name,
+          tingkat: k.tingkat || '',
+          totalSiswa: k.siswaFormal.length,
+          mapels: []
+        }))
+      };
+    }
+
+    const silabusList = await this.prisma.silabusMapel.findMany({
+      where: {
+        tingkat: { in: tingkatSet },
+        tahunAjaran,
+        semester,
+        isActive: true,
+        mataPelajaran: { aktifPembelajaran: true }
+      },
+      include: { mataPelajaran: true },
+      orderBy: [{ urutanBab: 'asc' }]
+    });
+
+    const defaultGuruList = await this.prisma.guruMapelKelas.findMany({
+      where: { kelasId: { in: kelasIds } },
+      include: { staff: true }
+    });
+    const defaultGuruMap = new Map(defaultGuruList.map(g => [`${g.kelasId}__${g.mataPelajaranId}`, g.staff]));
+
+    const executions = await this.prisma.pelaksanaanSilabus.findMany({
+      where: {
+        kelasId: { in: kelasIds },
+        tanggalDiajar: dateObj
+      },
+      include: { guru: true }
+    });
+    const executionMap = new Map(executions.map(e => [`${e.kelasId}__${e.mataPelajaranId}`, e]));
+
+    const absensiList = await this.prisma.absensiMapel.findMany({
+      where: {
+        kelasId: { in: kelasIds },
+        tanggal: dateObj
+      }
+    });
+    const absensiSummaryMap = new Map<string, { hadir: number; izin: number; sakit: number; alpa: number; total: number }>();
+    absensiList.forEach(a => {
+      const key = `${a.kelasId}__${a.mataPelajaranId}`;
+      const rec = absensiSummaryMap.get(key) || { hadir: 0, izin: 0, sakit: 0, alpa: 0, total: 0 };
+      rec.total++;
+      if (a.status === 'HADIR') rec.hadir++;
+      else if (a.status === 'IZIN') rec.izin++;
+      else if (a.status === 'SAKIT') rec.sakit++;
+      else if (a.status === 'ALPA') rec.alpa++;
+      absensiSummaryMap.set(key, rec);
+    });
+
+    const classes = activeClasses.map(k => {
+      const kTingkat = k.tingkat || '';
+      const kSilabusList = silabusList.filter(s => s.tingkat === kTingkat);
+      const mapelSet = new Map<string, any>();
+      kSilabusList.forEach(s => {
+        if (!mapelSet.has(s.mataPelajaranId)) {
+          mapelSet.set(s.mataPelajaranId, s);
+        }
+      });
+
+      const mapels = Array.from(mapelSet.values()).map(s => {
+        const key = `${k.id}__${s.mataPelajaranId}`;
+        const exec = executionMap.get(key);
+        const defGuru = defaultGuruMap.get(key);
+        const absSummary = absensiSummaryMap.get(key) || null;
+
+        return {
+          mataPelajaranId: s.mataPelajaranId,
+          mataPelajaranName: s.mataPelajaran?.name || '',
+          silabusId: exec?.silabusId || s.id,
+          bab: s.bab || '',
+          section: s.section || '',
+          defaultGuruId: defGuru?.id || null,
+          defaultGuruName: defGuru?.name || null,
+          executionId: exec?.id || null,
+          status: (exec?.status as 'PENDING' | 'COMPLETED' | 'LIBUR') || 'PENDING',
+          guruId: exec?.guruId || defGuru?.id || null,
+          guruName: exec?.guru?.name || defGuru?.name || null,
+          catatan: exec?.catatan || '',
+          absensiSummary: absSummary
+        };
+      });
+
+      return {
+        kelasId: k.id,
+        kelasName: k.name,
+        tingkat: kTingkat,
+        totalSiswa: k.siswaFormal.length,
+        mapels
+      };
+    });
+
+    return {
+      tanggal: targetDateStr,
+      cabangId,
+      guruOptions,
+      classes
+    };
+  }
+
+  async bulkSaveDailyPelaksanaan(user: any, body: { cabangId?: string; tanggal: string; logs: Array<{ kelasId: string; mataPelajaranId: string; silabusId?: string | null; status: 'PENDING' | 'COMPLETED' | 'LIBUR'; catatan?: string; guruId?: string | null }> }) {
+    const { tanggal, logs } = body;
+    if (!tanggal || !logs || !Array.isArray(logs)) {
+      throw new BadRequestException('tanggal dan array logs wajib diisi');
+    }
+
+    if (this.isFutureDate(tanggal)) {
+      throw new BadRequestException('Tidak dapat menginput atau mengubah status pelaksanaan untuk tanggal mendatang');
+    }
+
+    const date = new Date(`${tanggal}T00:00:00`);
+
+    return this.prisma.$transaction(async (tx) => {
+      const results = [];
+      for (const log of logs) {
+        if (!log.kelasId || !log.mataPelajaranId) continue;
+
+        if (!log.silabusId && log.status !== 'LIBUR') {
+          await tx.pelaksanaanSilabus.deleteMany({
+            where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date }
+          });
+          continue;
+        }
+
+        const dataPayload = {
+          silabusId: log.silabusId || null,
+          status: log.status,
+          catatan: log.catatan || null,
+          guruId: log.guruId || null,
+          updatedById: user?.id || null
+        };
+
+        results.push(await tx.pelaksanaanSilabus.upsert({
+          where: { kelasId_mataPelajaranId_tanggalDiajar: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date } },
+          update: dataPayload,
+          create: {
+            kelasId: log.kelasId,
+            mataPelajaranId: log.mataPelajaranId,
+            tanggalDiajar: date,
+            ...dataPayload
+          }
+        }));
+      }
+      return results;
+    });
+  }
+
   // ===== C. Absensi Siswa per Mapel (User Cabang) — direkam per baris silabus/materi =====
 
   async getAbsensiMapel(kelasId: string, silabusId: string, tanggal?: string) {
