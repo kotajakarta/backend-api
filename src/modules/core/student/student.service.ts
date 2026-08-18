@@ -1562,8 +1562,14 @@ export class StudentService {
 
   async verifyDaftarUlang({ nik, kodeDaftarUlang }: { nik: string, kodeDaftarUlang: string }) {
     const setting = await this.prisma.pengaturanAkademik.findFirst();
-    if (!setting || !setting.kodeDaftarUlang || setting.kodeDaftarUlang.toUpperCase() !== kodeDaftarUlang?.toUpperCase()) {
-      throw new BadRequestException('Kode daftar ulang salah atau tidak tersedia');
+    const cleanKode = kodeDaftarUlang?.trim()?.toUpperCase();
+    const activeKode = setting?.kodeDaftarUlang?.trim()?.toUpperCase();
+
+    if (!setting || !activeKode) {
+      throw new BadRequestException('Layanan daftar ulang belum diaktifkan oleh administrator (Kode token belum diatur).');
+    }
+    if (activeKode !== cleanKode) {
+      throw new BadRequestException('Kode daftar ulang salah atau tidak valid');
     }
 
     if (!nik || !nik.trim()) {
@@ -1616,8 +1622,14 @@ export class StudentService {
     const { kodeDaftarUlang, studentId, ...studentData } = data;
 
     const setting = await this.prisma.pengaturanAkademik.findFirst();
-    if (!setting || !setting.kodeDaftarUlang || setting.kodeDaftarUlang.toUpperCase() !== kodeDaftarUlang?.toUpperCase()) {
-      throw new BadRequestException('Kode daftar ulang salah atau tidak tersedia');
+    const cleanKode = kodeDaftarUlang?.trim()?.toUpperCase();
+    const activeKode = setting?.kodeDaftarUlang?.trim()?.toUpperCase();
+
+    if (!setting || !activeKode) {
+      throw new BadRequestException('Layanan daftar ulang belum diaktifkan oleh administrator (Kode token belum diatur).');
+    }
+    if (activeKode !== cleanKode) {
+      throw new BadRequestException('Kode daftar ulang salah atau tidak valid');
     }
 
     // Tandai submission ini supaya muncul di menu Santri > Daftar Ulang.

@@ -127,14 +127,6 @@ export class DashboardService {
       });
     });
 
-    // 2. Chart Statistik Tambahan (Tingkat 7-12 & Non Muadalah)
-    const nonMuadalahCount = await this.prisma.student.count({
-      where: {
-        ...studentWhere,
-        OR: [{ jenisSiswa: { not: 'MUADALAH' } }, { jenisSiswa: null }]
-      }
-    });
-
     const siswaFormalList = await this.prisma.siswaFormal.findMany({
       where: { student: studentWhere },
       include: { kelas: true }
@@ -156,6 +148,9 @@ export class DashboardService {
         else if (tUpper.includes('7') || tUpper.includes('VII')) tingkatCounts['7']++;
       }
     });
+
+    const totalSantriFormal = tingkatCounts['7'] + tingkatCounts['8'] + tingkatCounts['9'] + tingkatCounts['10'] + tingkatCounts['11'] + tingkatCounts['12'];
+    const nonMuadalahCount = Math.max(0, totalSantri - totalSantriFormal);
 
     const chartStatistikTambahan = [
       { name: '7', value: tingkatCounts['7'] },

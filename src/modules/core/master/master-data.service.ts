@@ -606,6 +606,7 @@ export class MasterDataService {
         alamatKelName: true,
         alamatJalan: true,
         alamatNegara: true,
+        urlGoogleMaps: true,
         statusTanah: true,
         statusBangunan: true,
         wilayah: true,
@@ -632,6 +633,8 @@ export class MasterDataService {
                 kelasId: true,
                 kelas: {
                   select: {
+                    id: true,
+                    name: true,
                     tingkat: true
                   }
                 }
@@ -704,25 +707,82 @@ export class MasterDataService {
       let lulus = 0;
       let sekolahLain = 0;
 
+      const siswaStatsByGrup: Record<string, {
+        totalSiswa: number;
+        tingkat: {
+          tingkat7: number;
+          tingkat8: number;
+          tingkat9: number;
+          tingkat10: number;
+          tingkat11: number;
+          tingkat12: number;
+          lulus: number;
+          sekolahLain: number;
+        }
+      }> = {};
+
       cabang.students.forEach(st => {
         if (!st.isActive) return;
-        if (st.jenisSiswa === 'NON_MUADALAH') {
-          sekolahLain++;
+
+        const gdRaw = st.dataDaimi?.grup?.jenis || st.dataDaimi?.grup?.name || st.grupDaimi || 'NO_GRUP';
+        const gdUpper = gdRaw.trim().toUpperCase();
+
+        let groupKey = 'NO_GRUP';
+        if (gdUpper.includes('HAZIRLIK') || gdUpper.includes('HQ')) {
+          hazirlik++; groupKey = 'HAZIRLIK';
+        } else if (gdUpper.includes('HAFIZLIK') || gdUpper.includes('TAHFIZ')) {
+          hafizlik++; groupKey = 'HAFIZLIK';
+        } else if (gdUpper.includes('IBTIDAI')) {
+          ibtidai++; groupKey = 'IBTIDAI';
+        } else if (gdUpper.includes('IHZARI')) {
+          ihzari++; groupKey = 'IHZARI';
+        } else if (gdUpper && gdUpper !== 'NO_GRUP' && gdUpper !== '-') {
+          groupKey = gdUpper;
         }
 
-        const gd = (st.grupDaimi || st.dataDaimi?.grup?.jenis || st.dataDaimi?.grup?.name || '').toUpperCase();
-        if (gd.includes('HAZIRLIK') || gd.includes('HQ')) hazirlik++;
-        else if (gd.includes('HAFIZLIK') || gd.includes('TAHFIZ')) hafizlik++;
-        else if (gd.includes('IBTIDAI')) ibtidai++;
-        else if (gd.includes('IHZARI')) ihzari++;
+        if (!siswaStatsByGrup[groupKey]) {
+          siswaStatsByGrup[groupKey] = {
+            totalSiswa: 0,
+            tingkat: { tingkat7: 0, tingkat8: 0, tingkat9: 0, tingkat10: 0, tingkat11: 0, tingkat12: 0, lulus: 0, sekolahLain: 0 }
+          };
+        }
+        siswaStatsByGrup[groupKey].totalSiswa++;
 
-        const t = st.siswaFormal?.kelas?.tingkat || st.siswaFormal?.tingkat || '';
-        if (t === '7' || t.includes('7') || t.includes('VII')) tingkat7++;
-        else if (t === '8' || t.includes('8') || t.includes('VIII')) tingkat8++;
-        else if (t === '9' || t.includes('9') || t.includes('IX')) tingkat9++;
-        else if (t === '10' || t.includes('10') || t.includes('X')) tingkat10++;
-        else if (t === '11' || t.includes('11') || t.includes('XI')) tingkat11++;
-        else if (t === '12' || t.includes('12') || t.includes('XII')) tingkat12++;
+        // Siswa Muadalah harus terdaftar di rombel kelas (kelasId & kelas) tingkat 7 s/d 12
+        let detectedTingkat = '';
+        if (st.siswaFormal && st.siswaFormal.kelasId && st.siswaFormal.kelas) {
+          const rawT = String(st.siswaFormal.kelas.tingkat || st.siswaFormal.kelas.name || '').toUpperCase().trim();
+          if (rawT.includes('12') || rawT.includes('XII')) detectedTingkat = '12';
+          else if (rawT.includes('11') || rawT.includes('XI')) detectedTingkat = '11';
+          else if (rawT.includes('10') || rawT.includes('X')) detectedTingkat = '10';
+          else if (rawT.includes('9') || rawT.includes('IX')) detectedTingkat = '9';
+          else if (rawT.includes('8') || rawT.includes('VIII')) detectedTingkat = '8';
+          else if (rawT.includes('7') || rawT.includes('VII')) detectedTingkat = '7';
+        }
+
+        if (detectedTingkat === '7') {
+          tingkat7++;
+          siswaStatsByGrup[groupKey].tingkat.tingkat7++;
+        } else if (detectedTingkat === '8') {
+          tingkat8++;
+          siswaStatsByGrup[groupKey].tingkat.tingkat8++;
+        } else if (detectedTingkat === '9') {
+          tingkat9++;
+          siswaStatsByGrup[groupKey].tingkat.tingkat9++;
+        } else if (detectedTingkat === '10') {
+          tingkat10++;
+          siswaStatsByGrup[groupKey].tingkat.tingkat10++;
+        } else if (detectedTingkat === '11') {
+          tingkat11++;
+          siswaStatsByGrup[groupKey].tingkat.tingkat11++;
+        } else if (detectedTingkat === '12') {
+          tingkat12++;
+          siswaStatsByGrup[groupKey].tingkat.tingkat12++;
+        } else {
+          // Tidak terdaftar di rombel kelas (atau diluar kelas 7 sampai 12) -> Non Muadalah
+          sekolahLain++;
+          siswaStatsByGrup[groupKey].tingkat.sekolahLain++;
+        }
       });
 
       const targetObj = cabang.targetKuota && cabang.targetKuota.length > 0
@@ -764,7 +824,8 @@ export class MasterDataService {
         siswaStats: {
           totalSiswa: cabang.students.length,
           grup: { hazirlik, hafizlik, ibtidai, ihzari },
-          tingkat: { tingkat7, tingkat8, tingkat9, tingkat10, tingkat11, tingkat12, lulus, sekolahLain }
+          tingkat: { tingkat7, tingkat8, tingkat9, tingkat10, tingkat11, tingkat12, lulus, sekolahLain },
+          byGrup: siswaStatsByGrup
         }
       };
     });
@@ -800,6 +861,7 @@ export class MasterDataService {
         alamatKelName: data.alamatKelName || null,
         alamatJalan: data.alamatJalan || null,
         alamatNegara: data.alamatNegara || null,
+        urlGoogleMaps: data.urlGoogleMaps || null,
         statusTanah: data.statusTanah || null,
         statusBangunan: data.statusBangunan || null
       } 
@@ -838,6 +900,7 @@ export class MasterDataService {
         alamatKelName: data.alamatKelName || null,
         alamatJalan: data.alamatJalan || null,
         alamatNegara: data.alamatNegara || null,
+        urlGoogleMaps: data.urlGoogleMaps || null,
         statusTanah: data.statusTanah || null,
         statusBangunan: data.statusBangunan || null
       } 
@@ -971,11 +1034,6 @@ export class MasterDataService {
       where: { cabangId: id, isActive: true }
     });
 
-    // nonMuadalahOtomatis
-    const nonMuadalahOtomatis = await this.prisma.student.count({
-      where: { cabangId: id, isActive: true, jenisSiswa: 'NON_MUADALAH' }
-    });
-
     // grupDaimiOtomatis
     const grupDaimiGroups = await this.prisma.student.groupBy({
       by: ['grupDaimi'],
@@ -995,13 +1053,16 @@ export class MasterDataService {
 
     let kelas7sd12 = 0;
     siswaFormalList.forEach(sf => {
-      if (sf.kelas) {
-        const t = sf.kelas.tingkat || sf.kelas.name;
+      if (sf.kelasId && sf.kelas) {
+        const t = String(sf.kelas.tingkat || sf.kelas.name || '').toUpperCase().trim();
         if (t && (t.includes('7') || t.includes('8') || t.includes('9') || t.includes('10') || t.includes('11') || t.includes('12') || t.includes('VII') || t.includes('VIII') || t.includes('IX') || t.includes('X') || t.includes('XI') || t.includes('XII'))) {
           kelas7sd12++;
         }
       }
     });
+
+    // nonMuadalahOtomatis (Santri aktif diluar rombel kelas 7-12)
+    const nonMuadalahOtomatis = Math.max(0, totalSantriOtomatis - kelas7sd12);
 
     // Fetch teachers (Guru) for this branch
     const staffList = await this.prisma.staff.findMany({
@@ -1040,6 +1101,7 @@ export class MasterDataService {
         alamatKelName: data.alamatKelName || null,
         alamatJalan: data.alamatJalan || null,
         alamatNegara: data.alamatNegara || null,
+        urlGoogleMaps: data.urlGoogleMaps || null,
         statusTanah: data.statusTanah || null,
         statusBangunan: data.statusBangunan || null,
         fotoPlang: data.fotoPlang || null,

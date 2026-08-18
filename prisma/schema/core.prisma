@@ -39,6 +39,7 @@ model Cabang {
   statusBangunan            String?               @map("status_bangunan")
   statusTanah               String?               @map("status_tanah")
   alamatNegara              String?               @map("alamat_negara")
+  urlGoogleMaps             String?               @map("url_google_maps")
   fotoPlang                 String?               @map("foto_plang")
   fotoGedung                String?               @map("foto_gedung")
   fotoHalaman               String?               @map("foto_halaman")
