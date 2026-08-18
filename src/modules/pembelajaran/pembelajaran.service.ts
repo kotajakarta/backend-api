@@ -955,31 +955,37 @@ export class PembelajaranService {
       include: { mataPelajaran: true, silabus: true }
     }) : [];
 
-    // Weeks Info construction for table headers
-    const selYear = startDate.getFullYear();
-    const selMonthIdx = startDate.getMonth();
-    const daysInMonth = new Date(Date.UTC(selYear, selMonthIdx + 1, 0)).getUTCDate();
+    // Weeks Info construction for table headers across startDate -> endDate
     const monthShortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    const monthShort = monthShortNames[selMonthIdx] || '';
-    const weekCount = Math.ceil(daysInMonth / 7);
+    const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)));
+    const weekCount = Math.max(1, Math.ceil(totalDays / 7));
 
     const weeksInfo = Array.from({ length: weekCount }, (_, weekIdx) => {
-      const startDay = weekIdx * 7 + 1;
-      const endDay = Math.min(daysInMonth, (weekIdx + 1) * 7);
-      let satDay: number | null = null;
-      for (let d = startDay; d <= endDay; d++) {
-        const dateObj = new Date(Date.UTC(selYear, selMonthIdx, d));
-        if (dateObj.getUTCDay() === 6) {
-          satDay = d;
+      const wStart = new Date(startDate.getTime() + weekIdx * 7 * 24 * 60 * 60 * 1000);
+      const wEnd = new Date(Math.min(endDate.getTime(), wStart.getTime() + 6 * 24 * 60 * 60 * 1000));
+
+      let satDay: Date | null = null;
+      const curr = new Date(wStart);
+      while (curr <= wEnd) {
+        if (curr.getDay() === 6) {
+          satDay = new Date(curr);
           break;
         }
+        curr.setDate(curr.getDate() + 1);
       }
-      const dayLabel = satDay !== null ? `Sabtu, ${String(satDay).padStart(2, '0')} ${monthShort}` : `${startDay}-${endDay} ${monthShort}`;
+
+      const monthShort = monthShortNames[wStart.getMonth()] || '';
+      const dayLabel = satDay
+        ? `Sabtu, ${String(satDay.getDate()).padStart(2, '0')} ${monthShortNames[satDay.getMonth()]}`
+        : `${wStart.getDate()}-${wEnd.getDate()} ${monthShort}`;
+
       return {
         weekNumber: weekIdx + 1,
         dateLabel: dayLabel,
-        saturdayDate: satDay ? `${selYear}-${String(selMonthIdx + 1).padStart(2, '0')}-${String(satDay).padStart(2, '0')}` : null,
-        dateRange: `${startDay}-${endDay} ${monthShort}`
+        saturdayDate: satDay ? satDay.toISOString().split('T')[0] : null,
+        startDateIso: wStart.toISOString(),
+        endDateIso: wEnd.toISOString(),
+        dateRange: `${wStart.getDate()}-${wEnd.getDate()} ${monthShort}`
       };
     });
 
@@ -1122,10 +1128,10 @@ export class PembelajaranService {
 
         // Weekly breakdown per week column
         const weeks = weeksInfo.map((wInfo, wIdx) => {
-          const wStartDay = wIdx * 7 + 1;
-          const wEndDay = Math.min(daysInMonth, (wIdx + 1) * 7);
-          const wStartDate = new Date(Date.UTC(selYear, selMonthIdx, wStartDay, 0, 0, 0));
-          const wEndDate = new Date(Date.UTC(selYear, selMonthIdx, wEndDay, 23, 59, 59, 999));
+          const wStartDate = new Date(wInfo.startDateIso);
+          wStartDate.setHours(0, 0, 0, 0);
+          const wEndDate = new Date(wInfo.endDateIso);
+          wEndDate.setHours(23, 59, 59, 999);
           const isFuture = wStartDate.getTime() > now.getTime();
 
           const wPel = pelaksanaanList.filter(
