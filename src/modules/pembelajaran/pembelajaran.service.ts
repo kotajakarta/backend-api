@@ -712,6 +712,15 @@ export class PembelajaranService {
   //   GLOBAL  -> breakdown per Wilayah (pandangan makro nasional)
   //   WILAYAH -> breakdown per Cabang (di dalam wilayahnya)
   //   CABANG  -> breakdown per Kelas (di cabangnya sendiri, supaya tetap informatif meski cuma 1 cabang)
+  private countSaturdays(startDate: Date, endDate: Date): number {
+    let count = 0;
+    const current = new Date(startDate);
+    while (current <= endDate) {
+      if (current.getDay() === 6) count++;
+      current.setDate(current.getDate() + 1);
+    }
+    return Math.max(1, count);
+  }
 
   private statusForPercent(pct: number): 'Optimal' | 'Sesuai Jalur' | 'Berisiko' {
     return pct >= 90 ? 'Optimal' : pct >= 70 ? 'Sesuai Jalur' : 'Berisiko';
@@ -820,6 +829,19 @@ export class PembelajaranService {
       periodeLabel = new Date(Date.UTC(selYear, selMonthIdx, 1)).toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
     }
 
+    // Calculate Saturday count & target denominator per user requirements
+    const totalSabtu = this.countSaturdays(startDate, endDate);
+    let targetDenominator = 5;
+    if (mode === 'weekly') {
+      targetDenominator = 5;
+    } else if (mode === 'monthly') {
+      targetDenominator = totalSabtu * 5;
+    } else if (mode === 'semester') {
+      targetDenominator = totalSabtu * 6;
+    } else if (mode === 'yearly') {
+      targetDenominator = 12;
+    }
+
     const emptyFilterOptions = {
       wilayahList: [] as Array<{ id: string; name: string }>,
       cabangList: [] as Array<{ id: string; name: string; wilayahId: string | null }>,
@@ -842,13 +864,7 @@ export class PembelajaranService {
       belumMulai: 0,
       statusDistribution: { optimal: 0, sesuaiJalur: 0, berisiko: 0 },
       breakdownTotal: 0,
-      unitBreakdown: [] as Array<{
-        id: string; name: string; parentName: string; jumlahSiswa?: number;
-        silabusCompleted: number; silabusTotal: number; persenSilabus: number;
-        hadir: number; totalAbsensi: number; persenKehadiran: number;
-        status: 'Optimal' | 'Sesuai Jalur' | 'Berisiko';
-        details?: any[];
-      }>,
+      unitBreakdown: [] as Array<any>,
       filterOptions: emptyFilterOptions,
       kelasOptions: [] as Array<{ id: string; name: string }>,
       selectedKelasId: null as string | null,
@@ -939,26 +955,41 @@ export class PembelajaranService {
       include: { mataPelajaran: true, silabus: true }
     }) : [];
 
+    // Weeks Info construction for table headers
+    const selYear = startDate.getFullYear();
+    const selMonthIdx = startDate.getMonth();
+    const daysInMonth = new Date(Date.UTC(selYear, selMonthIdx + 1, 0)).getUTCDate();
+    const monthShortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    const monthShort = monthShortNames[selMonthIdx] || '';
+    const weekCount = Math.ceil(daysInMonth / 7);
+
+    const weeksInfo = Array.from({ length: weekCount }, (_, weekIdx) => {
+      const startDay = weekIdx * 7 + 1;
+      const endDay = Math.min(daysInMonth, (weekIdx + 1) * 7);
+      let satDay: number | null = null;
+      for (let d = startDay; d <= endDay; d++) {
+        const dateObj = new Date(Date.UTC(selYear, selMonthIdx, d));
+        if (dateObj.getUTCDay() === 6) {
+          satDay = d;
+          break;
+        }
+      }
+      const dayLabel = satDay !== null ? `Sabtu, ${String(satDay).padStart(2, '0')} ${monthShort}` : `${startDay}-${endDay} ${monthShort}`;
+      return {
+        weekNumber: weekIdx + 1,
+        dateLabel: dayLabel,
+        saturdayDate: satDay ? `${selYear}-${String(selMonthIdx + 1).padStart(2, '0')}-${String(satDay).padStart(2, '0')}` : null,
+        dateRange: `${startDay}-${endDay} ${monthShort}`
+      };
+    });
+
     // ===== Unit breakdown =====
     type KelasT = (typeof kelasList)[number];
     type UnitAgg = {
       id: string; name: string; parentName: string; jumlahSiswa: number;
       silabusCompleted: number; silabusTotal: number;
       hadir: number; totalAbsensi: number;
-      detailsMap: Map<string, {
-        id: string;
-        mataPelajaranId: string;
-        mataPelajaranName: string;
-        guruName: string | null;
-        tanggal: string;
-        statusPelaksanaan: 'COMPLETED' | 'PENDING' | 'LIBUR';
-        hadir: number;
-        sakit: number;
-        izin: number;
-        alpa: number;
-        totalSiswa: number;
-        persenHadirMapel: number;
-      }>;
+      detailsMap: Map<string, any>;
     };
     const unitMap = new Map<string, UnitAgg>();
     const unitKeyOf = (kelas: KelasT): { id: string; name: string; parentName: string } => {
@@ -985,7 +1016,7 @@ export class PembelajaranService {
         unitMap.set(key.id, {
           id: key.id, name: key.name, parentName: key.parentName,
           jumlahSiswa: kelas.siswaFormal ? kelas.siswaFormal.length : 0,
-          silabusCompleted: 0, silabusTotal: 0,
+          silabusCompleted: 0, silabusTotal: targetDenominator,
           hadir: 0, totalAbsensi: 0,
           detailsMap: new Map()
         });
@@ -995,26 +1026,21 @@ export class PembelajaranService {
 
     let totalSilabusCompleted = 0;
     let totalSilabusTarget = 0;
-    let belumMulai = 0;
 
     kelasList.forEach(kelas => {
       if (!kelas.tingkat) return;
-      const applicable = silabusList.filter(s => s.tingkat === kelas.tingkat);
-      if (applicable.length === 0) return;
       const u = ensureUnit(kelas);
       u.jumlahSiswa = Math.max(u.jumlahSiswa, kelas.siswaFormal ? kelas.siswaFormal.length : 0);
 
-      applicable.forEach(s => {
-        const p = pelaksanaanList.find(pItem => pItem.silabusId === s.id && pItem.kelasId === kelas.id);
-        const status = p?.status || 'PENDING';
-        if (status === 'LIBUR') return;
-        u.silabusTotal++;
-        totalSilabusTarget++;
-        if (status === 'COMPLETED') {
-          u.silabusCompleted++;
-          totalSilabusCompleted++;
-        }
-      });
+      // Count completed mapels in execution logs
+      const completedCount = pelaksanaanList.filter(
+        p => p.kelasId === kelas.id && p.status === 'COMPLETED'
+      ).length;
+
+      u.silabusCompleted = completedCount;
+      u.silabusTotal = targetDenominator;
+      totalSilabusCompleted += completedCount;
+      totalSilabusTarget += targetDenominator;
     });
 
     absensiList.forEach(a => {
@@ -1078,15 +1104,47 @@ export class PembelajaranService {
       ? Math.round((pelaksanaanNonLibur.filter(p => p.status === 'COMPLETED').length / pelaksanaanNonLibur.length) * 100)
       : 0;
 
-    // Build unitBreakdown array
+    // Build unitBreakdown with multi-week breakdown array
     const unitBreakdown = Array.from(unitMap.values())
       .map(u => {
         const pctSilabus = u.silabusTotal > 0 ? Math.round((u.silabusCompleted / u.silabusTotal) * 100) : 0;
-        // Calculation formula for status kehadiran: ((hadir * 5) / (jumlahSiswa * 5)) or (hadir / totalAbsensi)
         const targetKehadiran = u.jumlahSiswa > 0 ? u.jumlahSiswa * 5 : u.totalAbsensi;
         const pctKehadiran = targetKehadiran > 0 ? Math.round(((u.hadir * 5) / targetKehadiran) * 100) : (u.totalAbsensi > 0 ? Math.round((u.hadir / u.totalAbsensi) * 100) : 0);
 
         const details = Array.from(u.detailsMap.values()).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+
+        // Weekly breakdown per week column
+        const weeks = weeksInfo.map((wInfo, wIdx) => {
+          const wStartDay = wIdx * 7 + 1;
+          const wEndDay = Math.min(daysInMonth, (wIdx + 1) * 7);
+          const wStartDate = new Date(Date.UTC(selYear, selMonthIdx, wStartDay, 0, 0, 0));
+          const wEndDate = new Date(Date.UTC(selYear, selMonthIdx, wEndDay, 23, 59, 59, 999));
+
+          const wPel = pelaksanaanList.filter(
+            p => p.kelasId === u.id && p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'COMPLETED'
+          );
+          const wMapelCompleted = wPel.length;
+          const wMapelTarget = 5;
+          const wPersenMapel = Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
+
+          const wAbs = absensiList.filter(
+            a => a.kelasId === u.id && a.tanggal >= wStartDate && a.tanggal <= wEndDate && a.status === 'HADIR'
+          );
+          const wHadir = wAbs.length;
+          const wTargetAbs = u.jumlahSiswa > 0 ? u.jumlahSiswa * 5 : 1;
+          const wPersenHadir = wTargetAbs > 0 ? Math.min(100, Math.round(((wHadir * 5) / wTargetAbs) * 100)) : 0;
+
+          return {
+            weekNumber: wIdx + 1,
+            dateLabel: wInfo.dateLabel,
+            mapelCompleted: wMapelCompleted,
+            mapelTarget: wMapelTarget,
+            persenMapel: wPersenMapel,
+            hadir: wHadir,
+            totalAbsensi: wTargetAbs,
+            persenKehadiran: wPersenHadir
+          };
+        });
 
         return {
           id: u.id,
@@ -1100,14 +1158,12 @@ export class PembelajaranService {
           totalAbsensi: targetKehadiran,
           persenKehadiran: pctKehadiran,
           status: this.statusForPercent(pctSilabus),
+          weeks,
           details
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    // Pemantauan Mingguan structure
-    const daysInMonth = 28;
-    const weekCount = 4;
     const kelasOptions = kelasList
       .map(k => ({ id: k.id, name: k.name }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -1127,7 +1183,7 @@ export class PembelajaranService {
       persenKehadiran,
       kehadiranDelta: 0,
       persenPelajaranTerlaksana,
-      belumMulai,
+      belumMulai: 0,
       statusDistribution,
       breakdownTotal: unitBreakdown.length,
       unitBreakdown,
@@ -1135,7 +1191,7 @@ export class PembelajaranService {
       kelasOptions,
       selectedKelasId: kelasId || null,
       pemantauanMingguan: [],
-      weeksInfo: []
+      weeksInfo
     };
   }
 }
