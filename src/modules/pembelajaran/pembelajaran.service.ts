@@ -475,10 +475,19 @@ export class PembelajaranService {
         const defGuru = defaultGuruMap.get(key);
         const absSummary = absensiSummaryMap.get(key) || null;
 
+        const silabusOptions = kSilabusList
+          .filter(sub => sub.mataPelajaranId === s.mataPelajaranId)
+          .map(sub => ({
+            silabusId: sub.id,
+            bab: sub.bab || '',
+            section: sub.section || ''
+          }));
+
         return {
           mataPelajaranId: s.mataPelajaranId,
           mataPelajaranName: s.mataPelajaran?.name || '',
           silabusId: exec?.silabusId || s.id,
+          silabusOptions,
           bab: s.bab || '',
           section: s.section || '',
           defaultGuruId: defGuru?.id || null,
