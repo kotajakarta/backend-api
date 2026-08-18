@@ -773,7 +773,17 @@ export class PembelajaranService {
 
     const scopeLevel: 'GLOBAL' | 'WILAYAH' | 'CABANG' =
       user?.scope === 'CABANG' ? 'CABANG' : user?.scope === 'WILAYAH' ? 'WILAYAH' : 'GLOBAL';
-    const unitLabel = scopeLevel === 'GLOBAL' ? 'Wilayah' : scopeLevel === 'WILAYAH' ? 'Cabang' : 'Kelas';
+
+    let breakdownLevel: 'WILAYAH' | 'CABANG' | 'KELAS' = 'KELAS';
+    if (scopeLevel === 'CABANG' || cabangId) {
+      breakdownLevel = 'KELAS';
+    } else if (scopeLevel === 'WILAYAH' || wilayahId) {
+      breakdownLevel = 'CABANG';
+    } else {
+      breakdownLevel = 'WILAYAH';
+    }
+
+    const unitLabel = breakdownLevel === 'WILAYAH' ? 'Wilayah' : breakdownLevel === 'CABANG' ? 'Cabang' : 'Kelas';
 
     const now = new Date();
     let startDate: Date;
@@ -900,8 +910,8 @@ export class PembelajaranService {
       }
     });
 
-    // Hide inactive classes (classes with 0 active students when scope is CABANG or for kelas breakdown)
-    const kelasList = scopeLevel === 'CABANG'
+    // Hide inactive classes (classes with 0 active students when breakdown is KELAS)
+    const kelasList = (scopeLevel === 'CABANG' || breakdownLevel === 'KELAS')
       ? rawKelasList.filter(k => k.siswaFormal && k.siswaFormal.length > 0)
       : rawKelasList;
 
@@ -1003,12 +1013,12 @@ export class PembelajaranService {
     const classToUnitIdMap = new Map<string, string>();
 
     const unitKeyOf = (kelas: KelasT): { id: string; name: string; parentName: string } => {
-      if (scopeLevel === 'GLOBAL') return {
+      if (breakdownLevel === 'WILAYAH') return {
         id: kelas.cabang?.wilayahId || 'unknown',
         name: kelas.cabang?.wilayah?.name || 'Tanpa Wilayah',
         parentName: ''
       };
-      if (scopeLevel === 'WILAYAH') return {
+      if (breakdownLevel === 'CABANG') return {
         id: kelas.cabangId || 'unknown',
         name: kelas.cabang?.name || 'Tanpa Cabang',
         parentName: kelas.cabang?.wilayah?.name || ''
