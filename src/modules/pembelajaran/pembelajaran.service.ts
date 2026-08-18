@@ -1077,7 +1077,15 @@ export class PembelajaranService {
       else if (a.status === 'SAKIT') d.sakit++;
       else if (a.status === 'IZIN') d.izin++;
       else if (a.status === 'ALPA') d.alpa++;
-      d.persenHadirMapel = d.totalSiswa > 0 ? Math.round((d.hadir / d.totalSiswa) * 100) : 0;
+    });
+
+    // Finalize totalSiswa & persenHadirMapel for details
+    Array.from(unitMap.values()).forEach(u => {
+      Array.from(u.detailsMap.values()).forEach(d => {
+        const recordedCount = d.hadir + d.sakit + d.izin + d.alpa;
+        d.totalSiswa = Math.max(u.jumlahSiswa, recordedCount, 1);
+        d.persenHadirMapel = Math.min(100, Math.round((d.hadir / d.totalSiswa) * 100));
+      });
     });
 
     const statusDistribution = Array.from(unitMap.values())
