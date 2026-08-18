@@ -432,31 +432,58 @@ export class PembelajaranService {
     });
     const defaultGuruMap = new Map(defaultGuruList.map(g => [`${g.kelasId}__${g.mataPelajaranId}`, g.staff]));
 
+    const dateUtc = new Date(`${targetDateStr}T00:00:00.000Z`);
+    const dateLocal = new Date(`${targetDateStr}T00:00:00`);
+
+    const dateRangeStart = new Date(Math.min(dateUtc.getTime(), dateLocal.getTime()) - 12 * 3600 * 1000);
+    const dateRangeEnd = new Date(Math.max(dateUtc.getTime(), dateLocal.getTime()) + 36 * 3600 * 1000);
+
     const executions = await this.prisma.pelaksanaanSilabus.findMany({
       where: {
         kelasId: { in: kelasIds },
-        tanggalDiajar: dateObj
+        tanggalDiajar: { gte: dateRangeStart, lte: dateRangeEnd }
       },
       include: { guru: true }
     });
-    const executionMap = new Map(executions.map(e => [`${e.kelasId}__${e.mataPelajaranId}`, e]));
+    const executionMap = new Map<string, any>();
+    executions.forEach(e => {
+      if (e.tanggalDiajar) {
+        const dUtcStr = e.tanggalDiajar.toISOString().slice(0, 10);
+        const y = e.tanggalDiajar.getFullYear();
+        const m = String(e.tanggalDiajar.getMonth() + 1).padStart(2, '0');
+        const d = String(e.tanggalDiajar.getDate()).padStart(2, '0');
+        const dLocalStr = `${y}-${m}-${d}`;
+        if (dUtcStr === targetDateStr || dLocalStr === targetDateStr) {
+          executionMap.set(`${e.kelasId}__${e.mataPelajaranId}`, e);
+        }
+      }
+    });
 
     const absensiList = await this.prisma.absensiMapel.findMany({
       where: {
         kelasId: { in: kelasIds },
-        tanggal: dateObj
+        tanggal: { gte: dateRangeStart, lte: dateRangeEnd }
       }
     });
     const absensiSummaryMap = new Map<string, { hadir: number; izin: number; sakit: number; alpa: number; total: number }>();
     absensiList.forEach(a => {
-      const key = `${a.kelasId}__${a.mataPelajaranId}`;
-      const rec = absensiSummaryMap.get(key) || { hadir: 0, izin: 0, sakit: 0, alpa: 0, total: 0 };
-      rec.total++;
-      if (a.status === 'HADIR') rec.hadir++;
-      else if (a.status === 'IZIN') rec.izin++;
-      else if (a.status === 'SAKIT') rec.sakit++;
-      else if (a.status === 'ALPA') rec.alpa++;
-      absensiSummaryMap.set(key, rec);
+      if (a.tanggal) {
+        const dUtcStr = a.tanggal.toISOString().slice(0, 10);
+        const y = a.tanggal.getFullYear();
+        const m = String(a.tanggal.getMonth() + 1).padStart(2, '0');
+        const d = String(a.tanggal.getDate()).padStart(2, '0');
+        const dLocalStr = `${y}-${m}-${d}`;
+        if (dUtcStr === targetDateStr || dLocalStr === targetDateStr) {
+          const key = `${a.kelasId}__${a.mataPelajaranId}`;
+          const rec = absensiSummaryMap.get(key) || { hadir: 0, izin: 0, sakit: 0, alpa: 0, total: 0 };
+          rec.total++;
+          if (a.status === 'HADIR') rec.hadir++;
+          else if (a.status === 'IZIN') rec.izin++;
+          else if (a.status === 'SAKIT') rec.sakit++;
+          else if (a.status === 'ALPA') rec.alpa++;
+          absensiSummaryMap.set(key, rec);
+        }
+      }
     });
 
     const classes = activeClasses.map(k => {
