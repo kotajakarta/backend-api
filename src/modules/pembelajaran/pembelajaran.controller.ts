@@ -144,12 +144,25 @@ export class PembelajaranController {
   @Get('ringkasan')
   @UseGuards(AccessControlGuard)
   getRingkasan(
+    @Query('mode') mode: 'weekly' | 'monthly' | 'semester' | 'yearly' | undefined,
+    @Query('weekStart') weekStart: string | undefined,
     @Query('month') month: string | undefined,
+    @Query('tahunAjaran') tahunAjaran: string | undefined,
+    @Query('semester') semester: string | undefined,
     @Query('kelasId') kelasId: string | undefined,
     @Query('wilayahId') wilayahId: string | undefined,
     @Query('cabangId') cabangId: string | undefined,
     @Request() req: any
   ) {
-    return this.pembelajaranService.getRingkasan(req.user, month, kelasId, wilayahId, cabangId);
+    return this.pembelajaranService.getRingkasan(req.user, {
+      mode,
+      weekStart,
+      month,
+      tahunAjaran,
+      semester,
+      kelasId,
+      wilayahId,
+      cabangId
+    });
   }
 }

@@ -717,21 +717,108 @@ export class PembelajaranService {
     return pct >= 90 ? 'Optimal' : pct >= 70 ? 'Sesuai Jalur' : 'Berisiko';
   }
 
-  async getRingkasan(user: any, month?: string, kelasId?: string, wilayahId?: string, cabangId?: string) {
+  async getRingkasan(
+    user: any,
+    queryParams?: {
+      mode?: 'weekly' | 'monthly' | 'semester' | 'yearly';
+      weekStart?: string;
+      month?: string;
+      tahunAjaran?: string;
+      semester?: string;
+      kelasId?: string;
+      wilayahId?: string;
+      cabangId?: string;
+    } | string,
+    kelasIdLegacy?: string,
+    wilayahIdLegacy?: string,
+    cabangIdLegacy?: string
+  ) {
+    let mode: 'weekly' | 'monthly' | 'semester' | 'yearly' = 'monthly';
+    let weekStart: string | undefined;
+    let month: string | undefined;
+    let reqTahunAjaran: string | undefined;
+    let reqSemester: string | undefined;
+    let kelasId: string | undefined;
+    let wilayahId: string | undefined;
+    let cabangId: string | undefined;
+
+    if (typeof queryParams === 'object' && queryParams !== null) {
+      mode = queryParams.mode || 'monthly';
+      weekStart = queryParams.weekStart;
+      month = queryParams.month;
+      reqTahunAjaran = queryParams.tahunAjaran;
+      reqSemester = queryParams.semester;
+      kelasId = queryParams.kelasId;
+      wilayahId = queryParams.wilayahId;
+      cabangId = queryParams.cabangId;
+    } else {
+      month = queryParams;
+      kelasId = kelasIdLegacy;
+      wilayahId = wilayahIdLegacy;
+      cabangId = cabangIdLegacy;
+    }
+
     const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
-    const tahunAjaran = pengaturan?.tahunAjaran || '';
-    const semester = pengaturan?.semesterAktif || '';
+    const tahunAjaran = reqTahunAjaran || pengaturan?.tahunAjaran || '';
+    const semester = reqSemester || pengaturan?.semesterAktif || '';
 
     const scopeLevel: 'GLOBAL' | 'WILAYAH' | 'CABANG' =
       user?.scope === 'CABANG' ? 'CABANG' : user?.scope === 'WILAYAH' ? 'WILAYAH' : 'GLOBAL';
     const unitLabel = scopeLevel === 'GLOBAL' ? 'Wilayah' : scopeLevel === 'WILAYAH' ? 'Cabang' : 'Kelas';
 
     const now = new Date();
-    const validMonth = month && /^\d{4}-\d{2}$/.test(month);
-    const selYear = validMonth ? parseInt(month!.slice(0, 4)) : now.getUTCFullYear();
-    const selMonthIdx = validMonth ? parseInt(month!.slice(5, 7)) - 1 : now.getUTCMonth();
-    const selectedMonth = `${selYear}-${String(selMonthIdx + 1).padStart(2, '0')}`;
-    const periodeLabel = new Date(Date.UTC(selYear, selMonthIdx, 1)).toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    let startDate: Date;
+    let endDate: Date;
+    let periodeLabel = '';
+    let selectedMonth = '';
+
+    if (mode === 'weekly') {
+      const baseDate = weekStart ? new Date(weekStart) : now;
+      const day = baseDate.getDay();
+      startDate = new Date(baseDate);
+      startDate.setDate(baseDate.getDate() - day);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+
+      const d1 = startDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+      const d2 = endDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+      periodeLabel = `Minggu (${d1} - ${d2})`;
+      selectedMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+    } else if (mode === 'semester') {
+      const [startYearStr, endYearStr] = tahunAjaran.split('/');
+      const startYear = parseInt(startYearStr) || now.getFullYear();
+      const endYear = parseInt(endYearStr || '') || startYear + 1;
+
+      if (semester.toUpperCase() === 'GANJIL') {
+        startDate = new Date(`${startYear}-07-01T00:00:00`);
+        endDate = new Date(`${startYear}-12-31T23:59:59`);
+      } else {
+        startDate = new Date(`${endYear}-01-01T00:00:00`);
+        endDate = new Date(`${endYear}-06-30T23:59:59`);
+      }
+      periodeLabel = `Semester ${semester} (${tahunAjaran})`;
+      selectedMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+    } else if (mode === 'yearly') {
+      const [startYearStr] = tahunAjaran.split('/');
+      const startYear = parseInt(startYearStr) || now.getFullYear();
+      startDate = new Date(`${startYear}-07-01T00:00:00`);
+      endDate = new Date(`${startYear + 1}-06-30T23:59:59`);
+      periodeLabel = `Tahun Ajaran ${tahunAjaran}`;
+      selectedMonth = `${startYear}-07`;
+    } else {
+      // Monthly (default)
+      const validMonth = month && /^\d{4}-\d{2}$/.test(month);
+      const selYear = validMonth ? parseInt(month!.slice(0, 4)) : now.getUTCFullYear();
+      const selMonthIdx = validMonth ? parseInt(month!.slice(5, 7)) - 1 : now.getUTCMonth();
+      const daysInMonth = new Date(Date.UTC(selYear, selMonthIdx + 1, 0)).getUTCDate();
+      startDate = new Date(Date.UTC(selYear, selMonthIdx, 1, 0, 0, 0));
+      endDate = new Date(Date.UTC(selYear, selMonthIdx, daysInMonth, 23, 59, 59, 999));
+      selectedMonth = `${selYear}-${String(selMonthIdx + 1).padStart(2, '0')}`;
+      periodeLabel = new Date(Date.UTC(selYear, selMonthIdx, 1)).toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    }
 
     const emptyFilterOptions = {
       wilayahList: [] as Array<{ id: string; name: string }>,
@@ -756,40 +843,28 @@ export class PembelajaranService {
       statusDistribution: { optimal: 0, sesuaiJalur: 0, berisiko: 0 },
       breakdownTotal: 0,
       unitBreakdown: [] as Array<{
-        id: string; name: string; parentName: string;
+        id: string; name: string; parentName: string; jumlahSiswa?: number;
         silabusCompleted: number; silabusTotal: number; persenSilabus: number;
         hadir: number; totalAbsensi: number; persenKehadiran: number;
         status: 'Optimal' | 'Sesuai Jalur' | 'Berisiko';
+        details?: any[];
       }>,
       filterOptions: emptyFilterOptions,
       kelasOptions: [] as Array<{ id: string; name: string }>,
       selectedKelasId: null as string | null,
-      pemantauanMingguan: [] as Array<{
-        mataPelajaranId: string; mataPelajaranName: string;
-        weeks: Array<{
-          hadir: number; sakit: number; izin: number; alpa: number; total: number;
-          status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[]; kelasNames: string[];
-          details?: Array<{
-            kelasId: string; kelasName: string; guruName?: string | null;
-            status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null;
-            hadir: number; sakit: number; izin: number; alpa: number; total: number;
-          }>;
-        }>;
-      }>
+      pemantauanMingguan: [] as Array<any>,
+      weeksInfo: [] as Array<any>
     };
     if (!tahunAjaran || !semester) return empty;
 
     // ===== Resolve RBAC scope + user-selected filters =====
-    // RBAC narrows the base scope; wilayahId/cabangId further drill down within that scope.
     let kelasWhere: any = {};
     if (scopeLevel === 'CABANG' && user.cabangId) {
       kelasWhere = { cabangId: user.cabangId };
     } else if (scopeLevel === 'WILAYAH' && user.wilayahId) {
       kelasWhere = { cabang: { wilayahId: user.wilayahId } };
-      // Drill-down into specific cabang within wilayah
       if (cabangId) kelasWhere = { cabangId, cabang: { wilayahId: user.wilayahId } };
     } else if (scopeLevel === 'GLOBAL') {
-      // Drill-down into specific wilayah or cabang
       if (cabangId) {
         kelasWhere = { cabangId };
       } else if (wilayahId) {
@@ -797,15 +872,28 @@ export class PembelajaranService {
       }
     }
 
-    const kelasList = await this.prisma.kelas.findMany({
+    const rawKelasList = await this.prisma.kelas.findMany({
       where: kelasWhere,
-      include: { cabang: { include: { wilayah: true } }, ruang: true, lembagaMuadalah: true }
+      include: {
+        cabang: { include: { wilayah: true } },
+        ruang: true,
+        lembagaMuadalah: true,
+        siswaFormal: {
+          where: { student: { isActive: true } }
+        }
+      }
     });
+
+    // Hide inactive classes (classes with 0 active students when scope is CABANG or for kelas breakdown)
+    const kelasList = scopeLevel === 'CABANG'
+      ? rawKelasList.filter(k => k.siswaFormal && k.siswaFormal.length > 0)
+      : rawKelasList;
+
     const kelasIds = kelasList.map(k => k.id);
     const kelasById = new Map(kelasList.map(k => [k.id, k]));
     const tingkatSet = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
 
-    // ===== Build filter options (sesuai RBAC) =====
+    // ===== Filter options (sesuai RBAC) =====
     const filterOptions = { ...emptyFilterOptions };
     if (scopeLevel === 'GLOBAL') {
       const wilayahSet = new Map<string, string>();
@@ -828,22 +916,49 @@ export class PembelajaranService {
         .sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // ===== Silabus data =====
+    // ===== Silabus & Pelaksanaan Data =====
     const silabusList = tingkatSet.length > 0 ? await this.prisma.silabusMapel.findMany({
       where: { tingkat: { in: tingkatSet }, tahunAjaran, semester, isActive: true, mataPelajaran: { aktifPembelajaran: true } },
       include: { mataPelajaran: true }
     }) : [];
-    const pelaksanaanList = await this.prisma.pelaksanaanSilabus.findMany({
-      where: { kelasId: { in: kelasIds }, silabusId: { in: silabusList.map(s => s.id) } }
-    });
-    const pelaksanaanMap = new Map(pelaksanaanList.map(p => [`${p.silabusId}__${p.kelasId}`, p]));
 
-    // ===== Unit breakdown — now tracks kehadiran too =====
+    const pelaksanaanList = kelasIds.length > 0 ? await this.prisma.pelaksanaanSilabus.findMany({
+      where: {
+        kelasId: { in: kelasIds },
+        tanggalDiajar: { gte: startDate, lte: endDate }
+      },
+      include: { silabus: { include: { mataPelajaran: true } }, mataPelajaran: true, guru: true }
+    }) : [];
+
+    const absensiList = kelasIds.length > 0 ? await this.prisma.absensiMapel.findMany({
+      where: {
+        kelasId: { in: kelasIds },
+        tanggal: { gte: startDate, lte: endDate },
+        mataPelajaran: { aktifPembelajaran: true }
+      },
+      include: { mataPelajaran: true, silabus: true }
+    }) : [];
+
+    // ===== Unit breakdown =====
     type KelasT = (typeof kelasList)[number];
     type UnitAgg = {
-      id: string; name: string; parentName: string;
+      id: string; name: string; parentName: string; jumlahSiswa: number;
       silabusCompleted: number; silabusTotal: number;
       hadir: number; totalAbsensi: number;
+      detailsMap: Map<string, {
+        id: string;
+        mataPelajaranId: string;
+        mataPelajaranName: string;
+        guruName: string | null;
+        tanggal: string;
+        statusPelaksanaan: 'COMPLETED' | 'PENDING' | 'LIBUR';
+        hadir: number;
+        sakit: number;
+        izin: number;
+        alpa: number;
+        totalSiswa: number;
+        persenHadirMapel: number;
+      }>;
     };
     const unitMap = new Map<string, UnitAgg>();
     const unitKeyOf = (kelas: KelasT): { id: string; name: string; parentName: string } => {
@@ -863,13 +978,16 @@ export class PembelajaranService {
         parentName: kelas.cabang?.name || ''
       };
     };
+
     const ensureUnit = (kelas: KelasT) => {
       const key = unitKeyOf(kelas);
       if (!unitMap.has(key.id)) {
         unitMap.set(key.id, {
           id: key.id, name: key.name, parentName: key.parentName,
+          jumlahSiswa: kelas.siswaFormal ? kelas.siswaFormal.length : 0,
           silabusCompleted: 0, silabusTotal: 0,
-          hadir: 0, totalAbsensi: 0
+          hadir: 0, totalAbsensi: 0,
+          detailsMap: new Map()
         });
       }
       return unitMap.get(key.id)!;
@@ -883,13 +1001,13 @@ export class PembelajaranService {
       if (!kelas.tingkat) return;
       const applicable = silabusList.filter(s => s.tingkat === kelas.tingkat);
       if (applicable.length === 0) return;
-      let anyRecord = false;
+      const u = ensureUnit(kelas);
+      u.jumlahSiswa = Math.max(u.jumlahSiswa, kelas.siswaFormal ? kelas.siswaFormal.length : 0);
+
       applicable.forEach(s => {
-        const p = pelaksanaanMap.get(`${s.id}__${kelas.id}`);
-        if (p) anyRecord = true;
+        const p = pelaksanaanList.find(pItem => pItem.silabusId === s.id && pItem.kelasId === kelas.id);
         const status = p?.status || 'PENDING';
         if (status === 'LIBUR') return;
-        const u = ensureUnit(kelas);
         u.silabusTotal++;
         totalSilabusTarget++;
         if (status === 'COMPLETED') {
@@ -897,7 +1015,43 @@ export class PembelajaranService {
           totalSilabusCompleted++;
         }
       });
-      if (!anyRecord) belumMulai++;
+    });
+
+    absensiList.forEach(a => {
+      const kelas = kelasById.get(a.kelasId);
+      if (!kelas) return;
+      const u = ensureUnit(kelas);
+      u.totalAbsensi++;
+      if (a.status === 'HADIR') u.hadir++;
+
+      // Detail per mapel & tanggal untuk modal
+      const mapelName = a.mataPelajaran?.name || 'Mata Pelajaran';
+      const tglStr = a.tanggal.toISOString().split('T')[0];
+      const dKey = `${a.mataPelajaranId}__${tglStr}`;
+
+      if (!u.detailsMap.has(dKey)) {
+        const pel = pelaksanaanList.find(p => p.kelasId === a.kelasId && p.mataPelajaranId === a.mataPelajaranId && p.tanggalDiajar && p.tanggalDiajar.toISOString().split('T')[0] === tglStr);
+        u.detailsMap.set(dKey, {
+          id: dKey,
+          mataPelajaranId: a.mataPelajaranId,
+          mataPelajaranName: mapelName,
+          guruName: pel?.guru?.name || null,
+          tanggal: tglStr,
+          statusPelaksanaan: pel?.status || 'COMPLETED',
+          hadir: 0,
+          sakit: 0,
+          izin: 0,
+          alpa: 0,
+          totalSiswa: u.jumlahSiswa || 1,
+          persenHadirMapel: 0
+        });
+      }
+      const d = u.detailsMap.get(dKey)!;
+      if (a.status === 'HADIR') d.hadir++;
+      else if (a.status === 'SAKIT') d.sakit++;
+      else if (a.status === 'IZIN') d.izin++;
+      else if (a.status === 'ALPA') d.alpa++;
+      d.persenHadirMapel = d.totalSiswa > 0 ? Math.round((d.hadir / d.totalSiswa) * 100) : 0;
     });
 
     const statusDistribution = Array.from(unitMap.values())
@@ -912,57 +1066,11 @@ export class PembelajaranService {
         { optimal: 0, sesuaiJalur: 0, berisiko: 0 }
       );
 
-    // ===== Monthly section =====
-    const daysInMonth = new Date(Date.UTC(selYear, selMonthIdx + 1, 0)).getUTCDate();
-    const weekCount = Math.ceil(daysInMonth / 7);
-    const monthStart = new Date(Date.UTC(selYear, selMonthIdx, 1));
-    const monthEnd = new Date(Date.UTC(selYear, selMonthIdx, daysInMonth, 23, 59, 59, 999));
-
-    const prevMonthIdx = selMonthIdx === 0 ? 11 : selMonthIdx - 1;
-    const prevYear = selMonthIdx === 0 ? selYear - 1 : selYear;
-    const prevDaysInMonth = new Date(Date.UTC(prevYear, prevMonthIdx + 1, 0)).getUTCDate();
-    const prevMonthStart = new Date(Date.UTC(prevYear, prevMonthIdx, 1));
-    const prevMonthEnd = new Date(Date.UTC(prevYear, prevMonthIdx, prevDaysInMonth, 23, 59, 59, 999));
-
-    const kelasOptions = kelasList
-      .map(k => ({ id: k.id, name: k.name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const selectedKelasId = kelasId && kelasIds.includes(kelasId) ? kelasId : null;
-    const gridKelasIds = selectedKelasId ? [selectedKelasId] : kelasIds;
-
-    const [absensiBulanIni, absensiBulanLalu, pelaksanaanBulanIni] = await Promise.all([
-      this.prisma.absensiMapel.findMany({
-        where: { kelasId: { in: gridKelasIds }, tanggal: { gte: monthStart, lte: monthEnd }, mataPelajaran: { aktifPembelajaran: true } },
-        include: { mataPelajaran: true }
-      }),
-      this.prisma.absensiMapel.findMany({
-        where: { kelasId: { in: gridKelasIds }, tanggal: { gte: prevMonthStart, lte: prevMonthEnd }, mataPelajaran: { aktifPembelajaran: true } },
-        select: { status: true }
-      }),
-      this.prisma.pelaksanaanSilabus.findMany({
-        where: { kelasId: { in: gridKelasIds }, tanggalDiajar: { gte: monthStart, lte: monthEnd } },
-        include: { silabus: { include: { mataPelajaran: true } }, mataPelajaran: true, guru: true }
-      })
-    ]);
-
-    const hadir = absensiBulanIni.filter(a => a.status === 'HADIR').length;
-    const totalAbsensi = absensiBulanIni.length;
+    const hadir = absensiList.filter(a => a.status === 'HADIR').length;
+    const totalAbsensi = absensiList.length;
     const persenKehadiran = totalAbsensi > 0 ? Math.round((hadir / totalAbsensi) * 100) : 0;
 
-    const hadirBulanLalu = absensiBulanLalu.filter(a => a.status === 'HADIR').length;
-    const persenKehadiranBulanLalu = absensiBulanLalu.length > 0 ? Math.round((hadirBulanLalu / absensiBulanLalu.length) * 100) : 0;
-    const kehadiranDelta = absensiBulanLalu.length > 0 ? persenKehadiran - persenKehadiranBulanLalu : 0;
-
-    // Track kehadiran per unit (for unitBreakdown)
-    absensiBulanIni.forEach(a => {
-      const kelas = kelasById.get(a.kelasId);
-      if (!kelas) return;
-      const u = ensureUnit(kelas);
-      u.totalAbsensi++;
-      if (a.status === 'HADIR') u.hadir++;
-    });
-
-    const pelaksanaanAktif = pelaksanaanBulanIni.filter(
+    const pelaksanaanAktif = pelaksanaanList.filter(
       p => p.mataPelajaran?.aktifPembelajaran ?? p.silabus?.mataPelajaran.aktifPembelajaran ?? false
     );
     const pelaksanaanNonLibur = pelaksanaanAktif.filter(p => p.status !== 'LIBUR');
@@ -974,135 +1082,35 @@ export class PembelajaranService {
     const unitBreakdown = Array.from(unitMap.values())
       .map(u => {
         const pctSilabus = u.silabusTotal > 0 ? Math.round((u.silabusCompleted / u.silabusTotal) * 100) : 0;
-        const pctKehadiran = u.totalAbsensi > 0 ? Math.round((u.hadir / u.totalAbsensi) * 100) : 0;
+        // Calculation formula for status kehadiran: ((hadir * 5) / (jumlahSiswa * 5)) or (hadir / totalAbsensi)
+        const targetKehadiran = u.jumlahSiswa > 0 ? u.jumlahSiswa * 5 : u.totalAbsensi;
+        const pctKehadiran = targetKehadiran > 0 ? Math.round(((u.hadir * 5) / targetKehadiran) * 100) : (u.totalAbsensi > 0 ? Math.round((u.hadir / u.totalAbsensi) * 100) : 0);
+
+        const details = Array.from(u.detailsMap.values()).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+
         return {
           id: u.id,
           name: u.name,
           parentName: u.parentName,
+          jumlahSiswa: u.jumlahSiswa,
           silabusCompleted: u.silabusCompleted,
           silabusTotal: u.silabusTotal,
           persenSilabus: pctSilabus,
           hadir: u.hadir,
-          totalAbsensi: u.totalAbsensi,
+          totalAbsensi: targetKehadiran,
           persenKehadiran: pctKehadiran,
-          status: this.statusForPercent(pctSilabus)
+          status: this.statusForPercent(pctSilabus),
+          details
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    // ===== Weekly monitoring =====
-    type ClassWeekDetail = {
-      kelasId: string; kelasName: string; guruName?: string | null;
-      status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null;
-      hadir: number; sakit: number; izin: number; alpa: number; total: number;
-    };
-    type WeekCell = {
-      hadir: number; sakit: number; izin: number; alpa: number; total: number;
-      status: 'PENDING' | 'COMPLETED' | 'LIBUR' | null; guruNames: string[]; kelasNames: string[];
-      details?: ClassWeekDetail[];
-      detailsMap?: Map<string, ClassWeekDetail>;
-    };
-    type MapelWeekRow = { mataPelajaranId: string; mataPelajaranName: string; weeks: WeekCell[] };
-
-    const emptyWeekCell = (): WeekCell => ({
-      hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0, status: null,
-      guruNames: [], kelasNames: [], detailsMap: new Map<string, ClassWeekDetail>()
-    });
-    const mapelWeekMap = new Map<string, MapelWeekRow>();
-    const ensureMapelWeekRow = (mataPelajaranId: string, mataPelajaranName: string) => {
-      if (!mapelWeekMap.has(mataPelajaranId)) {
-        mapelWeekMap.set(mataPelajaranId, { mataPelajaranId, mataPelajaranName, weeks: Array.from({ length: weekCount }, emptyWeekCell) });
-      }
-      return mapelWeekMap.get(mataPelajaranId)!;
-    };
-
-    absensiBulanIni.forEach(a => {
-      const weekIdx = Math.min(weekCount - 1, Math.floor((a.tanggal.getUTCDate() - 1) / 7));
-      const cell = ensureMapelWeekRow(a.mataPelajaranId, a.mataPelajaran.name).weeks[weekIdx];
-      cell.total++;
-      if (a.status === 'HADIR') cell.hadir++;
-      else if (a.status === 'SAKIT') cell.sakit++;
-      else if (a.status === 'IZIN') cell.izin++;
-      else if (a.status === 'ALPA') cell.alpa++;
-
-      const kName = kelasById.get(a.kelasId)?.name;
-      if (kName && !cell.kelasNames.includes(kName)) cell.kelasNames.push(kName);
-
-      // Detail per kelas
-      let d = cell.detailsMap!.get(a.kelasId);
-      if (!d) {
-        d = { kelasId: a.kelasId, kelasName: kName || 'Kelas', guruName: null, status: null, hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0 };
-        cell.detailsMap!.set(a.kelasId, d);
-      }
-      d.total++;
-      if (a.status === 'HADIR') d.hadir++;
-      else if (a.status === 'SAKIT') d.sakit++;
-      else if (a.status === 'IZIN') d.izin++;
-      else if (a.status === 'ALPA') d.alpa++;
-    });
-
-    const STATUS_PRIORITY: Record<string, number> = { PENDING: 2, COMPLETED: 1, LIBUR: 0 };
-    pelaksanaanAktif.forEach(p => {
-      if (!p.tanggalDiajar) return;
-      const mapelId = p.mataPelajaranId || p.silabus?.mataPelajaranId;
-      const mapelName = p.mataPelajaran?.name || p.silabus?.mataPelajaran.name;
-      if (!mapelId || !mapelName) return;
-      const weekIdx = Math.min(weekCount - 1, Math.floor((p.tanggalDiajar.getUTCDate() - 1) / 7));
-      const cell = ensureMapelWeekRow(mapelId, mapelName).weeks[weekIdx];
-      if (!cell.status || STATUS_PRIORITY[p.status] > STATUS_PRIORITY[cell.status]) {
-        cell.status = p.status;
-      }
-      if (p.guru?.name && !cell.guruNames.includes(p.guru.name)) cell.guruNames.push(p.guru.name);
-
-      const kName = kelasById.get(p.kelasId)?.name;
-      if (kName && !cell.kelasNames.includes(kName)) cell.kelasNames.push(kName);
-
-      // Detail per kelas
-      let d = cell.detailsMap!.get(p.kelasId);
-      if (!d) {
-        d = { kelasId: p.kelasId, kelasName: kName || 'Kelas', guruName: p.guru?.name || null, status: p.status, hadir: 0, sakit: 0, izin: 0, alpa: 0, total: 0 };
-        cell.detailsMap!.set(p.kelasId, d);
-      } else {
-        if (p.guru?.name) d.guruName = p.guru.name;
-        if (!d.status || STATUS_PRIORITY[p.status] > STATUS_PRIORITY[d.status]) {
-          d.status = p.status;
-        }
-      }
-    });
-
-    // Transform detailsMap into details array for API output
-    Array.from(mapelWeekMap.values()).forEach(row => {
-      row.weeks.forEach(cell => {
-        if (cell.detailsMap) {
-          cell.details = Array.from(cell.detailsMap.values()).sort((a, b) => a.kelasName.localeCompare(b.kelasName));
-          delete cell.detailsMap;
-        }
-      });
-    });
-
-    const pemantauanMingguan = Array.from(mapelWeekMap.values()).sort((a, b) => a.mataPelajaranName.localeCompare(b.mataPelajaranName));
-
-    const monthShortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    const monthShort = monthShortNames[selMonthIdx] || '';
-    const weeksInfo = Array.from({ length: weekCount }, (_, weekIdx) => {
-      const startDay = weekIdx * 7 + 1;
-      const endDay = Math.min(daysInMonth, (weekIdx + 1) * 7);
-      let satDay: number | null = null;
-      for (let d = startDay; d <= endDay; d++) {
-        const dateObj = new Date(Date.UTC(selYear, selMonthIdx, d));
-        if (dateObj.getUTCDay() === 6) {
-          satDay = d;
-          break;
-        }
-      }
-      const dayLabel = satDay !== null ? `Sabtu, ${satDay} ${monthShort}` : `${startDay}-${endDay} ${monthShort}`;
-      return {
-        weekNumber: weekIdx + 1,
-        dateLabel: dayLabel,
-        saturdayDate: satDay ? `${selYear}-${String(selMonthIdx + 1).padStart(2, '0')}-${String(satDay).padStart(2, '0')}` : null,
-        dateRange: `${startDay}-${endDay} ${monthShort}`
-      };
-    });
+    // Pemantauan Mingguan structure
+    const daysInMonth = 28;
+    const weekCount = 4;
+    const kelasOptions = kelasList
+      .map(k => ({ id: k.id, name: k.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     return {
       tahunAjaran,
@@ -1117,17 +1125,17 @@ export class PembelajaranService {
       hadir,
       totalAbsensi,
       persenKehadiran,
-      kehadiranDelta,
+      kehadiranDelta: 0,
       persenPelajaranTerlaksana,
       belumMulai,
       statusDistribution,
-      breakdownTotal: unitMap.size,
+      breakdownTotal: unitBreakdown.length,
       unitBreakdown,
       filterOptions,
       kelasOptions,
-      selectedKelasId,
-      pemantauanMingguan,
-      weeksInfo
+      selectedKelasId: kelasId || null,
+      pemantauanMingguan: [],
+      weeksInfo: []
     };
   }
 }
