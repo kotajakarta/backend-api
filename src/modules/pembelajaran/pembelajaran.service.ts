@@ -555,7 +555,7 @@ export class PembelajaranService {
       throw new BadRequestException('Tidak dapat menginput atau mengubah status pelaksanaan untuk tanggal mendatang');
     }
 
-    const date = new Date(`${tanggal}T00:00:00`);
+    const date = new Date(`${tanggal.slice(0, 10)}T00:00:00.000Z`);
 
     return this.prisma.$transaction(async (tx) => {
       const results = [];
