@@ -330,6 +330,7 @@ export class PortalService {
       'fullName', 'tempatLahir', 'tanggalLahir', 'jenisKelamin', 'kewarganegaraan',
       'anakKe', 'jumlahSaudara', 'citaCita', 'hobi', 'riwayatPenyakit',
       'alamatJalan', 'alamatRt', 'alamatRw', 'alamatKelName', 'alamatKecName', 'alamatKabName', 'alamatProvName', 'alamatKodePos',
+      'alamatProvId', 'alamatKabId', 'alamatKecId', 'alamatKelId',
       'namaAyah', 'statusHidupAyah', 'nikAyah', 'tempatLahirAyah', 'tanggalLahirAyah', 'pekerjaanAyah', 'pendidikanAyah', 'penghasilanAyah', 'teleponAyah',
       'namaIbu', 'statusHidupIbu', 'nikIbu', 'tempatLahirIbu', 'tanggalLahirIbu', 'pekerjaanIbu', 'pendidikanIbu', 'penghasilanIbu', 'teleponIbu',
       'namaWali', 'statusHidupWali', 'nikWali', 'tempatLahirWali', 'tanggalLahirWali', 'pekerjaanWali', 'pendidikanWali', 'penghasilanWali', 'teleponWali', 'hubunganWali',
