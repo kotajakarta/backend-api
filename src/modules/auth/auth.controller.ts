@@ -75,7 +75,7 @@ export class AuthController {
       hubungan: string;
       username: string;
       password: string;
-      phone?: string;
+      phone: string;
     },
   ) {
     return this.authService.registerWalsan(body);

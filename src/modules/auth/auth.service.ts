@@ -341,7 +341,12 @@ export class AuthService {
       include: {
         biodata: true,
         cabang: true,
-        siswaFormal: { include: { kelas: true } }
+        siswaFormal: { include: { kelas: true } },
+        waliSantri: {
+          include: {
+            user: true
+          }
+        }
       }
     });
 
@@ -356,6 +361,14 @@ export class AuthService {
       if (dbDateStr !== inputDateStr) {
         throw new BadRequestException('Tanggal lahir santri tidak cocok dengan data terdaftar.');
       }
+    }
+
+    // Check if student already has an active or pending Walsan account
+    const existingWali = student.waliSantri && student.waliSantri.some(
+      (ws) => ws.user && ws.user.status !== 'REJECTED'
+    );
+    if (existingWali) {
+      throw new BadRequestException('Akun Walsan untuk Santri ini sudah terdaftar, silahkan menghubungi Cabang Terkait.');
     }
 
     return {
@@ -394,10 +407,10 @@ export class AuthService {
     hubungan: string;
     username: string;
     password: string;
-    phone?: string;
+    phone: string;
   }) {
-    if (!data.studentId || !data.namaWalsan || !data.username || !data.password) {
-      throw new BadRequestException('Data pendaftaran wali santri tidak lengkap');
+    if (!data.studentId || !data.namaWalsan || !data.username || !data.password || !data.phone) {
+      throw new BadRequestException('Data pendaftaran wali santri tidak lengkap. Nomor WhatsApp / HP wajib diisi.');
     }
 
     const cleanUsername = data.username.trim().toLowerCase();
@@ -409,6 +422,19 @@ export class AuthService {
     });
     if (!student) {
       throw new NotFoundException('Data santri tidak ditemukan');
+    }
+
+    // Check if student already has a Walsan account
+    const existingWali = await this.prisma.waliSantri.findFirst({
+      where: {
+        studentId: data.studentId,
+        user: {
+          status: { not: 'REJECTED' }
+        }
+      }
+    });
+    if (existingWali) {
+      throw new BadRequestException('Akun Walsan untuk Santri ini sudah terdaftar, silahkan menghubungi Cabang Terkait.');
     }
 
     // Check username uniqueness
