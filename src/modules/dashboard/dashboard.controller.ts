@@ -1,6 +1,7 @@
 import { Controller, Get, UseGuards, Inject, Request, Query } from '@nestjs/common';
 import { DashboardService } from './dashboard.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
+import { RequireScope } from '../../common/decorators/access-control.decorator.js';
 
 @Controller('dashboard')
 export class DashboardController {
@@ -14,6 +15,7 @@ export class DashboardController {
 
   @Get('ketersediaan-guru')
   @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
   getKetersediaanGuruDetail(@Request() req: any) {
     return this.dashboardService.getKetersediaanGuruDetail(req.user);
   }

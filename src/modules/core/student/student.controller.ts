@@ -2,7 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, Res, UseGuards,
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudentService, DOKUMEN_JENIS, DokumenJenis } from './student.service.js';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
-import { AllowCookieAuth } from '../../../common/decorators/access-control.decorator.js';
+import { AllowCookieAuth, RequireScope } from '../../../common/decorators/access-control.decorator.js';
 import { StatusPool } from '@prisma/client';
 
 @Controller('students')
@@ -57,12 +57,14 @@ export class StudentController {
 
   @Delete('all')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deleteAllStudents(@Request() req: any) {
     return this.studentService.deleteAllStudents(req.user);
   }
 
   @Delete('pool/all')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deletePoolStudents(@Request() req: any) {
     return this.studentService.deletePoolStudents(req.user);
   }
@@ -75,12 +77,14 @@ export class StudentController {
 
   @Get('pool')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   getPoolStudents(@Query() query: { search?: string; limit?: string }, @Request() req: any) {
     return this.studentService.getPoolStudents(req.user, query);
   }
 
   @Get('daftar-ulang/list')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   getDaftarUlangList(@Request() req: any) {
     return this.studentService.getDaftarUlangList(req.user);
   }

@@ -581,6 +581,8 @@ export class MasterDataService {
     let whereClause = {};
     if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause = { wilayahId: user.wilayahId };
+    } else if (user.scope === 'CABANG' && user.cabangId) {
+      whereClause = { id: user.cabangId };
     }
     
     const cabangs = await this.prisma.cabang.findMany({

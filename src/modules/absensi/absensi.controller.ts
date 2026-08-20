@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, Inject } from '@nestjs/common';
 import { AbsensiService } from './absensi.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
+import { RequireScope } from '../../common/decorators/access-control.decorator.js';
 
 @Controller('absensi')
 export class AbsensiController {
@@ -24,30 +25,35 @@ export class AbsensiController {
 
   @Post('programs/bulk-generate')
   @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
   generateProgramsBulk(@Request() req: any, @Body() body: { namePrefix: string; dayOfWeek?: number; daysOfWeek?: number[]; startMonth: string; endMonth: string }) {
     return this.absensiService.generateProgramsBulk(body, req.user);
   }
 
   @Post('programs')
   @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
   createProgram(@Request() req: any, @Body() data: any) {
     return this.absensiService.createProgram(data, req.user);
   }
 
   @Put('programs/:id')
   @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
   updateProgram(@Request() req: any, @Param('id') id: string, @Body() data: any) {
     return this.absensiService.updateProgram(id, data, req.user);
   }
 
   @Delete('programs/all')
   @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
   deleteAllPrograms(@Request() req: any) {
     return this.absensiService.deleteAllPrograms(req.user);
   }
 
   @Delete('programs/:id')
   @UseGuards(AccessControlGuard)
+  @RequireScope('WILAYAH')
   deleteProgram(@Request() req: any, @Param('id') id: string) {
     return this.absensiService.deleteProgram(id, req.user);
   }

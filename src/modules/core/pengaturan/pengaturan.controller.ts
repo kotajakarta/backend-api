@@ -38,6 +38,7 @@ export class PengaturanController {
 
   @Put('akademik')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   updatePengaturanAkademik(@Body() data: { semesterAktif: string, tahunAjaran: string, kodeDaftarUlang?: string }) {
     return this.pengaturanService.updatePengaturanAkademik(data);
   }
@@ -51,18 +52,21 @@ export class PengaturanController {
 
   @Post('pengumuman')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   createPengumuman(@Body() data: { title: string, content: string, links?: any[], isActive?: boolean, showPopup?: boolean }) {
     return this.pengaturanService.createPengumuman(data);
   }
 
   @Put('pengumuman/:id')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   updatePengumuman(@Param('id') id: string, @Body() data: { title?: string, content?: string, links?: any[], isActive?: boolean, showPopup?: boolean }) {
     return this.pengaturanService.updatePengumuman(id, data);
   }
 
   @Delete('pengumuman/:id')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deletePengumuman(@Param('id') id: string) {
     return this.pengaturanService.deletePengumuman(id);
   }
@@ -76,6 +80,7 @@ export class PengaturanController {
 
   @Post('kalender')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   @UseInterceptors(FileInterceptor('file'))
   uploadKalender(@UploadedFile() file: any, @Body('title') title: string) {
     if (!file) throw new BadRequestException('File is required');
@@ -127,6 +132,7 @@ export class PengaturanController {
 
   @Delete('kalender/:id')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deleteKalender(@Param('id') id: string) {
     return this.pengaturanService.deleteKalender(id);
   }

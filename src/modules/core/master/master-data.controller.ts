@@ -48,12 +48,14 @@ export class MasterDataController {
 
   @Post('cabang/import')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   importCabang(@Request() req: any) {
     return this.masterDataService.importCabang(req.user, req.body);
   }
 
   @Post('wilayah/import')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   importWilayah(@Request() req: any) {
     return this.masterDataService.importWilayah(req.user, req.body);
   }
@@ -72,6 +74,7 @@ export class MasterDataController {
 
   @Delete('guru/all')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deleteAllGuru(@Request() req: any) {
     return this.masterDataService.deleteAllGuru(req.user);
   }
@@ -84,18 +87,21 @@ export class MasterDataController {
 
   @Get('pool-guru')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   getPoolGuru(@Request() req: any) {
     return this.masterDataService.getPoolGuru(req.user);
   }
 
   @Delete('pool-guru/all')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deletePoolGuru(@Request() req: any) {
     return this.masterDataService.deletePoolGuru(req.user);
   }
 
   @Post('pool-guru/tarik-massal')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   tarikMassalGuru(@Request() req: any) {
     return this.masterDataService.tarikMassalGuru(req.body.staffIds, req.body.cabangId, req.user);
   }
@@ -114,6 +120,7 @@ export class MasterDataController {
 
   @Post('cabang')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   createCabang(@Request() req: any) {
     return this.masterDataService.createCabang(req.body, req.user);
   }
@@ -138,24 +145,28 @@ export class MasterDataController {
 
   @Put('cabang/:id/target-kuota')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   updateTargetKuota(@Request() req: any) {
     return this.masterDataService.updateTargetKuota(req.params.id, req.body, req.user);
   }
 
   @Post('cabang/import-target-kuota')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   importTargetKuota(@Request() req: any) {
     return this.masterDataService.importTargetKuota(req.body, req.user);
   }
 
   @Delete('cabang/all')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deleteAllCabang(@Request() req: any) {
     return this.masterDataService.deleteAllCabang(req.user);
   }
 
   @Delete('cabang/:id')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deleteCabang(@Request() req: any) {
     return this.masterDataService.deleteCabang(req.params.id, req.user);
   }
@@ -168,30 +179,35 @@ export class MasterDataController {
 
   @Post('wilayah')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   createWilayah(@Request() req: any) {
     return this.masterDataService.createWilayah(req.body, req.user);
   }
 
   @Put('wilayah/:id')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   updateWilayah(@Request() req: any) {
     return this.masterDataService.updateWilayah(req.params.id, req.body, req.user);
   }
 
   @Put('wilayah/:id/profile')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   updateWilayahProfile(@Request() req: any) {
     return this.masterDataService.updateWilayahProfile(req.params.id, req.body, req.user);
   }
 
   @Delete('wilayah/all')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deleteAllWilayah(@Request() req: any) {
     return this.masterDataService.deleteAllWilayah(req.user);
   }
 
   @Delete('wilayah/:id')
   @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
   deleteWilayah(@Request() req: any) {
     return this.masterDataService.deleteWilayah(req.params.id, req.user);
   }
