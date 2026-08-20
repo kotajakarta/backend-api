@@ -1024,7 +1024,6 @@ export class StudentService {
         { statusPool: StatusPool.MUTASI },
         { statusPool: StatusPool.DROP_OUT },
         { statusPool: StatusPool.LULUS },
-        { statusPool: null },
         { cabangId: null },
         ...(scope === 'CABANG' && cabangId ? [{
           statusPool: StatusPool.AKTIF_CABANG,
