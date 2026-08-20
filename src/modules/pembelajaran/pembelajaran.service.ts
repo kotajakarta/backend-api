@@ -585,11 +585,21 @@ export class PembelajaranService {
         if (!log.kelasId || !log.mataPelajaranId) continue;
 
         if (log.status === 'PENDING') {
-          // If status is reset to PENDING, remove execution record
+          // If status is reset to PENDING, remove execution record and attendance
           await tx.pelaksanaanSilabus.deleteMany({
             where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date }
           });
+          await tx.absensiMapel.deleteMany({
+            where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggal: date }
+          });
           continue;
+        }
+
+        if (log.status === 'LIBUR') {
+          // If status is LIBUR, clean up attendance
+          await tx.absensiMapel.deleteMany({
+            where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggal: date }
+          });
         }
 
         // Determine silabusId (use provided or fallback to first silabus section)
@@ -674,10 +684,11 @@ export class PembelajaranService {
     const silabus = await this.prisma.silabusMapel.findUnique({ where: { id: silabusId } });
     if (!silabus) throw new NotFoundException('Section silabus tidak ditemukan');
 
-    const date = new Date(tanggal);
-    return this.prisma.$transaction(
-      logs.map(log =>
-        this.prisma.absensiMapel.upsert({
+    const date = new Date(`${tanggal.slice(0, 10)}T00:00:00.000Z`);
+
+    return this.prisma.$transaction(async (tx) => {
+      for (const log of logs) {
+        await tx.absensiMapel.upsert({
           where: {
             mataPelajaranId_kelasId_studentId_tanggal: {
               mataPelajaranId: silabus.mataPelajaranId,
@@ -696,9 +707,66 @@ export class PembelajaranService {
             status: log.status,
             catatan: log.catatan || null
           }
-        })
-      )
-    );
+        });
+      }
+
+      // Automatically ensure pelaksanaanSilabus is COMPLETED
+      await tx.pelaksanaanSilabus.upsert({
+        where: {
+          kelasId_mataPelajaranId_tanggalDiajar: {
+            kelasId,
+            mataPelajaranId: silabus.mataPelajaranId,
+            tanggalDiajar: date
+          }
+        },
+        update: {
+          silabusId,
+          status: 'COMPLETED'
+        },
+        create: {
+          kelasId,
+          mataPelajaranId: silabus.mataPelajaranId,
+          silabusId,
+          tanggalDiajar: date,
+          status: 'COMPLETED'
+        }
+      });
+
+      return { success: true, count: logs.length };
+    });
+  }
+
+  async deleteAbsensiMapel(
+    kelasId: string,
+    params: { silabusId?: string; mataPelajaranId?: string; tanggal: string }
+  ) {
+    const { silabusId, tanggal } = params;
+    let mataPelajaranId = params.mataPelajaranId;
+
+    if (!mataPelajaranId && silabusId) {
+      const silabus = await this.prisma.silabusMapel.findUnique({ where: { id: silabusId } });
+      if (silabus) {
+        mataPelajaranId = silabus.mataPelajaranId;
+      }
+    }
+
+    if (!mataPelajaranId) {
+      throw new BadRequestException('Mata pelajaran tidak valid');
+    }
+
+    const date = new Date(`${tanggal.slice(0, 10)}T00:00:00.000Z`);
+
+    return this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.absensiMapel.deleteMany({
+        where: {
+          kelasId,
+          mataPelajaranId,
+          tanggal: date
+        }
+      });
+
+      return { success: true, count: deleted.count };
+    });
   }
 
   // ===== D. Laporan (Admin Pusat / Wilayah) =====

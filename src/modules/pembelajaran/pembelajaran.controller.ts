@@ -132,6 +132,20 @@ export class PembelajaranController {
     return this.pembelajaranService.saveAbsensiMapelBulk(body.kelasId, body.silabusId, body.tanggal, body.logs);
   }
 
+  @Delete('absensi-mapel')
+  @UseGuards(AccessControlGuard)
+  deleteAbsensiMapel(
+    @Query('kelasId') kelasId: string,
+    @Query('silabusId') silabusId?: string,
+    @Query('mataPelajaranId') mataPelajaranId?: string,
+    @Query('tanggal') tanggal?: string
+  ) {
+    if (!kelasId || !tanggal || (!silabusId && !mataPelajaranId)) {
+      throw new BadRequestException('kelasId, tanggal, dan (silabusId atau mataPelajaranId) wajib diisi');
+    }
+    return this.pembelajaranService.deleteAbsensiMapel(kelasId, { silabusId, mataPelajaranId, tanggal });
+  }
+
   // --- Laporan (Admin Pusat / Wilayah) ---
 
   @Get('laporan')
