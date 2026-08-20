@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Requ
 import { FilesInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
 import { KegiatanService } from './kegiatan.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
+import { AllowCookieAuth } from '../../common/decorators/access-control.decorator.js';
 import { Response } from 'express';
 import multer from 'multer';
 import * as path from 'path';
@@ -219,6 +220,8 @@ export class KegiatanController {
   }
 
   @Get('uploads/:filename')
+  @UseGuards(AccessControlGuard)
+  @AllowCookieAuth()
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
     const filePath = path.join(uploadDir, safeFilename);

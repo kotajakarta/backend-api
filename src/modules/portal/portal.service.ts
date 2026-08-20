@@ -3,7 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { FormalService } from '../formal/formal.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { CreatePermohonanIzinDto } from './dto/create-permohonan-izin.dto.js';
-import { encryptStreamUrl, decryptStreamUrl } from '../../common/utils/cctv-crypto.js';
+import { encryptStreamUrl, decryptStreamUrl, decryptStoredStreamUrl } from '../../common/utils/cctv-crypto.js';
 
 @Injectable()
 export class PortalService {
@@ -236,7 +236,7 @@ export class PortalService {
     });
 
     return channels.map((c: any) => {
-      let raw = decryptStreamUrl(c.streamUrl);
+      let raw = decryptStoredStreamUrl(c.streamUrl);
       if (!raw || (!raw.startsWith('http://') && !raw.startsWith('https://'))) {
         raw = 'https://its.binamarga.pu.go.id:8989/play/hls/CT-02/index.m3u8';
       }

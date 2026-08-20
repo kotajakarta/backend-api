@@ -53,7 +53,11 @@ async function bootstrap() {
   let corsOptions: cors.CorsOptions = { origin: false }; // Default: deny all
   if (process.env.CORS_ORIGINS) {
     if (process.env.CORS_ORIGINS === '*') {
-      corsOptions = { origin: true, credentials: true };
+      // Reflecting any Origin (`origin: true`) together with `credentials: true` is
+      // equivalent to an unrestricted wildcard-with-credentials policy — any site could
+      // make credentialed requests using a visitor's `token` cookie. Never combine the two.
+      corsOptions = { origin: true, credentials: false };
+      console.warn('⚠️  CORS_ORIGINS=* — credentialed cross-origin requests are disabled for safety. Set explicit origins in CORS_ORIGINS to allow cookies/Authorization from a browser.');
     } else {
       const origins = process.env.CORS_ORIGINS.split(',').map(o => o.trim());
       corsOptions = { origin: origins, credentials: true };
@@ -70,6 +74,8 @@ async function bootstrap() {
   server.use(`/${apiPrefix}/signin`, loginRateLimiter);
   server.use(`/${apiPrefix}/students/daftar-ulang/verify`, daftarUlangRateLimiter);
   server.use(`/${apiPrefix}/students/daftar-ulang/submit`, daftarUlangRateLimiter);
+  server.use(`/${apiPrefix}/pengaturan/cctv/verify-pin`, loginRateLimiter);
+  server.use(`/${apiPrefix}/auth/2fa/verify-login`, loginRateLimiter);
   server.use(`/${apiPrefix}`, globalRateLimiter);
 
   // ════════════════════════════════════════════════════════════════

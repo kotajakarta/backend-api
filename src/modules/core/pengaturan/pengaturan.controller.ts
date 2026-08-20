@@ -14,7 +14,7 @@ export class PengaturanController {
   // --- MODUL SYSTEM (FEATURE TOGGLES & CCTV PROTECTION) ---
   @Get('modules')
   getModuleSettings() {
-    return this.pengaturanService.getModuleSettings();
+    return this.pengaturanService.getPublicModuleSettings();
   }
 
   @Put('modules')

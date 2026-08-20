@@ -5,7 +5,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
-import { RequireDivisi, RequireScope } from '../../common/decorators/access-control.decorator.js';
+import { RequireDivisi, RequireScope, AllowCookieAuth } from '../../common/decorators/access-control.decorator.js';
 
 @Controller('formal')
 @RequireDivisi('FORMAL')
@@ -301,6 +301,7 @@ export class FormalController {
 
   @Get('muadalah/uploads/:filename')
   @UseGuards(AccessControlGuard)
+  @AllowCookieAuth()
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
     const uploadDir = path.join(process.cwd(), 'uploads');

@@ -2,7 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Requ
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireScope } from '../../common/decorators/access-control.decorator.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { encryptStreamUrl, decryptStreamUrl } from '../../common/utils/cctv-crypto.js';
+import { encryptStreamUrl, decryptStreamUrl, encryptStoredStreamUrl, decryptStoredStreamUrl } from '../../common/utils/cctv-crypto.js';
 import { assertModuleEnabled } from '../../common/utils/module-guard.js';
 
 @Controller('cctv')
@@ -32,7 +32,7 @@ export class CctvController {
     });
 
     return channels.map((c: any) => {
-      let raw = decryptStreamUrl(c.streamUrl);
+      let raw = decryptStoredStreamUrl(c.streamUrl);
       if (!raw || (!raw.startsWith('http://') && !raw.startsWith('https://'))) {
         raw = 'https://its.binamarga.pu.go.id:8989/play/hls/CT-02/index.m3u8';
       }
@@ -54,7 +54,7 @@ export class CctvController {
       throw new ForbiddenException('Cabang ID wajib diisi');
     }
 
-    const encryptedUrl = encryptStreamUrl(decryptStreamUrl(body.streamUrl));
+    const encryptedUrl = encryptStoredStreamUrl(decryptStoredStreamUrl(body.streamUrl));
 
     return this.prisma.cctvChannel.create({
       data: {
@@ -78,7 +78,7 @@ export class CctvController {
       throw new ForbiddenException('Anda tidak memiliki akses ke CCTV cabang lain');
     }
 
-    const encryptedUrl = body.streamUrl ? encryptStreamUrl(decryptStreamUrl(body.streamUrl)) : undefined;
+    const encryptedUrl = body.streamUrl ? encryptStoredStreamUrl(decryptStoredStreamUrl(body.streamUrl)) : undefined;
 
     return this.prisma.cctvChannel.update({
       where: { id },

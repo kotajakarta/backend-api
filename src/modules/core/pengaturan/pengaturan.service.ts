@@ -2,6 +2,7 @@ import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import bcrypt from 'bcrypt';
 
 @Injectable()
 export class PengaturanService {
@@ -122,7 +123,14 @@ export class PengaturanService {
     if (fs.existsSync(filePath)) {
       try {
         const raw = fs.readFileSync(filePath, 'utf-8');
-        return JSON.parse(raw);
+        const settings = JSON.parse(raw);
+        if (settings.cctvPin && !settings.cctvPinHash) {
+          // One-time migration: earlier versions stored the PIN as plain text.
+          settings.cctvPinHash = await bcrypt.hash(String(settings.cctvPin), 10);
+          delete settings.cctvPin;
+          fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf-8');
+        }
+        return settings;
       } catch (e) {
         // Fallback default
       }
@@ -131,23 +139,34 @@ export class PengaturanService {
       portalWalsanEnabled: true,
       raporMuadalahEnabled: true,
       cctvProtectionEnabled: true,
-      cctvPin: '123456',
+      cctvPinHash: await bcrypt.hash('123456', 10),
     };
+  }
+
+  /** Settings shape safe to return from the public, unauthenticated GET /pengaturan/modules endpoint. */
+  async getPublicModuleSettings() {
+    const { cctvPin, cctvPinHash, ...publicSettings } = await this.getModuleSettings();
+    return publicSettings;
   }
 
   async updateModuleSettings(data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean; cctvProtectionEnabled?: boolean; cctvPin?: string }) {
     const current = await this.getModuleSettings();
-    const updated = {
+    const updated: any = {
       ...current,
       ...(data.portalWalsanEnabled !== undefined && { portalWalsanEnabled: data.portalWalsanEnabled }),
       ...(data.raporMuadalahEnabled !== undefined && { raporMuadalahEnabled: data.raporMuadalahEnabled }),
       ...(data.cctvProtectionEnabled !== undefined && { cctvProtectionEnabled: data.cctvProtectionEnabled }),
-      ...(data.cctvPin !== undefined && { cctvPin: data.cctvPin.trim() }),
     };
+    if (data.cctvPin !== undefined) {
+      updated.cctvPinHash = await bcrypt.hash(data.cctvPin.trim(), 10);
+    }
+    delete updated.cctvPin; // never persist plaintext, even if it was present on `current` from an old file
 
     const filePath = this.getModuleSettingsFilePath();
     fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
-    return updated;
+
+    const { cctvPinHash, ...publicUpdated } = updated;
+    return publicUpdated;
   }
 
   async verifyCctvPin(pin: string) {
@@ -155,8 +174,8 @@ export class PengaturanService {
       throw new BadRequestException('PIN wajib diisi');
     }
     const settings = await this.getModuleSettings();
-    const expectedPin = settings.cctvPin || '123456';
-    const isValid = pin.trim() === expectedPin.trim();
+    const expectedHash = settings.cctvPinHash || (await bcrypt.hash('123456', 10));
+    const isValid = await bcrypt.compare(pin.trim(), expectedHash);
     return {
       success: isValid,
       protectionEnabled: settings.cctvProtectionEnabled !== false,

@@ -45,11 +45,12 @@ function signToken(payload: ScopePayload = {}): string {
   });
 }
 
-function makeReflector(requiredScope?: string, requiredDivisi?: string) {
+function makeReflector(requiredScope?: string, requiredDivisi?: string, allowCookieAuth?: boolean) {
   return {
     getAllAndOverride: (key: string) => {
       if (key === 'requireScope') return requiredScope;
       if (key === 'requireDivisi') return requiredDivisi;
+      if (key === 'allowCookieAuth') return allowCookieAuth;
       return undefined;
     },
   } as any;
@@ -65,6 +66,15 @@ function makePrisma(userExists = true) {
 
 function makeContext(token: string): ExecutionContext {
   const req: any = { headers: { authorization: `Bearer ${token}` } };
+  return {
+    switchToHttp: () => ({ getRequest: () => req }),
+    getHandler: () => function RouteHandler() {},
+    getClass: () => class RouteController {},
+  } as unknown as ExecutionContext;
+}
+
+function makeCookieContext(token: string): ExecutionContext {
+  const req: any = { headers: { cookie: `other=1; token=${token}; another=2` } };
   return {
     switchToHttp: () => ({ getRequest: () => req }),
     getHandler: () => function RouteHandler() {},
@@ -154,6 +164,37 @@ describe('AccessControlGuard — GLOBAL/WILAYAH behavior unchanged (regression g
   });
 });
 
+describe('AccessControlGuard — CABANG branch enforcement (no longer a no-op)', () => {
+  it('CABANG token passes a route requiring CABANG', async () => {
+    const result = await activate('CABANG', undefined, { scope: 'CABANG' });
+    assert.equal(result, true);
+  });
+
+  it('WILAYAH token passes a route requiring CABANG (higher scope satisfies lower)', async () => {
+    const result = await activate('CABANG', undefined, { scope: 'WILAYAH' });
+    assert.equal(result, true);
+  });
+
+  it('GLOBAL token passes a route requiring CABANG', async () => {
+    const result = await activate('CABANG', undefined, { scope: 'GLOBAL' });
+    assert.equal(result, true);
+  });
+
+  it('AUDITOR token passes a route requiring CABANG (read-only staff satisfies CABANG-or-higher)', async () => {
+    const result = await activate('CABANG', undefined, { scope: 'AUDITOR' as any });
+    assert.equal(result, true);
+  });
+
+  it('WALI token is rejected from a route requiring CABANG (blocked by the separate WALI default-deny check)', async () => {
+    await assert.rejects(
+      () => activate('CABANG', undefined, { scope: 'WALI' }),
+      (err: unknown) =>
+        err instanceof ForbiddenException &&
+        (err as ForbiddenException).message === 'Akun wali santri tidak memiliki akses ke endpoint ini'
+    );
+  });
+});
+
 describe('AccessControlGuard — divisi check is skipped for WALI tokens', () => {
   it('WALI token with mismatched divisi still passes a route requiring RequireScope(\'WALI\') + RequireDivisi(\'FORMAL\') (divisi check is skipped for WALI, isolated from the default-deny rule since requiredScope === \'WALI\' here)', async () => {
     const result = await activate('WALI', 'FORMAL', { scope: 'WALI', divisi: 'PESANTREN' });
@@ -209,6 +250,49 @@ describe('AccessControlGuard — unrelated behavior sanity checks', () => {
     const guard = new AccessControlGuard(makeReflector(undefined, undefined), makePrisma(false));
     const context = makeContext(signToken({ scope: 'GLOBAL' }));
 
+    await assert.rejects(() => guard.canActivate(context), (err: unknown) => err instanceof UnauthorizedException);
+  });
+});
+
+describe('AccessControlGuard — cookie-based token fallback (replaces query-string tokens)', () => {
+  it('accepts a valid token from a `token=` cookie when there is no Authorization header', async () => {
+    const guard = new AccessControlGuard(makeReflector(undefined, undefined, true), makePrisma());
+    const context = makeCookieContext(signToken({ scope: 'GLOBAL' }));
+    const result = await guard.canActivate(context);
+    assert.equal(result, true);
+  });
+
+  it('rejects a valid token from a `token=` cookie when the route has no @AllowCookieAuth() (cookie auth is opt-in per route)', async () => {
+    const guard = new AccessControlGuard(makeReflector(undefined, undefined), makePrisma());
+    const context = makeCookieContext(signToken({ scope: 'GLOBAL' }));
+    await assert.rejects(() => guard.canActivate(context), (err: unknown) => err instanceof UnauthorizedException);
+  });
+
+  it('prefers the Authorization header over a cookie when both are present', async () => {
+    const guard = new AccessControlGuard(makeReflector(undefined, undefined, true), makePrisma());
+    const req: any = {
+      headers: {
+        authorization: `Bearer ${signToken({ scope: 'GLOBAL' })}`,
+        cookie: `token=not-a-real-token`,
+      },
+    };
+    const context = {
+      switchToHttp: () => ({ getRequest: () => req }),
+      getHandler: () => function RouteHandler() {},
+      getClass: () => class RouteController {},
+    } as unknown as ExecutionContext;
+    const result = await guard.canActivate(context);
+    assert.equal(result, true);
+  });
+
+  it('rejects when neither an Authorization header, a cookie, nor a query token is present (query-string tokens are no longer accepted)', async () => {
+    const guard = new AccessControlGuard(makeReflector(undefined, undefined), makePrisma());
+    const req: any = { headers: {}, query: { token: signToken({ scope: 'GLOBAL' }) } };
+    const context = {
+      switchToHttp: () => ({ getRequest: () => req }),
+      getHandler: () => function RouteHandler() {},
+      getClass: () => class RouteController {},
+    } as unknown as ExecutionContext;
     await assert.rejects(() => guard.canActivate(context), (err: unknown) => err instanceof UnauthorizedException);
   });
 });

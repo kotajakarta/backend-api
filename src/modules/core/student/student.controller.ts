@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, Res, UseGuards,
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudentService, DOKUMEN_JENIS, DokumenJenis } from './student.service.js';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
+import { AllowCookieAuth } from '../../../common/decorators/access-control.decorator.js';
 import { StatusPool } from '@prisma/client';
 
 @Controller('students')
@@ -15,6 +16,8 @@ export class StudentController {
   }
 
   @Get('photo-thumbnail')
+  @UseGuards(AccessControlGuard)
+  @AllowCookieAuth()
   getPhotoThumbnail(@Query('url') photoUrl: string, @Res() res: any) {
     return this.studentService.getPhotoThumbnail(photoUrl, res);
   }
@@ -166,7 +169,7 @@ export class StudentController {
   // Upload dokumen sementara untuk daftar ulang (sebelum biodata terbentuk)
   // POST /students/daftar-ulang/upload-temp/:jenis
   @Post('daftar-ulang/upload-temp/:jenis')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   uploadDokumenPublikTemp(
     @Param('jenis') jenis: string,
     @UploadedFile() file: Express.Multer.File
@@ -181,7 +184,7 @@ export class StudentController {
   // Upload dokumen untuk daftar ulang (publik, tidak perlu login)
   // POST /students/daftar-ulang/upload/:biodataId/:jenis
   @Post('daftar-ulang/upload/:biodataId/:jenis')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   uploadDokumenPublik(
     @Param('biodataId') biodataId: string,
     @Param('jenis') jenis: string,
@@ -198,7 +201,7 @@ export class StudentController {
   // POST /students/upload-temp/:jenis
   @Post('upload-temp/:jenis')
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   uploadDokumenSiswaTemp(
     @Param('jenis') jenis: string,
     @UploadedFile() file: Express.Multer.File
@@ -214,7 +217,7 @@ export class StudentController {
   // POST /students/:id/upload/:jenis
   @Post(':id/upload/:jenis')
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   uploadDokumenSiswa(
     @Request() req: any,
     @Param('id') id: string,

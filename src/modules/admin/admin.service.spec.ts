@@ -395,3 +395,72 @@ describe('AdminService — updateUser studentIds diffing', () => {
     assert.notEqual(capturedUpdateArgs.data.password, 'newpassword123'); // should be hashed
   });
 });
+
+describe('AdminService — getUsers never exposes credentials', () => {
+  it('excludes password, twoFactorSecret, and twoFactorBackupCodes from every returned user', async () => {
+    const prisma = makePrisma({
+      user: {
+        findMany: async (args: any) => {
+          const fullUser = {
+            id: 'user-1',
+            username: 'admin1',
+            password: '$2b$10$hashedpasswordvalue',
+            scope: 'GLOBAL',
+            divisi: 'ALL',
+            operatorName: null,
+            wilayahId: null,
+            cabangId: null,
+            twoFactorEnabled: true,
+            twoFactorSecret: 'JBSWY3DPEHPK3PXP',
+            twoFactorBackupCodes: ['aaaa1111', 'bbbb2222'],
+            wilayah: null,
+            cabang: null,
+            waliSantri: []
+          };
+          if (args?.select) {
+            const result: any = {};
+            for (const key in args.select) {
+              if (args.select[key]) {
+                result[key] = fullUser[key as keyof typeof fullUser];
+              }
+            }
+            return [result];
+          }
+          return [fullUser];
+        }
+      }
+    });
+    const service = new AdminService(prisma);
+
+    const result = await service.getUsers({ scope: 'AUDITOR' });
+
+    assert.equal(result.length, 1);
+    assert.equal('password' in result[0], false, 'password must not be selected at all');
+    assert.equal('twoFactorSecret' in result[0], false, 'twoFactorSecret must not be selected at all');
+    assert.equal('twoFactorBackupCodes' in result[0], false, 'twoFactorBackupCodes must not be selected at all');
+  });
+
+  it('still passes a select (not include) to findMany, with scalar + relation fields UsersWilayah.tsx renders', async () => {
+    let capturedArgs: any = null;
+    const prisma = makePrisma({
+      user: {
+        findMany: async (args: any) => {
+          capturedArgs = args;
+          return [];
+        }
+      }
+    });
+    const service = new AdminService(prisma);
+
+    await service.getUsers({ scope: 'GLOBAL' });
+
+    assert.ok(capturedArgs.select, 'must use select, not include');
+    assert.equal(capturedArgs.include, undefined);
+    for (const field of ['id', 'username', 'scope', 'divisi', 'operatorName', 'wilayahId', 'cabangId', 'twoFactorEnabled', 'wilayah', 'cabang', 'waliSantri']) {
+      assert.equal(capturedArgs.select[field] !== undefined, true, `select must include ${field}`);
+    }
+    assert.equal(capturedArgs.select.password, undefined);
+    assert.equal(capturedArgs.select.twoFactorSecret, undefined);
+    assert.equal(capturedArgs.select.twoFactorBackupCodes, undefined);
+  });
+});

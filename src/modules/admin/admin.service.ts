@@ -59,7 +59,15 @@ export class AdminService {
 
     return this.prisma.user.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        username: true,
+        scope: true,
+        divisi: true,
+        operatorName: true,
+        wilayahId: true,
+        cabangId: true,
+        twoFactorEnabled: true,
         wilayah: true,
         cabang: true,
         waliSantri: {

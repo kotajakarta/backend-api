@@ -63,7 +63,7 @@ function createRateLimiter(maxRequests: number, windowMs: number) {
     // Membaca IP asli dari header proxy (Cloudflare/Cloudflared) atau fallback ke IP socket
     const rawIp = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'unknown';
     const ip = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : Array.isArray(rawIp) ? rawIp[0].trim() : 'unknown';
-    const key = `ratelimit:${ip}:${req.path}`;
+    const key = `ratelimit:${ip}:${req.baseUrl}${req.path}`;
     const windowSec = Math.ceil(windowMs / 1000);
 
     if (!redisClient) {

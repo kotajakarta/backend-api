@@ -2,6 +2,7 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException, Unauthor
 import { Reflector } from '@nestjs/core';
 import jwt from 'jsonwebtoken';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { extractTokenFromCookieHeader } from '../utils/cookie-token.js';
 
 /**
  * Enterprise Access Control Guard.
@@ -30,8 +31,14 @@ export class AccessControlGuard implements CanActivate {
     let token: string | null = null;
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
       token = req.headers.authorization.split(' ')[1];
-    } else if (req.query && typeof req.query.token === 'string') {
-      token = req.query.token;
+    } else if (req.headers.cookie) {
+      const allowCookieAuth = this.reflector.getAllAndOverride<boolean>('allowCookieAuth', [
+        context.getHandler(),
+        context.getClass(),
+      ]);
+      if (allowCookieAuth) {
+        token = extractTokenFromCookieHeader(req.headers.cookie);
+      }
     }
 
     if (!token) {
@@ -74,6 +81,11 @@ export class AccessControlGuard implements CanActivate {
         }
       }
 
+      // WALI tokens may only ever reach routes explicitly opted into WALI via @RequireScope('WALI').
+      if (payload.scope === 'WALI' && requiredScope !== 'WALI') {
+        throw new ForbiddenException('Akun wali santri tidak memiliki akses ke endpoint ini');
+      }
+
       if (requiredScope) {
         if (requiredScope === 'WALI') {
           if (payload.scope !== 'WALI') throw new ForbiddenException('Endpoint khusus portal wali santri');
@@ -81,14 +93,9 @@ export class AccessControlGuard implements CanActivate {
           if (payload.scope !== 'GLOBAL' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires GLOBAL scope');
         } else if (requiredScope === 'WILAYAH') {
           if (payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires WILAYAH scope');
+        } else if (requiredScope === 'CABANG') {
+          if (payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH' && payload.scope !== 'CABANG' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires CABANG scope');
         }
-        // 'CABANG' branch intentionally left as a pre-existing no-op — out of scope for this task,
-        // do not add CABANG-hierarchy enforcement here, that's a separate pre-existing gap.
-      }
-
-      // WALI tokens may only ever reach routes explicitly opted into WALI via @RequireScope('WALI').
-      if (payload.scope === 'WALI' && requiredScope !== 'WALI') {
-        throw new ForbiddenException('Akun wali santri tidak memiliki akses ke endpoint ini');
       }
 
       return true;
