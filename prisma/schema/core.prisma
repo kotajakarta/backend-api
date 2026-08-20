@@ -65,6 +65,7 @@ model Cabang {
   permohonanKelas           PermohonanKelas[]
   targetKuota               TargetKuotaCabang[]
   cctvChannels              CctvChannel[]
+  pengumumanWalsan          PengumumanWalsan[]
 
   @@map("cabang")
   @@schema("core")
@@ -90,6 +91,10 @@ model User {
   wilayahId                String?                @map("wilayah_id")
   cabangId                 String?                @map("cabang_id")
   operatorName             String?                @map("operator_name")
+  phone                    String?                @map("phone")
+  nik                      String?                @map("nik")
+  isApproved               Boolean                @default(true) @map("is_approved")
+  status                   String                 @default("APPROVED") @map("status")
   twoFactorEnabled         Boolean                @default(false) @map("two_factor_enabled")
   twoFactorSecret          String?                @map("two_factor_secret")
   twoFactorBackupCodes     String[]               @default([]) @map("two_factor_backup_codes")
@@ -105,6 +110,7 @@ model User {
   waliSantri               WaliSantri[]
   permohonanIzinCreated    PermohonanIzinSantri[] @relation("PermohonanIzinCreatedBy")
   permohonanIzinApproved   PermohonanIzinSantri[] @relation("PermohonanIzinApprovedBy")
+  pengumumanWalsanCreated  PengumumanWalsan[]     @relation("PengumumanWalsanCreatedBy")
 
   @@map("users")
   @@schema("core")

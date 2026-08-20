@@ -54,6 +54,33 @@ export class AuthController {
     return this.authService.verify2FALogin(body.tempToken, body.code);
   }
 
+  @Post('auth/walsan/verify-student')
+  async verifyStudentForWalsan(@Body() body: { nik: string; tanggalLahir: string }) {
+    return this.authService.verifyStudentForWalsan(body.nik, body.tanggalLahir);
+  }
+
+  @Get('auth/check-username')
+  async checkUsernameAvailable(@Request() req: any) {
+    const username = req.query.username;
+    return this.authService.checkUsernameAvailable(username);
+  }
+
+  @Post('auth/walsan/register')
+  async registerWalsan(
+    @Body()
+    body: {
+      studentId: string;
+      namaWalsan: string;
+      nikWalsan?: string;
+      hubungan: string;
+      username: string;
+      password: string;
+      phone?: string;
+    },
+  ) {
+    return this.authService.registerWalsan(body);
+  }
+
   @Get('auth/protected-formal')
   @UseGuards(AccessControlGuard)
   @RequireDivisi('FORMAL')

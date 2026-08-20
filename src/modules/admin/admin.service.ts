@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import bcrypt from 'bcrypt';
 
@@ -65,16 +65,24 @@ export class AdminService {
         scope: true,
         divisi: true,
         operatorName: true,
+        phone: true,
+        nik: true,
+        isApproved: true,
+        status: true,
         wilayahId: true,
         cabangId: true,
         twoFactorEnabled: true,
         wilayah: true,
         cabang: true,
         waliSantri: {
-          include: {
+          select: {
+            id: true,
+            hubungan: true,
+            status: true,
+            createdAt: true,
             student: {
               include: {
-                biodata: { select: { fullName: true } },
+                biodata: { select: { fullName: true, nik: true, nisLokal: true } },
                 cabang: { select: { id: true, name: true } }
               }
             }
@@ -364,5 +372,72 @@ export class AdminService {
     return this.prisma.wilayah.findMany({
       include: { cabangs: true }
     });
+  }
+
+  async approveWaliUser(id: string, currentUser?: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        waliSantri: {
+          include: { student: true }
+        }
+      }
+    });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+    if (user.scope !== 'WALI') throw new BadRequestException('User bukan akun wali santri');
+
+    // If cabang scope, verify the student belongs to user's cabang
+    if (currentUser && currentUser.scope === 'CABANG' && currentUser.cabangId) {
+      const ownsStudent = user.waliSantri.some(ws => ws.student?.cabangId === currentUser.cabangId);
+      if (!ownsStudent) {
+        throw new ForbiddenException('Anda hanya dapat menyetujui akun wali santri dari cabang Anda');
+      }
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id },
+        data: { isApproved: true, status: 'APPROVED' }
+      }),
+      this.prisma.waliSantri.updateMany({
+        where: { userId: id },
+        data: { status: 'APPROVED' }
+      })
+    ]);
+
+    return { message: 'Akun wali santri berhasil disetujui (Approved)' };
+  }
+
+  async rejectWaliUser(id: string, currentUser?: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        waliSantri: {
+          include: { student: true }
+        }
+      }
+    });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+    if (user.scope !== 'WALI') throw new BadRequestException('User bukan akun wali santri');
+
+    if (currentUser && currentUser.scope === 'CABANG' && currentUser.cabangId) {
+      const ownsStudent = user.waliSantri.some(ws => ws.student?.cabangId === currentUser.cabangId);
+      if (!ownsStudent) {
+        throw new ForbiddenException('Anda hanya dapat menolak akun wali santri dari cabang Anda');
+      }
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id },
+        data: { isApproved: false, status: 'REJECTED' }
+      }),
+      this.prisma.waliSantri.updateMany({
+        where: { userId: id },
+        data: { status: 'REJECTED' }
+      })
+    ]);
+
+    return { message: 'Pendaftaran akun wali santri telah ditolak (Rejected)' };
   }
 }

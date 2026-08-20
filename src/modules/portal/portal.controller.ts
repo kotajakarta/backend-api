@@ -67,8 +67,17 @@ export class PortalController {
   }
 
   @Get('pengumuman')
-  getPengumuman() {
-    return this.portalService.getPengumuman();
+  getPengumuman(@Request() req: any, @Query('studentId') studentId?: string) {
+    return this.portalService.getPengumuman(req.user.id, studentId);
+  }
+
+  @Put('students/:studentId/biodata')
+  updateStudentBiodata(
+    @Request() req: any,
+    @Param('studentId') studentId: string,
+    @Body() body: any,
+  ) {
+    return this.portalService.updateStudentBiodata(req.user.id, studentId, body);
   }
 
   @Get('permohonan-izin')

@@ -99,12 +99,75 @@ export class PortalService {
       else if (record.status === 'ALPA') tally.alpa++;
     }
 
-    return { records, tally };
+    // Absensi Kontrol Silabus / Mata Pelajaran
+    const mapelDateFilter: any = {};
+    if (startDate) mapelDateFilter.gte = new Date(startDate);
+    if (endDate) mapelDateFilter.lte = new Date(`${endDate}T23:59:59`);
+
+    const mapelRecords = await this.prisma.absensiMapel.findMany({
+      where: {
+        studentId,
+        ...(Object.keys(mapelDateFilter).length > 0 ? { tanggal: mapelDateFilter } : {})
+      },
+      include: {
+        mataPelajaran: { select: { id: true, name: true, kodeMapel: true } },
+        silabus: { select: { id: true, bab: true, section: true, tingkat: true, semester: true, tahunAjaran: true } },
+        kelas: { select: { id: true, name: true } }
+      },
+      orderBy: { tanggal: 'desc' }
+    });
+
+    const mapelTally = { hadir: 0, sakit: 0, izin: 0, alpa: 0 };
+    for (const record of mapelRecords) {
+      if (record.status === 'HADIR') mapelTally.hadir++;
+      else if (record.status === 'SAKIT') mapelTally.sakit++;
+      else if (record.status === 'IZIN') mapelTally.izin++;
+      else if (record.status === 'ALPA') mapelTally.alpa++;
+    }
+
+    return {
+      records,
+      tally,
+      harian: { records, tally },
+      silabus: { records: mapelRecords, tally: mapelTally }
+    };
   }
 
-  async getPengumuman() {
-    return this.prisma.pengumuman.findMany({
-      where: { isActive: true },
+  async getPengumuman(userId?: string, studentId?: string) {
+    let cabangId: string | undefined;
+
+    if (userId && studentId) {
+      const link = await this.prisma.waliSantri.findUnique({
+        where: { userId_studentId: { userId, studentId } },
+        include: { student: true }
+      });
+      if (link && link.student.cabangId) {
+        cabangId = link.student.cabangId;
+      }
+    } else if (userId) {
+      const link = await this.prisma.waliSantri.findFirst({
+        where: { userId },
+        include: { student: true }
+      });
+      if (link && link.student.cabangId) {
+        cabangId = link.student.cabangId;
+      }
+    }
+
+    const where: any = {
+      isActive: true,
+      OR: [
+        { scope: 'GLOBAL' },
+        ...(cabangId ? [{ scope: 'CABANG', cabangId }] : [])
+      ]
+    };
+
+    return this.prisma.pengumumanWalsan.findMany({
+      where,
+      include: {
+        cabang: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, operatorName: true, username: true } }
+      },
       orderBy: { createdAt: 'desc' }
     });
   }
@@ -246,5 +309,124 @@ export class PortalService {
         streamUrl: `/api/v1/cctv/stream-proxy/playlist?token=${encodeURIComponent(encrypted)}`,
       };
     });
+  }
+
+  // --- EDIT BIODATA SISWA OLEH WALI SANTRI ---
+
+  async updateStudentBiodata(userId: string, studentId: string, data: any) {
+    await this.assertOwnsStudent(userId, studentId);
+
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: { biodata: true }
+    });
+
+    if (!student || !student.biodataId) {
+      throw new NotFoundException('Data santri atau biodata tidak ditemukan');
+    }
+
+    // Allowed editable fields matching daftar-ulang
+    const allowedFields = [
+      'fullName', 'tempatLahir', 'tanggalLahir', 'jenisKelamin', 'kewarganegaraan',
+      'anakKe', 'jumlahSaudara', 'citaCita', 'hobi', 'riwayatPenyakit',
+      'alamatJalan', 'alamatRt', 'alamatRw', 'alamatKelName', 'alamatKecName', 'alamatKabName', 'alamatProvName', 'alamatKodePos',
+      'namaAyah', 'statusHidupAyah', 'nikAyah', 'tempatLahirAyah', 'tanggalLahirAyah', 'pekerjaanAyah', 'pendidikanAyah', 'penghasilanAyah', 'teleponAyah',
+      'namaIbu', 'statusHidupIbu', 'nikIbu', 'tempatLahirIbu', 'tanggalLahirIbu', 'pekerjaanIbu', 'pendidikanIbu', 'penghasilanIbu', 'teleponIbu',
+      'namaWali', 'statusHidupWali', 'nikWali', 'tempatLahirWali', 'tanggalLahirWali', 'pekerjaanWali', 'pendidikanWali', 'penghasilanWali', 'teleponWali', 'hubunganWali',
+      'fotoUrl', 'kkUrl', 'aktaUrl', 'ktpAyahUrl', 'ktpIbuUrl', 'kartuBansosUrl', 'suratKeteranganUrl'
+    ];
+
+    const updateData: any = {};
+    for (const key of allowedFields) {
+      if (data[key] !== undefined) {
+        if ((key === 'tanggalLahir' || key === 'tanggalLahirAyah' || key === 'tanggalLahirIbu' || key === 'tanggalLahirWali') && data[key]) {
+          updateData[key] = new Date(data[key]);
+        } else if ((key === 'anakKe' || key === 'jumlahSaudara') && data[key] !== null && data[key] !== '') {
+          updateData[key] = Number(data[key]);
+        } else {
+          updateData[key] = data[key];
+        }
+      }
+    }
+
+    const updatedBiodata = await this.prisma.biodata.update({
+      where: { id: student.biodataId },
+      data: updateData
+    });
+
+    return {
+      message: 'Data santri berhasil diperbarui',
+      biodata: updatedBiodata
+    };
+  }
+
+  // --- PENGUMUMAN WALSAN CRUD (ADMIN PUSAT & CABANG) ---
+
+  async getPengumumanWalsanForAdmin(user: any) {
+    const where: any = {};
+    if (user.scope === 'CABANG' && user.cabangId) {
+      where.OR = [
+        { scope: 'CABANG', cabangId: user.cabangId },
+        { scope: 'GLOBAL' }
+      ];
+    }
+    return this.prisma.pengumumanWalsan.findMany({
+      where,
+      include: {
+        cabang: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, operatorName: true, username: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async createPengumumanWalsan(user: any, data: any) {
+    const scope = user.scope === 'CABANG' ? 'CABANG' : (data.scope || 'GLOBAL');
+    const cabangId = user.scope === 'CABANG' ? user.cabangId : (data.cabangId || null);
+
+    return this.prisma.pengumumanWalsan.create({
+      data: {
+        title: data.title,
+        content: data.content,
+        links: data.links || [],
+        scope,
+        cabangId,
+        createdById: user.id,
+        isActive: data.isActive !== undefined ? data.isActive : true
+      }
+    });
+  }
+
+  async updatePengumumanWalsan(user: any, id: string, data: any) {
+    const existing = await this.prisma.pengumumanWalsan.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Pengumuman tidak ditemukan');
+
+    if (user.scope === 'CABANG' && existing.cabangId !== user.cabangId) {
+      throw new ForbiddenException('Anda tidak memiliki akses untuk mengubah pengumuman ini');
+    }
+
+    return this.prisma.pengumumanWalsan.update({
+      where: { id },
+      data: {
+        title: data.title !== undefined ? data.title : existing.title,
+        content: data.content !== undefined ? data.content : existing.content,
+        links: data.links !== undefined ? data.links : existing.links,
+        isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
+        scope: user.scope === 'CABANG' ? 'CABANG' : (data.scope !== undefined ? data.scope : existing.scope),
+        cabangId: user.scope === 'CABANG' ? user.cabangId : (data.cabangId !== undefined ? data.cabangId : existing.cabangId)
+      }
+    });
+  }
+
+  async deletePengumumanWalsan(user: any, id: string) {
+    const existing = await this.prisma.pengumumanWalsan.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Pengumuman tidak ditemukan');
+
+    if (user.scope === 'CABANG' && existing.cabangId !== user.cabangId) {
+      throw new ForbiddenException('Anda tidak memiliki akses untuk menghapus pengumuman ini');
+    }
+
+    await this.prisma.pengumumanWalsan.delete({ where: { id } });
+    return { message: 'Pengumuman berhasil dihapus' };
   }
 }

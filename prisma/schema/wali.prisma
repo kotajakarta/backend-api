@@ -7,13 +7,14 @@ enum JenisIzinSantri {
 }
 
 model WaliSantri {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  studentId String   @map("student_id")
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  studentId String           @map("student_id")
   hubungan  String?
-  createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status    StatusPermohonan @default(APPROVED)
+  createdAt DateTime         @default(now()) @map("created_at")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  student   Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@unique([userId, studentId])
   @@map("wali_santri")
@@ -66,5 +67,24 @@ model CctvChannel {
   cabang      Cabang       @relation(fields: [cabangId], references: [id], onDelete: Cascade)
 
   @@map("cctv_channels")
+  @@schema("core")
+}
+
+model PengumumanWalsan {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  links       Json?
+  scope       String   @default("GLOBAL") // "GLOBAL" (Pusat) atau "CABANG"
+  cabangId    String?  @map("cabang_id")
+  createdById String?  @map("created_by_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  cabang      Cabang?  @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation("PengumumanWalsanCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@map("pengumuman_walsan")
   @@schema("core")
 }

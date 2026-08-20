@@ -42,6 +42,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Check approval status for WALI accounts
+    if (user.scope === 'WALI') {
+      if (user.isApproved === false || user.status === 'PENDING') {
+        throw new ForbiddenException('Akun Anda sedang menunggu persetujuan (approval) dari pihak Cabang atau Admin Pusat.');
+      }
+      if (user.status === 'REJECTED') {
+        throw new ForbiddenException('Pendaftaran akun Anda ditolak oleh pihak Cabang / Admin Pusat. Silakan hubungi pihak pesantren.');
+      }
+    }
+
     // Check if 2FA is enabled for this account
     if (user.twoFactorEnabled && user.twoFactorSecret) {
       const tempToken = jwt.sign(
@@ -312,5 +322,136 @@ export class AuthService {
       token,
       user: payload
     };
+  }
+
+  // --- WALI SANTRI REGISTRASI MANDIRI & VERIFIKASI ---
+
+  async verifyStudentForWalsan(nik: string, tanggalLahir: string) {
+    if (!nik || !tanggalLahir) {
+      throw new BadRequestException('NIK dan Tanggal Lahir santri wajib diisi');
+    }
+
+    const cleanNik = nik.trim();
+    const student = await this.prisma.student.findFirst({
+      where: {
+        biodata: {
+          nik: cleanNik
+        }
+      },
+      include: {
+        biodata: true,
+        cabang: true,
+        siswaFormal: { include: { kelas: true } }
+      }
+    });
+
+    if (!student || !student.biodata) {
+      throw new NotFoundException('Data santri dengan NIK tersebut tidak ditemukan di sistem.');
+    }
+
+    // Compare Tanggal Lahir (ignore time)
+    if (student.biodata.tanggalLahir) {
+      const dbDateStr = new Date(student.biodata.tanggalLahir).toISOString().split('T')[0];
+      const inputDateStr = new Date(tanggalLahir).toISOString().split('T')[0];
+      if (dbDateStr !== inputDateStr) {
+        throw new BadRequestException('Tanggal lahir santri tidak cocok dengan data terdaftar.');
+      }
+    }
+
+    return {
+      verified: true,
+      student: {
+        id: student.id,
+        fullName: student.biodata.fullName,
+        nik: student.biodata.nik,
+        nisLokal: student.biodata.nisLokal,
+        cabangId: student.cabangId,
+        cabangName: student.cabang?.name || 'Pusat',
+        kelasName: student.siswaFormal?.kelas?.name || 'Belum Ditentukan'
+      }
+    };
+  }
+
+  async checkUsernameAvailable(username: string) {
+    if (!username || !username.trim()) {
+      return { available: false, message: 'Username tidak boleh kosong' };
+    }
+    const cleanUsername = username.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({
+      where: { username: cleanUsername }
+    });
+
+    return {
+      available: !existing,
+      message: existing ? 'Username sudah digunakan, silakan pilih yang lain' : 'Username tersedia'
+    };
+  }
+
+  async registerWalsan(data: {
+    studentId: string;
+    namaWalsan: string;
+    nikWalsan?: string;
+    hubungan: string;
+    username: string;
+    password: string;
+    phone?: string;
+  }) {
+    if (!data.studentId || !data.namaWalsan || !data.username || !data.password) {
+      throw new BadRequestException('Data pendaftaran wali santri tidak lengkap');
+    }
+
+    const cleanUsername = data.username.trim().toLowerCase();
+
+    // Check student existence
+    const student = await this.prisma.student.findUnique({
+      where: { id: data.studentId },
+      include: { biodata: true }
+    });
+    if (!student) {
+      throw new NotFoundException('Data santri tidak ditemukan');
+    }
+
+    // Check username uniqueness
+    const existingUser = await this.prisma.user.findUnique({
+      where: { username: cleanUsername }
+    });
+    if (existingUser) {
+      throw new BadRequestException('Username sudah digunakan oleh akun lain');
+    }
+
+    const hashedPassword = await bcrypt.hash(data.password, 10);
+
+    return this.prisma.$transaction(async (tx) => {
+      const newUser = await tx.user.create({
+        data: {
+          username: cleanUsername,
+          password: hashedPassword,
+          scope: 'WALI',
+          divisi: 'ALL',
+          operatorName: data.namaWalsan.trim(),
+          nik: data.nikWalsan ? data.nikWalsan.trim() : null,
+          phone: data.phone ? data.phone.trim() : null,
+          isApproved: false,
+          status: 'PENDING',
+          cabangId: student.cabangId
+        }
+      });
+
+      await tx.waliSantri.create({
+        data: {
+          userId: newUser.id,
+          studentId: student.id,
+          hubungan: data.hubungan?.trim() || 'Wali',
+          status: 'PENDING'
+        }
+      });
+
+      return {
+        message: 'Pendaftaran akun wali santri berhasil. Akun Anda saat ini berstatus MENUNGGU PERSETUJUAN dari pihak Cabang / Admin Pusat sebelum dapat digunakan untuk login.',
+        userId: newUser.id,
+        username: newUser.username,
+        status: 'PENDING'
+      };
+    });
   }
 }

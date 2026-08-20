@@ -50,4 +50,18 @@ export class AdminController {
   reset2FA(@Param('id') id: string) {
     return this.adminService.reset2FA(id);
   }
+
+  @Put('walsan/:id/approve')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('CABANG')
+  approveWalsan(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.approveWaliUser(id, req.user);
+  }
+
+  @Put('walsan/:id/reject')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('CABANG')
+  rejectWalsan(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.rejectWaliUser(id, req.user);
+  }
 }
