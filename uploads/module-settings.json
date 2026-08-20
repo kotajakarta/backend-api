@@ -1,5 +1,6 @@
 {
   "portalWalsanEnabled": true,
   "raporMuadalahEnabled": false,
-  "walsanCctvEnabled": false
+  "walsanCctvEnabled": false,
+  "cabangCctvEnabled": false
 }
