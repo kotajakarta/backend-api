@@ -140,24 +140,68 @@ export class PengaturanService {
       raporMuadalahEnabled: true,
       cctvProtectionEnabled: true,
       cctvPinHash: await bcrypt.hash('123456', 10),
+      // Walsan granular menus
+      walsanCctvEnabled: true,
+      walsanRaporEnabled: true,
+      walsanKehadiranEnabled: true,
+      walsanIzinEnabled: true,
+      walsanPengumumanEnabled: true,
+      // Cabang granular access
+      cabangCctvEnabled: true,
+      cabangIzinEnabled: true,
+      cabangWalsanListEnabled: true,
     };
   }
 
   /** Settings shape safe to return from the public, unauthenticated GET /pengaturan/modules endpoint. */
   async getPublicModuleSettings() {
     const { cctvPin, cctvPinHash, ...publicSettings } = await this.getModuleSettings();
-    return publicSettings;
+    return {
+      portalWalsanEnabled: true,
+      raporMuadalahEnabled: true,
+      cctvProtectionEnabled: true,
+      walsanCctvEnabled: true,
+      walsanRaporEnabled: true,
+      walsanKehadiranEnabled: true,
+      walsanIzinEnabled: true,
+      walsanPengumumanEnabled: true,
+      cabangCctvEnabled: true,
+      cabangIzinEnabled: true,
+      cabangWalsanListEnabled: true,
+      ...publicSettings,
+    };
   }
 
-  async updateModuleSettings(data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean; cctvProtectionEnabled?: boolean; cctvPin?: string }) {
+  async updateModuleSettings(data: {
+    portalWalsanEnabled?: boolean;
+    raporMuadalahEnabled?: boolean;
+    cctvProtectionEnabled?: boolean;
+    cctvPin?: string;
+    walsanCctvEnabled?: boolean;
+    walsanRaporEnabled?: boolean;
+    walsanKehadiranEnabled?: boolean;
+    walsanIzinEnabled?: boolean;
+    walsanPengumumanEnabled?: boolean;
+    cabangCctvEnabled?: boolean;
+    cabangIzinEnabled?: boolean;
+    cabangWalsanListEnabled?: boolean;
+  }) {
     const current = await this.getModuleSettings();
     const updated: any = {
       ...current,
       ...(data.portalWalsanEnabled !== undefined && { portalWalsanEnabled: data.portalWalsanEnabled }),
       ...(data.raporMuadalahEnabled !== undefined && { raporMuadalahEnabled: data.raporMuadalahEnabled }),
       ...(data.cctvProtectionEnabled !== undefined && { cctvProtectionEnabled: data.cctvProtectionEnabled }),
+      ...(data.walsanCctvEnabled !== undefined && { walsanCctvEnabled: data.walsanCctvEnabled }),
+      ...(data.walsanRaporEnabled !== undefined && { walsanRaporEnabled: data.walsanRaporEnabled }),
+      ...(data.walsanKehadiranEnabled !== undefined && { walsanKehadiranEnabled: data.walsanKehadiranEnabled }),
+      ...(data.walsanIzinEnabled !== undefined && { walsanIzinEnabled: data.walsanIzinEnabled }),
+      ...(data.walsanPengumumanEnabled !== undefined && { walsanPengumumanEnabled: data.walsanPengumumanEnabled }),
+      ...(data.cabangCctvEnabled !== undefined && { cabangCctvEnabled: data.cabangCctvEnabled }),
+      ...(data.cabangIzinEnabled !== undefined && { cabangIzinEnabled: data.cabangIzinEnabled }),
+      ...(data.cabangWalsanListEnabled !== undefined && { cabangWalsanListEnabled: data.cabangWalsanListEnabled }),
     };
-    if (data.cctvPin !== undefined) {
+    if (data.cctvPin !== undefined && data.cctvPin.trim() !== '') {
       updated.cctvPinHash = await bcrypt.hash(data.cctvPin.trim(), 10);
     }
     delete updated.cctvPin; // never persist plaintext, even if it was present on `current` from an old file

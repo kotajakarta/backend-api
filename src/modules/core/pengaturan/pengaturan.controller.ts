@@ -20,7 +20,23 @@ export class PengaturanController {
   @Put('modules')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')
-  updateModuleSettings(@Body() data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean; cctvProtectionEnabled?: boolean; cctvPin?: string }) {
+  updateModuleSettings(
+    @Body()
+    data: {
+      portalWalsanEnabled?: boolean;
+      raporMuadalahEnabled?: boolean;
+      cctvProtectionEnabled?: boolean;
+      cctvPin?: string;
+      walsanCctvEnabled?: boolean;
+      walsanRaporEnabled?: boolean;
+      walsanKehadiranEnabled?: boolean;
+      walsanIzinEnabled?: boolean;
+      walsanPengumumanEnabled?: boolean;
+      cabangCctvEnabled?: boolean;
+      cabangIzinEnabled?: boolean;
+      cabangWalsanListEnabled?: boolean;
+    },
+  ) {
     return this.pengaturanService.updateModuleSettings(data);
   }
 
