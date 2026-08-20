@@ -61,7 +61,8 @@ function fallbackLimiter(req: Request, res: Response, next: NextFunction, key: s
 function createRateLimiter(maxRequests: number, windowMs: number) {
   return async (req: Request, res: Response, next: NextFunction) => {
     // Membaca IP asli dari header proxy (Cloudflare/Cloudflared) atau fallback ke IP socket
-    const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'unknown';
+    const rawIp = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'unknown';
+    const ip = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : Array.isArray(rawIp) ? rawIp[0].trim() : 'unknown';
     const key = `ratelimit:${ip}:${req.path}`;
     const windowSec = Math.ceil(windowMs / 1000);
 

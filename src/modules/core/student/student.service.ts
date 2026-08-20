@@ -946,7 +946,7 @@ export class StudentService {
     const fullPath = path.join(process.cwd(), cleanPath);
 
     const uploadsDir = path.join(process.cwd(), 'uploads');
-    if (!fullPath.startsWith(uploadsDir)) {
+    if (!fullPath.startsWith(uploadsDir + path.sep) && fullPath !== uploadsDir) {
       throw new ForbiddenException('Akses ditolak');
     }
 
@@ -1125,7 +1125,10 @@ export class StudentService {
     });
   }
 
-  async tarikSiswa(studentId: string, cabangId: string) {
+  async tarikSiswa(studentId: string, cabangId: string, user?: any) {
+    if (user?.scope === 'CABANG' && user?.cabangId && user.cabangId !== cabangId) {
+      throw new ForbiddenException('Akses ditolak: Anda hanya dapat menarik santri ke cabang Anda sendiri.');
+    }
     return this.prisma.$transaction(async (tx) => {
       const student = await tx.student.findUnique({ where: { id: studentId } });
       if (!student) {
@@ -1288,7 +1291,10 @@ export class StudentService {
     });
   }
 
-  async tarikMassalSiswa(studentIds: string[], cabangId: string) {
+  async tarikMassalSiswa(studentIds: string[], cabangId: string, user?: any) {
+    if (user?.scope === 'CABANG' && user?.cabangId && user.cabangId !== cabangId) {
+      throw new ForbiddenException('Akses ditolak: Anda hanya dapat menarik santri ke cabang Anda sendiri.');
+    }
     return this.prisma.$transaction(async (tx) => {
       const students = await tx.student.findMany({
         where: { id: { in: studentIds } }

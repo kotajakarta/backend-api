@@ -239,7 +239,7 @@ export class AbsensiService {
     });
   }
 
-  async saveKehadiranBulk(programId: string, cabangId: string | undefined, logs: Array<{ studentId: string; status: KehadiranStatus; catatan?: string }>) {
+  async saveKehadiranBulk(programId: string, cabangId: string | undefined, logs: Array<{ studentId: string; status: KehadiranStatus; catatan?: string }>, user?: any) {
     const program = await this.prisma.programAbsensi.findUnique({ where: { id: programId } });
     if (!program) throw new NotFoundException('Program absensi tidak ditemukan');
 
@@ -254,6 +254,15 @@ export class AbsensiService {
       where: { id: { in: studentIds } },
       select: { id: true, cabangId: true }
     });
+
+    // IDOR Enforcement: If user is CABANG scope, verify all students belong to user's branch
+    if (user?.scope === 'CABANG' && user?.cabangId) {
+      const unauthorizedStudent = students.find(s => s.cabangId !== user.cabangId);
+      if (unauthorizedStudent || students.length !== studentIds.length) {
+        throw new ForbiddenException('Akses ditolak: Terdapat data santri yang berada di luar cabang Anda.');
+      }
+    }
+
     const studentCabangMap = new Map(students.map(s => [s.id, s.cabangId]));
 
     return this.prisma.$transaction(
@@ -319,7 +328,7 @@ export class AbsensiService {
     });
   }
 
-  async saveKehadiranGuruBulk(programId: string, cabangId: string | undefined, logs: Array<{ guruId: string; status: KehadiranStatus; catatan?: string }>) {
+  async saveKehadiranGuruBulk(programId: string, cabangId: string | undefined, logs: Array<{ guruId: string; status: KehadiranStatus; catatan?: string }>, user?: any) {
     const program = await this.prisma.programAbsensi.findUnique({ where: { id: programId } });
     if (!program) throw new NotFoundException('Program absensi tidak ditemukan');
 
@@ -334,6 +343,15 @@ export class AbsensiService {
       where: { id: { in: teacherIds } },
       select: { id: true, cabangId: true }
     });
+
+    // IDOR Enforcement: If user is CABANG scope, verify all teachers belong to user's branch
+    if (user?.scope === 'CABANG' && user?.cabangId) {
+      const unauthorizedTeacher = teachers.find(t => t.cabangId !== user.cabangId);
+      if (unauthorizedTeacher || teachers.length !== teacherIds.length) {
+        throw new ForbiddenException('Akses ditolak: Terdapat data guru yang berada di luar cabang Anda.');
+      }
+    }
+
     const teacherCabangMap = new Map(teachers.map(t => [t.id, t.cabangId]));
 
     return this.prisma.$transaction(

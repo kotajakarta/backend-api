@@ -130,19 +130,36 @@ export class PengaturanService {
     return {
       portalWalsanEnabled: true,
       raporMuadalahEnabled: true,
+      cctvProtectionEnabled: true,
+      cctvPin: '123456',
     };
   }
 
-  async updateModuleSettings(data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean }) {
+  async updateModuleSettings(data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean; cctvProtectionEnabled?: boolean; cctvPin?: string }) {
     const current = await this.getModuleSettings();
     const updated = {
       ...current,
       ...(data.portalWalsanEnabled !== undefined && { portalWalsanEnabled: data.portalWalsanEnabled }),
       ...(data.raporMuadalahEnabled !== undefined && { raporMuadalahEnabled: data.raporMuadalahEnabled }),
+      ...(data.cctvProtectionEnabled !== undefined && { cctvProtectionEnabled: data.cctvProtectionEnabled }),
+      ...(data.cctvPin !== undefined && { cctvPin: data.cctvPin.trim() }),
     };
 
     const filePath = this.getModuleSettingsFilePath();
     fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
     return updated;
+  }
+
+  async verifyCctvPin(pin: string) {
+    if (!pin) {
+      throw new BadRequestException('PIN wajib diisi');
+    }
+    const settings = await this.getModuleSettings();
+    const expectedPin = settings.cctvPin || '123456';
+    const isValid = pin.trim() === expectedPin.trim();
+    return {
+      success: isValid,
+      protectionEnabled: settings.cctvProtectionEnabled !== false,
+    };
   }
 }

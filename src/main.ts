@@ -22,6 +22,9 @@ import { RedisService } from './common/redis/redis.service.js';
 async function bootstrap() {
   const server = express();
   
+  // Enable reverse proxy support (Cloudflare / Nginx / Podman network)
+  server.set('trust proxy', 1);
+
   // HTTP Response Compression (Gzip/Deflate)
   server.use(compression());
 

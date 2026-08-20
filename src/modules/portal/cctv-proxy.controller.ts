@@ -1,8 +1,8 @@
-import { Controller, Get, Query, Res, BadRequestException, Inject } from '@nestjs/common';
+import { Controller, Get, Query, Res, BadRequestException, ForbiddenException, Inject } from '@nestjs/common';
 import { Response } from 'express';
 import * as http from 'http';
 import * as https from 'https';
-import { decryptStreamUrl } from '../../common/utils/cctv-crypto.js';
+import { decryptStreamUrl, encryptStreamUrl, isSafeStreamUrl } from '../../common/utils/cctv-crypto.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 
 @Controller('cctv/stream-proxy')
@@ -11,22 +11,26 @@ export class CctvProxyController {
 
   /**
    * Proxies HLS .m3u8 playlists.
-   * Rewrites all internal segment links to proxy endpoints so F12 Network Inspector NEVER sees target IP/domain.
+   * Only accepts encrypted stream tokens — raw URLs are strictly rejected to prevent SSRF.
+   * Rewrites all internal segment links to encrypted proxy endpoints.
    */
   @Get('playlist')
   async getPlaylist(
     @Query('token') token: string,
-    @Query('url') rawUrlParam: string,
     @Res() res: Response
   ) {
-    let targetUrl = rawUrlParam ? decodeURIComponent(rawUrlParam) : '';
-    if (token) {
-      targetUrl = decryptStreamUrl(token);
+    if (!token) {
+      throw new BadRequestException('Token streaming CCTV wajib disertakan');
     }
 
-    // Fallback if decrypted token is invalid or old mock stream URL
-    if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
-      targetUrl = 'https://its.binamarga.pu.go.id:8989/play/hls/CT-02/index.m3u8';
+    const targetUrl = decryptStreamUrl(token);
+    if (!targetUrl) {
+      throw new ForbiddenException('Token streaming CCTV tidak valid atau rusak');
+    }
+
+    // SSRF validation
+    if (!isSafeStreamUrl(targetUrl)) {
+      throw new ForbiddenException('Akses ke target stream ditolak oleh kebijakan keamanan (SSRF Protection)');
     }
 
     try {
@@ -44,10 +48,10 @@ export class CctvProxyController {
       const contentType = response.headers.get('content-type') || 'application/vnd.apple.mpegurl';
       const m3u8Text = await response.text();
 
-      // Base URL of the target stream (e.g., https://its.binamarga.pu.go.id:8989/play/hls/CT-01/)
+      // Base URL of the target stream (e.g., https://domain/play/hls/CT-01/)
       const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
 
-      // Rewrite every line in .m3u8 playlist that points to segments or sub-playlists
+      // Rewrite every line in .m3u8 playlist to use encrypted tokens ONLY
       const lines = m3u8Text.split('\n');
       const rewrittenLines = lines.map((line) => {
         const trimmed = line.trim();
@@ -61,16 +65,22 @@ export class CctvProxyController {
           segmentTarget = new URL(trimmed, baseUrl).toString();
         }
 
+        if (!isSafeStreamUrl(segmentTarget)) {
+          return ''; // Strip unsafe segment URLs
+        }
+
+        const encryptedSegmentToken = encryptStreamUrl(segmentTarget);
+
         // If it's a sub-playlist (.m3u8), proxy through playlist endpoint
         if (trimmed.includes('.m3u8')) {
-          return `/api/v1/cctv/stream-proxy/playlist?url=${encodeURIComponent(segmentTarget)}`;
+          return `/api/v1/cctv/stream-proxy/playlist?token=${encodeURIComponent(encryptedSegmentToken)}`;
         }
 
         // Segment media chunk (.ts / .m4s / .mp4), proxy through segment endpoint
-        return `/api/v1/cctv/stream-proxy/segment?target=${encodeURIComponent(segmentTarget)}`;
+        return `/api/v1/cctv/stream-proxy/segment?token=${encodeURIComponent(encryptedSegmentToken)}`;
       });
 
-      const rewrittenM3u8 = rewrittenLines.join('\n');
+      const rewrittenM3u8 = rewrittenLines.filter(Boolean).join('\n');
 
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -84,15 +94,23 @@ export class CctvProxyController {
 
   /**
    * Streams raw video segment chunks (.ts / .m4s / mp4) directly to client.
-   * F12 inspection sees request to local server domain ONLY!
+   * Requires encrypted token containing the target URL.
    */
   @Get('segment')
-  async getSegment(@Query('target') targetParam: string, @Res() res: Response) {
-    if (!targetParam) {
-      throw new BadRequestException('Target segment missing');
+  async getSegment(@Query('token') token: string, @Res() res: Response) {
+    if (!token) {
+      throw new BadRequestException('Token segment CCTV wajib disertakan');
     }
 
-    const targetUrl = decodeURIComponent(targetParam);
+    const targetUrl = decryptStreamUrl(token);
+    if (!targetUrl) {
+      throw new ForbiddenException('Token segment CCTV tidak valid');
+    }
+
+    // SSRF validation
+    if (!isSafeStreamUrl(targetUrl)) {
+      throw new ForbiddenException('Akses ke target segment ditolak oleh kebijakan keamanan (SSRF Protection)');
+    }
 
     try {
       const isHttps = targetUrl.startsWith('https');
@@ -102,7 +120,6 @@ export class CctvProxyController {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           },
-          rejectUnauthorized: false, // Allow self-signed certificates on local CCTV NVRs
         },
         (targetRes) => {
           res.setHeader('Content-Type', targetRes.headers['content-type'] || 'video/MP2T');
@@ -124,3 +141,4 @@ export class CctvProxyController {
     }
   }
 }
+

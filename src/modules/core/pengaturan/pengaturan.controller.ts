@@ -11,7 +11,7 @@ import { RequireScope } from '../../../common/decorators/access-control.decorato
 export class PengaturanController {
   constructor(@Inject(PengaturanService) private readonly pengaturanService: PengaturanService) {}
 
-  // --- MODUL SYSTEM (FEATURE TOGGLES) ---
+  // --- MODUL SYSTEM (FEATURE TOGGLES & CCTV PROTECTION) ---
   @Get('modules')
   getModuleSettings() {
     return this.pengaturanService.getModuleSettings();
@@ -20,8 +20,13 @@ export class PengaturanController {
   @Put('modules')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')
-  updateModuleSettings(@Body() data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean }) {
+  updateModuleSettings(@Body() data: { portalWalsanEnabled?: boolean; raporMuadalahEnabled?: boolean; cctvProtectionEnabled?: boolean; cctvPin?: string }) {
     return this.pengaturanService.updateModuleSettings(data);
+  }
+
+  @Post('cctv/verify-pin')
+  verifyCctvPin(@Body() body: { pin: string }) {
+    return this.pengaturanService.verifyCctvPin(body.pin);
   }
 
   // --- AKADEMIK ---
@@ -92,6 +97,7 @@ export class PengaturanController {
   }
 
   @Get('uploads/:filename')
+  @UseGuards(AccessControlGuard)
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
     const uploadDir = path.join(process.cwd(), 'uploads');

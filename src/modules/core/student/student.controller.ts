@@ -120,8 +120,9 @@ export class StudentController {
 
   @Post('pool/tarik-massal')
   @UseGuards(AccessControlGuard)
-  tarikMassalSiswa(@Body() dto: { studentIds: string[], cabangId: string }) {
-    return this.studentService.tarikMassalSiswa(dto.studentIds, dto.cabangId);
+  tarikMassalSiswa(@Body() dto: { studentIds: string[], cabangId?: string }, @Request() req: any) {
+    const cabangId = req.user?.scope === 'CABANG' ? req.user.cabangId : (dto.cabangId || req.user?.cabangId);
+    return this.studentService.tarikMassalSiswa(dto.studentIds, cabangId, req.user);
   }
 
   @Post('lepas-massal')
@@ -135,8 +136,9 @@ export class StudentController {
 
   @Post(':id/tarik')
   @UseGuards(AccessControlGuard)
-  tarikSiswa(@Param('id') id: string, @Body('cabangId') cabangId: string) {
-    return this.studentService.tarikSiswa(id, cabangId);
+  tarikSiswa(@Param('id') id: string, @Body('cabangId') cabangIdInput: string, @Request() req: any) {
+    const cabangId = req.user?.scope === 'CABANG' ? req.user.cabangId : (cabangIdInput || req.user?.cabangId);
+    return this.studentService.tarikSiswa(id, cabangId, req.user);
   }
 
   @Post(':id/lepas')

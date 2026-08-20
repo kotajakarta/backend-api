@@ -100,8 +100,8 @@ export class AbsensiController {
   @Post('kehadiran/bulk')
   @UseGuards(AccessControlGuard)
   saveKehadiranBulk(@Body() body: { programId: string; cabangId?: string; logs: any[] }, @Request() req: any) {
-    const cabangId = body.cabangId || req.user?.cabangId;
-    return this.absensiService.saveKehadiranBulk(body.programId, cabangId, body.logs);
+    const cabangId = req.user?.scope === 'CABANG' ? req.user.cabangId : (body.cabangId || req.user?.cabangId);
+    return this.absensiService.saveKehadiranBulk(body.programId, cabangId, body.logs, req.user);
   }
 
   @Get('kehadiran-guru')
@@ -126,7 +126,7 @@ export class AbsensiController {
   @Post('kehadiran-guru/bulk')
   @UseGuards(AccessControlGuard)
   saveKehadiranGuruBulk(@Body() body: { programId: string; cabangId?: string; logs: any[] }, @Request() req: any) {
-    const cabangId = body.cabangId || req.user?.cabangId;
-    return this.absensiService.saveKehadiranGuruBulk(body.programId, cabangId, body.logs);
+    const cabangId = req.user?.scope === 'CABANG' ? req.user.cabangId : (body.cabangId || req.user?.cabangId);
+    return this.absensiService.saveKehadiranGuruBulk(body.programId, cabangId, body.logs, req.user);
   }
 }

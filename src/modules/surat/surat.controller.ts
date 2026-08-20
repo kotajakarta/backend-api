@@ -34,7 +34,7 @@ const storageSurat = multer.diskStorage({
     cb(null, uploadDirSurat);
   },
   filename: (req: ExpressRequest, file: any, cb: (error: Error | null, filename: string) => void) => {
-    const ext = path.extname(file.originalname);
+    const ext = path.extname(file.originalname || '').toLowerCase();
     const uniqueName = `surat-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
     cb(null, uniqueName);
   },
@@ -45,11 +45,42 @@ const storageTemplate = multer.diskStorage({
     cb(null, uploadDirTemplates);
   },
   filename: (req: ExpressRequest, file: any, cb: (error: Error | null, filename: string) => void) => {
-    const ext = path.extname(file.originalname);
+    const ext = path.extname(file.originalname || '').toLowerCase();
     const uniqueName = `tmpl-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
     cb(null, uniqueName);
   },
 });
+
+const ALLOWED_SURAT_MIMES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+];
+
+const fileFilterSurat = (req: ExpressRequest, file: any, cb: any) => {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const allowedExts = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.webp'];
+  if (ALLOWED_SURAT_MIMES.includes(file.mimetype) || allowedExts.includes(ext)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Format berkas tidak didukung. Hanya PDF, Word (DOC/DOCX), dan Gambar yang diperbolehkan.'), false);
+  }
+};
+
+const uploadOptionsSurat = {
+  storage: storageSurat,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: fileFilterSurat,
+};
+
+const uploadOptionsTemplate = {
+  storage: storageTemplate,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: fileFilterSurat,
+};
 
 @Controller('surat')
 export class SuratController {
@@ -170,7 +201,7 @@ export class SuratController {
   @Post('templates')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')
-  @UseInterceptors(FileInterceptor('file', { storage: storageTemplate }))
+  @UseInterceptors(FileInterceptor('file', uploadOptionsTemplate))
   async createTemplate(@Request() req: any, @Body() body: any, @UploadedFile() file: any) {
     return this.suratService.createTemplate(body, file, req.user?.id);
   }
@@ -217,7 +248,7 @@ export class SuratController {
 
   @Post('letters/generate')
   @UseGuards(AccessControlGuard)
-  @UseInterceptors(FileInterceptor('file', { storage: storageSurat }))
+  @UseInterceptors(FileInterceptor('file', uploadOptionsSurat))
   async generateLetter(@Request() req: any, @Body() body: any, @UploadedFile() file: any) {
     return this.suratService.generateLetter(body, file, req.user?.id);
   }
