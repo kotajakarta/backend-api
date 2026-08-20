@@ -1021,6 +1021,11 @@ export class StudentService {
     const poolCondition: any = {
       OR: [
         { statusPool: StatusPool.TERSEDIA },
+        { statusPool: StatusPool.MUTASI },
+        { statusPool: StatusPool.DROP_OUT },
+        { statusPool: StatusPool.LULUS },
+        { statusPool: null },
+        { cabangId: null },
         ...(scope === 'CABANG' && cabangId ? [{
           statusPool: StatusPool.AKTIF_CABANG,
           cabangId: { not: cabangId }
@@ -1029,7 +1034,7 @@ export class StudentService {
           statusPool: StatusPool.AKTIF_CABANG,
           wilayahId: { not: wilayahId }
         }] : []),
-        ...(scope === 'GLOBAL' ? [{
+        ...(scope === 'GLOBAL' || scope === 'AUDITOR' ? [{
           statusPool: StatusPool.AKTIF_CABANG
         }] : [])
       ]
@@ -1038,16 +1043,19 @@ export class StudentService {
     let whereClause: any = poolCondition;
 
     if (search) {
+      const searchTerms = search.split(/\s+/).filter(Boolean);
       whereClause = {
         AND: [
           poolCondition,
-          {
+          ...searchTerms.map(term => ({
             OR: [
-              { biodata: { fullName: { contains: search, mode: 'insensitive' } } },
-              { biodata: { nik: { contains: search, mode: 'insensitive' } } },
-              { biodata: { nisn: { contains: search, mode: 'insensitive' } } }
+              { biodata: { fullName: { contains: term, mode: 'insensitive' } } },
+              { biodata: { nik: { contains: term, mode: 'insensitive' } } },
+              { biodata: { nisn: { contains: term, mode: 'insensitive' } } },
+              { biodata: { nisLokal: { contains: term, mode: 'insensitive' } } },
+              { biodata: { noGlodemy: { contains: term, mode: 'insensitive' } } },
             ]
-          }
+          }))
         ]
       };
     }
@@ -1073,6 +1081,8 @@ export class StudentService {
             fullName: true,
             nik: true,
             nisn: true,
+            nisLokal: true,
+            noGlodemy: true,
             phone: true,
           }
         },
@@ -1134,15 +1144,24 @@ export class StudentService {
       if (!student) {
         throw new BadRequestException('Siswa tidak ditemukan');
       }
+
+      const targetCabang = await tx.cabang.findUnique({
+        where: { id: cabangId },
+      });
+
+      if (!targetCabang) {
+        throw new BadRequestException('Cabang tujuan tidak ditemukan');
+      }
       
       // If student is available in pool, pull immediately
-      if (student.statusPool === StatusPool.TERSEDIA) {
+      const isAvailableInPool = student.statusPool !== StatusPool.AKTIF_CABANG || !student.cabangId;
+      if (isAvailableInPool) {
         const updatedStudent = await tx.student.update({
           where: { id: studentId },
           data: {
             statusPool: StatusPool.AKTIF_CABANG,
             cabangId: cabangId,
-            wilayahId: student.wilayahId, // Optionally update to cabang's wilayah
+            wilayahId: targetCabang.wilayahId || student.wilayahId,
           },
         });
 
@@ -1304,8 +1323,8 @@ export class StudentService {
         throw new BadRequestException('Beberapa siswa tidak ditemukan');
       }
 
-      const availableStudents = students.filter(s => s.statusPool === StatusPool.TERSEDIA);
-      const activeStudents = students.filter(s => s.statusPool === StatusPool.AKTIF_CABANG && s.cabangId !== cabangId);
+      const availableStudents = students.filter(s => s.statusPool !== StatusPool.AKTIF_CABANG || !s.cabangId);
+      const activeStudents = students.filter(s => s.statusPool === StatusPool.AKTIF_CABANG && s.cabangId && s.cabangId !== cabangId);
 
       const targetCabang = await tx.cabang.findUnique({
         where: { id: cabangId },

@@ -77,7 +77,7 @@ export class StudentController {
 
   @Get('pool')
   @UseGuards(AccessControlGuard)
-  @RequireScope('GLOBAL')
+  @RequireScope('CABANG')
   getPoolStudents(@Query() query: { search?: string; limit?: string }, @Request() req: any) {
     return this.studentService.getPoolStudents(req.user, query);
   }
