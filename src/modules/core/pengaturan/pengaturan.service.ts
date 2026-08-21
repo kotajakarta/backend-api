@@ -138,6 +138,7 @@ export class PengaturanService {
     return {
       portalWalsanEnabled: true,
       raporMuadalahEnabled: true,
+      bankSoalEnabled: true,
       cctvProtectionEnabled: true,
       cctvPinHash: await bcrypt.hash('123456', 10),
       // Walsan granular menus
@@ -162,6 +163,7 @@ export class PengaturanService {
     return {
       portalWalsanEnabled: true,
       raporMuadalahEnabled: true,
+      bankSoalEnabled: true,
       cctvProtectionEnabled: true,
       walsanCctvEnabled: true,
       walsanRaporEnabled: true,
@@ -181,6 +183,7 @@ export class PengaturanService {
   async updateModuleSettings(data: {
     portalWalsanEnabled?: boolean;
     raporMuadalahEnabled?: boolean;
+    bankSoalEnabled?: boolean;
     cctvProtectionEnabled?: boolean;
     cctvPin?: string;
     walsanCctvEnabled?: boolean;
@@ -200,6 +203,7 @@ export class PengaturanService {
       ...current,
       ...(data.portalWalsanEnabled !== undefined && { portalWalsanEnabled: data.portalWalsanEnabled }),
       ...(data.raporMuadalahEnabled !== undefined && { raporMuadalahEnabled: data.raporMuadalahEnabled }),
+      ...(data.bankSoalEnabled !== undefined && { bankSoalEnabled: data.bankSoalEnabled }),
       ...(data.cctvProtectionEnabled !== undefined && { cctvProtectionEnabled: data.cctvProtectionEnabled }),
       ...(data.walsanCctvEnabled !== undefined && { walsanCctvEnabled: data.walsanCctvEnabled }),
       ...(data.walsanRaporEnabled !== undefined && { walsanRaporEnabled: data.walsanRaporEnabled }),
