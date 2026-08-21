@@ -28,12 +28,17 @@ export class RedisService implements OnModuleDestroy {
       }
     });
 
+    let hasLoggedError = false;
     this.client.on('connect', () => {
+      hasLoggedError = false;
       this.logger.log('Berhasil terhubung ke Redis server');
     });
 
     this.client.on('error', (err: Error) => {
-      this.logger.error('Koneksi Redis error:', err);
+      if (!hasLoggedError) {
+        hasLoggedError = true;
+        this.logger.warn(`Koneksi Redis tidak tersedia (${err.message}). Rate limiter otomatis berjalan dengan fallback in-memory.`);
+      }
     });
   }
 

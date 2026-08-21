@@ -90,11 +90,19 @@ async function bootstrap() {
   //  Normalizes Turkish characters (İ->I, Ü->U, Ö->O, Ş->S, etc.) on all inputs
   // ════════════════════════════════════════════════════════════════
   server.use((req, _res, next) => {
-    if (req.body && typeof req.body === 'object') {
-      req.body = sanitizeTurkishDeep(req.body);
-    }
-    if (req.query && typeof req.query === 'object') {
-      req.query = sanitizeTurkishDeep(req.query);
+    try {
+      if (req.body && typeof req.body === 'object') {
+        for (const key of Object.keys(req.body)) {
+          req.body[key] = sanitizeTurkishDeep(req.body[key]);
+        }
+      }
+      if (req.query && typeof req.query === 'object') {
+        for (const key of Object.keys(req.query)) {
+          (req.query as any)[key] = sanitizeTurkishDeep((req.query as any)[key]);
+        }
+      }
+    } catch {
+      // safe fallback
     }
     next();
   });
