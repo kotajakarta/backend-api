@@ -654,6 +654,66 @@ export class SyahriyahService {
     };
   }
 
+  async getUnpaidTagihanForBulk(query: any, user: any) {
+    const where: any = {
+      status: { not: 'LUNAS' }
+    };
+
+    if (user.scope === 'CABANG') {
+      where.student = { cabangId: user.cabangId };
+    } else if (user.scope === 'WILAYAH') {
+      where.student = { cabang: { wilayahId: user.wilayahId } };
+    }
+
+    if (query.cabangId) {
+      where.student = { ...(where.student || {}), cabangId: query.cabangId };
+    }
+
+    if (query.kategori && query.kategori !== 'ALL') {
+      where.kategori = query.kategori;
+    }
+
+    if (query.bulan) {
+      where.bulan = Number(query.bulan);
+    }
+
+    if (query.tahun) {
+      where.tahun = Number(query.tahun);
+    }
+
+    if (query.search) {
+      const search = query.search.trim();
+      where.OR = [
+        { judul: { contains: search, mode: 'insensitive' } },
+        { student: { biodata: { fullName: { contains: search, mode: 'insensitive' } } } },
+        { student: { biodata: { nik: { contains: search, mode: 'insensitive' } } } },
+        { student: { biodata: { nisn: { contains: search, mode: 'insensitive' } } } },
+        { student: { grupDaimi: { contains: search, mode: 'insensitive' } } }
+      ];
+    }
+
+    return this.p.tagihanSantri.findMany({
+      where,
+      include: {
+        student: {
+          include: {
+            biodata: true,
+            cabang: { select: { id: true, name: true } },
+            siswaFormal: { include: { kelas: true } },
+            dataDaimi: { include: { grup: true } }
+          }
+        },
+        tarif: true
+      },
+      orderBy: [
+        { student: { biodata: { fullName: 'asc' } } },
+        { tahun: 'desc' },
+        { bulan: 'desc' }
+      ],
+      take: 1000
+    });
+  }
+
   async getSantriSyahriyahList(query: any, user: any) {
     const page = Math.max(1, Number(query.page || 1));
     const limit = Math.min(100, Math.max(1, Number(query.limit || 10)));
@@ -698,7 +758,7 @@ export class SyahriyahService {
           biodata: true,
           cabang: { select: { id: true, name: true } },
           siswaFormal: {
-            include: { kelasFormal: { select: { id: true, name: true, tingkat: true } } }
+            include: { kelas: { select: { id: true, name: true, tingkat: true } } }
           },
           dataDaimi: {
             include: {
@@ -745,7 +805,7 @@ export class SyahriyahService {
       const daimiKetua = s.dataDaimi?.grup?.ketua?.name || '-';
 
       // Kelas Formal
-      const kelasName = s.siswaFormal?.kelasFormal?.name || '-';
+      const kelasName = s.siswaFormal?.kelas?.name || '-';
 
       return {
         id: s.id,
@@ -791,7 +851,7 @@ export class SyahriyahService {
         biodata: true,
         cabang: true,
         siswaFormal: {
-          include: { kelasFormal: true }
+          include: { kelas: true }
         },
         dataDaimi: {
           include: {

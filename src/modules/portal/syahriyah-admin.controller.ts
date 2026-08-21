@@ -55,6 +55,11 @@ export class SyahriyahAdminController {
     return this.syahriyahService.getStudentSyahriyahDetail(id, req.user);
   }
 
+  @Get('tagihan/unpaid-bulk-candidates')
+  getUnpaidBulkCandidates(@Request() req: any, @Query() query: any) {
+    return this.syahriyahService.getUnpaidTagihanForBulk(query, req.user);
+  }
+
   @Post('tagihan/bayar-massal')
   bayarMassalKasir(@Request() req: any, @Body() body: any) {
     return this.syahriyahService.bayarMassalKasir(body, req.user);
