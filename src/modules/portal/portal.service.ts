@@ -325,27 +325,36 @@ export class PortalService {
       throw new NotFoundException('Data santri atau biodata tidak ditemukan');
     }
 
-    // Allowed editable fields matching daftar-ulang
+    // Mapping compatibility (e.g. aktaUrl -> akteUrl)
+    if (data.aktaUrl !== undefined && data.akteUrl === undefined) {
+      data.akteUrl = data.aktaUrl;
+    }
+
+    // Allowed editable fields matching Prisma schema `Biodata`
     const allowedFields = [
-      'fullName', 'tempatLahir', 'tanggalLahir', 'jenisKelamin', 'kewarganegaraan',
-      'anakKe', 'jumlahSaudara', 'citaCita', 'hobi', 'riwayatPenyakit',
-      'alamatJalan', 'alamatRt', 'alamatRw', 'alamatKelName', 'alamatKecName', 'alamatKabName', 'alamatProvName', 'alamatKodePos',
-      'alamatProvId', 'alamatKabId', 'alamatKecId', 'alamatKelId',
-      'namaAyah', 'statusHidupAyah', 'nikAyah', 'tempatLahirAyah', 'tanggalLahirAyah', 'pekerjaanAyah', 'pendidikanAyah', 'penghasilanAyah', 'teleponAyah',
-      'namaIbu', 'statusHidupIbu', 'nikIbu', 'tempatLahirIbu', 'tanggalLahirIbu', 'pekerjaanIbu', 'pendidikanIbu', 'penghasilanIbu', 'teleponIbu',
-      'namaWali', 'statusHidupWali', 'nikWali', 'tempatLahirWali', 'tanggalLahirWali', 'pekerjaanWali', 'pendidikanWali', 'penghasilanWali', 'teleponWali', 'hubunganWali',
-      'fotoUrl', 'kkUrl', 'aktaUrl', 'ktpAyahUrl', 'ktpIbuUrl', 'kartuBansosUrl', 'suratKeteranganUrl'
+      'fullName', 'nik', 'noKk', 'nisn', 'nisLokal', 'noGlodemy',
+      'tempatLahir', 'tanggalLahir', 'jenisKelamin', 'kewarganegaraan',
+      'anakKe', 'jumlahSaudara',
+      'namaAyah', 'statusHidupAyah', 'nikAyah', 'tempatLahirAyah', 'tanggalLahirAyah', 'pekerjaanAyah', 'pendidikanAyah', 'penghasilanAyah',
+      'namaIbu', 'statusHidupIbu', 'nikIbu', 'tempatLahirIbu', 'tanggalLahirIbu', 'pekerjaanIbu', 'pendidikanIbu', 'penghasilanIbu',
+      'address', 'phone', 'kontakDaruratNama', 'kontakDaruratTelp', 'kontakDaruratHubungan',
+      'alamatJalan', 'alamatProvId', 'alamatProvName', 'alamatKabId', 'alamatKabName', 'alamatKecId', 'alamatKecName', 'alamatKelId', 'alamatKelName',
+      'fotoUrl', 'ijazahUrl', 'kkUrl', 'akteUrl', 'suratMutasiUrl', 'raporUrl', 'skhunUrl', 'suratKesehatanUrl', 'suratDomisiliUrl', 'dokumenLainUrl'
     ];
 
     const updateData: any = {};
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
-        if ((key === 'tanggalLahir' || key === 'tanggalLahirAyah' || key === 'tanggalLahirIbu' || key === 'tanggalLahirWali') && data[key]) {
-          updateData[key] = new Date(data[key]);
-        } else if ((key === 'anakKe' || key === 'jumlahSaudara') && data[key] !== null && data[key] !== '') {
-          updateData[key] = Number(data[key]);
+        if (['tanggalLahir', 'tanggalLahirAyah', 'tanggalLahirIbu'].includes(key)) {
+          updateData[key] = (data[key] && !isNaN(new Date(data[key]).getTime())) ? new Date(data[key]) : null;
+        } else if (['anakKe', 'jumlahSaudara'].includes(key)) {
+          updateData[key] = (data[key] !== null && data[key] !== '' && !isNaN(Number(data[key]))) ? Number(data[key]) : null;
+        } else if (key === 'fullName') {
+          if (data[key] && String(data[key]).trim() !== '') {
+            updateData[key] = String(data[key]).trim();
+          }
         } else {
-          updateData[key] = data[key];
+          updateData[key] = data[key] === '' ? null : data[key];
         }
       }
     }
