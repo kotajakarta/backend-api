@@ -45,6 +45,21 @@ export class SyahriyahAdminController {
     return this.syahriyahService.deleteTagihan(id, req.user);
   }
 
+  @Get('santri')
+  getSantriList(@Request() req: any, @Query() query: any) {
+    return this.syahriyahService.getSantriSyahriyahList(query, req.user);
+  }
+
+  @Get('santri/:id/detail')
+  getStudentDetail(@Request() req: any, @Param('id') id: string) {
+    return this.syahriyahService.getStudentSyahriyahDetail(id, req.user);
+  }
+
+  @Post('tagihan/bayar-massal')
+  bayarMassalKasir(@Request() req: any, @Body() body: any) {
+    return this.syahriyahService.bayarMassalKasir(body, req.user);
+  }
+
   @Post('tagihan/:id/bayar-langsung')
   bayarLangsung(@Request() req: any, @Param('id') id: string, @Body() body: any) {
     return this.syahriyahService.bayarLangsungKasir(id, body, req.user);

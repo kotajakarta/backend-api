@@ -593,6 +593,241 @@ export class SyahriyahService {
     return { success: true, action: data.action };
   }
 
+  async bayarMassalKasir(data: { tagihanIds: string[]; metode?: 'TUNAI' | 'TRANSFER'; catatan?: string }, user: any) {
+    if (!data.tagihanIds || !Array.isArray(data.tagihanIds) || data.tagihanIds.length === 0) {
+      throw new BadRequestException('Pilih setidaknya satu tagihan untuk dibayar');
+    }
+
+    const where: any = {
+      id: { in: data.tagihanIds },
+      status: { not: 'LUNAS' }
+    };
+
+    if (user.scope === 'CABANG') {
+      where.student = { cabangId: user.cabangId };
+    } else if (user.scope === 'WILAYAH') {
+      where.student = { cabang: { wilayahId: user.wilayahId } };
+    }
+
+    const tagihans = await this.p.tagihanSantri.findMany({
+      where,
+      include: { student: { include: { biodata: true } } }
+    });
+
+    if (tagihans.length === 0) {
+      throw new BadRequestException('Tidak ada tagihan valid yang belum lunas untuk diproses');
+    }
+
+    let processedCount = 0;
+    const now = new Date();
+    const metode = data.metode || 'TUNAI';
+    const catatanAdmin = data.catatan || 'Pembayaran massal langsung kasir / bendahara';
+
+    for (const t of tagihans) {
+      await this.p.pembayaranSantri.create({
+        data: {
+          tagihanId: t.id,
+          studentId: t.studentId,
+          nominal: t.sisaBayar > 0 ? t.sisaBayar : t.nominal,
+          tanggalBayar: now,
+          metode,
+          status: 'LUNAS',
+          catatanAdmin,
+          verifiedById: user.id,
+          verifiedAt: now
+        }
+      });
+
+      await this.p.tagihanSantri.update({
+        where: { id: t.id },
+        data: {
+          status: 'LUNAS',
+          sisaBayar: 0
+        }
+      });
+      processedCount++;
+    }
+
+    return {
+      message: `Berhasil memproses pembayaran kasir untuk ${processedCount} tagihan santri`,
+      processedCount
+    };
+  }
+
+  async getSantriSyahriyahList(query: any, user: any) {
+    const page = Math.max(1, Number(query.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(query.limit || 10)));
+    const skip = (page - 1) * limit;
+
+    const where: any = { isActive: true };
+
+    if (user.scope === 'CABANG') {
+      where.cabangId = user.cabangId;
+    } else if (user.scope === 'WILAYAH') {
+      where.cabang = { wilayahId: user.wilayahId };
+    }
+
+    if (query.cabangId) {
+      where.cabangId = query.cabangId;
+    }
+
+    if (query.search) {
+      const search = query.search.trim();
+      where.OR = [
+        { biodata: { fullName: { contains: search, mode: 'insensitive' } } },
+        { biodata: { nisn: { contains: search, mode: 'insensitive' } } },
+        { biodata: { nik: { contains: search, mode: 'insensitive' } } },
+        { grupDaimi: { contains: search, mode: 'insensitive' } },
+        { dataDaimi: { grup: { name: { contains: search, mode: 'insensitive' } } } }
+      ];
+    }
+
+    if (query.statusTagihan === 'BELUM_LUNAS') {
+      where.tagihan = { some: { status: 'BELUM_LUNAS' } };
+    } else if (query.statusTagihan === 'LUNAS') {
+      where.tagihan = { every: { status: 'LUNAS' }, some: {} };
+    }
+
+    const [total, students] = await Promise.all([
+      this.p.student.count({ where }),
+      this.p.student.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          biodata: true,
+          cabang: { select: { id: true, name: true } },
+          siswaFormal: {
+            include: { kelasFormal: { select: { id: true, name: true, tingkat: true } } }
+          },
+          dataDaimi: {
+            include: {
+              grup: {
+                select: {
+                  id: true,
+                  name: true,
+                  ketua: { select: { id: true, name: true, position: true } }
+                }
+              },
+              kelas: { select: { id: true, name: true } }
+            }
+          },
+          tagihan: {
+            select: {
+              id: true,
+              judul: true,
+              kategori: true,
+              bulan: true,
+              tahun: true,
+              nominal: true,
+              sisaBayar: true,
+              status: true
+            },
+            orderBy: [{ tahun: 'desc' }, { bulan: 'desc' }]
+          }
+        },
+        orderBy: [{ cabangId: 'asc' }, { biodata: { fullName: 'asc' } }]
+      })
+    ]);
+
+    const formattedData = students.map((s: any) => {
+      const allTagihan = s.tagihan || [];
+      const totalTagihanCount = allTagihan.length;
+      const totalNominal = allTagihan.reduce((sum: number, t: any) => sum + (t.nominal || 0), 0);
+      const lunasTagihan = allTagihan.filter((t: any) => t.status === 'LUNAS');
+      const pendingTagihan = allTagihan.filter((t: any) => t.status === 'PENDING');
+      const belumLunasTagihan = allTagihan.filter((t: any) => t.status === 'BELUM_LUNAS');
+      const totalTerbayar = lunasTagihan.reduce((sum: number, t: any) => sum + (t.nominal || 0), 0);
+      const totalSisaBayar = belumLunasTagihan.reduce((sum: number, t: any) => sum + (t.sisaBayar || t.nominal || 0), 0);
+
+      // Grup Daimi Name & Ketua
+      const daimiName = s.dataDaimi?.grup?.name || s.grupDaimi || '-';
+      const daimiKetua = s.dataDaimi?.grup?.ketua?.name || '-';
+
+      // Kelas Formal
+      const kelasName = s.siswaFormal?.kelasFormal?.name || '-';
+
+      return {
+        id: s.id,
+        biodata: s.biodata,
+        cabang: s.cabang,
+        kelasName,
+        daimiName,
+        daimiKetua,
+        tagihanSummary: {
+          totalCount: totalTagihanCount,
+          lunasCount: lunasTagihan.length,
+          pendingCount: pendingTagihan.length,
+          belumLunasCount: belumLunasTagihan.length,
+          totalNominal,
+          totalTerbayar,
+          totalSisaBayar,
+          statusBadge:
+            totalTagihanCount === 0
+              ? 'NO_TAGIHAN'
+              : belumLunasTagihan.length === 0
+                ? 'SEMUA_LUNAS'
+                : pendingTagihan.length > 0
+                  ? 'ADA_PENDING'
+                  : 'ADA_TUNGGAKAN'
+        },
+        tagihan: allTagihan
+      };
+    });
+
+    return {
+      data: formattedData,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1
+    };
+  }
+
+  async getStudentSyahriyahDetail(studentId: string, user: any) {
+    const student = await this.p.student.findUnique({
+      where: { id: studentId },
+      include: {
+        biodata: true,
+        cabang: true,
+        siswaFormal: {
+          include: { kelasFormal: true }
+        },
+        dataDaimi: {
+          include: {
+            grup: {
+              include: { ketua: true }
+            },
+            kelas: true
+          }
+        },
+        waliSantri: {
+          include: { user: { select: { id: true, operatorName: true, phone: true } } }
+        },
+        tagihan: {
+          include: {
+            tarif: true,
+            pembayaran: {
+              include: {
+                verifiedBy: { select: { id: true, operatorName: true, username: true } }
+              },
+              orderBy: { createdAt: 'desc' }
+            }
+          },
+          orderBy: [{ tahun: 'desc' }, { bulan: 'desc' }, { createdAt: 'desc' }]
+        }
+      }
+    });
+
+    if (!student) throw new NotFoundException('Santri tidak ditemukan');
+
+    if (user.scope === 'CABANG' && student.cabangId !== user.cabangId) {
+      throw new ForbiddenException('Tidak memiliki akses melihat tagihan santri cabang lain');
+    }
+
+    return student;
+  }
+
   // ═══════════════════════════════════════════════════════════
   // 4. PORTAL WALI SANTRI (WALI)
   // ═══════════════════════════════════════════════════════════
