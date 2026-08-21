@@ -325,25 +325,35 @@ export class SyahriyahService {
     });
   }
 
-  async generateTagihanBulanan(data: { bulan: number; tahun: number; cabangId?: string; tingkat?: string; nominal?: number; jatuhTempo?: string }, user: any) {
-    const bulan = Number(data.bulan);
-    const tahun = Number(data.tahun);
+  async generateTagihanMassal(data: { kategori?: 'BULANAN' | 'TAHUNAN' | 'SANTRI_BARU' | 'LAINNYA'; tarifId?: string; judul?: string; bulan?: number; tahun?: number; cabangId?: string; tingkat?: string; nominal?: number; jatuhTempo?: string; keterangan?: string }, user: any) {
+    const kategori = data.kategori || 'BULANAN';
+    const tahun = Number(data.tahun || new Date().getFullYear());
+    const bulan = data.bulan ? Number(data.bulan) : (kategori === 'BULANAN' ? (new Date().getMonth() + 1) : null);
     const targetCabangId = user.scope === 'CABANG' ? user.cabangId : (data.cabangId || undefined);
 
     const bulanNames = [
       'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
       'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
     ];
-    const namaBulan = bulanNames[bulan - 1] || `Bulan ${bulan}`;
+    const namaBulan = bulan ? (bulanNames[bulan - 1] || `Bulan ${bulan}`) : '';
 
-    // Cari tarif default bulanan jika nominal belum ditentukan
     let defaultNominal = data.nominal !== undefined && data.nominal !== null && Number(data.nominal) > 0 ? Number(data.nominal) : undefined;
     let defaultTarifId: string | null = null;
+    let defaultJudul: string | null = null;
+
+    if (data.tarifId) {
+      const selectedTarif = await this.p.syahriyahTarif.findUnique({ where: { id: data.tarifId } });
+      if (selectedTarif) {
+        defaultTarifId = selectedTarif.id;
+        defaultJudul = selectedTarif.name;
+        if (!defaultNominal) defaultNominal = selectedTarif.nominal;
+      }
+    }
 
     if (!defaultNominal) {
       const tarif = await this.p.syahriyahTarif.findFirst({
         where: {
-          kategori: 'BULANAN',
+          kategori,
           isActive: true,
           ...(targetCabangId ? { OR: [{ cabangId: targetCabangId }, { cabangId: null }] } : {})
         },
@@ -352,8 +362,26 @@ export class SyahriyahService {
       if (tarif && tarif.nominal > 0) {
         defaultNominal = tarif.nominal;
         defaultTarifId = tarif.id;
+        defaultJudul = tarif.name;
       } else {
-        throw new BadRequestException('Tarif iuran Syahriyah Bulanan belum diatur di Setting Biaya. Harap buat master tarif terlebih dahulu sebelum men-generate tagihan.');
+        throw new BadRequestException(`Master tarif untuk kategori ${kategori} belum diisi atau bernilai Rp 0 di Setting Biaya & Tarif. Harap buat master tarif terlebih dahulu sebelum men-generate tagihan.`);
+      }
+    }
+
+    // Tentukan judul tagihan
+    let finalJudul = data.judul?.trim();
+    if (!finalJudul) {
+      if (kategori === 'BULANAN') {
+        finalJudul = `Syahriyah ${namaBulan} ${tahun}`;
+      } else if (defaultJudul) {
+        finalJudul = `${defaultJudul} ${tahun}`;
+      } else {
+        const katMap: Record<string, string> = {
+          TAHUNAN: 'Biaya Tahunan',
+          SANTRI_BARU: 'Biaya Santri Baru',
+          LAINNYA: 'Biaya Lainnya'
+        };
+        finalJudul = `${katMap[kategori] || kategori} ${tahun}`;
       }
     }
 
@@ -368,34 +396,37 @@ export class SyahriyahService {
         cabang: true,
         tagihan: {
           where: {
-            kategori: 'BULANAN',
-            bulan,
-            tahun
+            kategori,
+            tahun,
+            ...(bulan ? { bulan } : {}),
+            ...(kategori !== 'BULANAN' && defaultTarifId ? { tarifId: defaultTarifId } : {})
           }
         }
       }
     });
 
     let createdCount = 0;
-    const jatuhTempoDate = data.jatuhTempo ? new Date(data.jatuhTempo) : new Date(tahun, bulan - 1, 10); // default tanggal 10
+    const jatuhTempoDate = data.jatuhTempo
+      ? new Date(data.jatuhTempo)
+      : (bulan ? new Date(tahun, bulan - 1, 10) : new Date(tahun, 11, 31));
 
     for (const student of students) {
-      // Jika belum ada tagihan untuk bulan & tahun ini
+      // Jika belum ada tagihan untuk kriteria ini
       if (!student.tagihan || student.tagihan.length === 0) {
         await this.p.tagihanSantri.create({
           data: {
             studentId: student.id,
             tarifId: defaultTarifId,
             cabangId: student.cabangId,
-            judul: `Syahriyah ${namaBulan} ${tahun}`,
-            kategori: 'BULANAN',
-            bulan,
+            judul: finalJudul,
+            kategori,
+            bulan: bulan || null,
             tahun,
             nominal: defaultNominal,
             sisaBayar: defaultNominal,
             status: 'BELUM_LUNAS',
             jatuhTempo: jatuhTempoDate,
-            keterangan: `Iuran bulanan Syahriyah santri periode ${namaBulan} ${tahun}`
+            keterangan: data.keterangan || `Tagihan massal ${kategori} periode ${bulan ? namaBulan + ' ' : ''}${tahun}`
           }
         });
         createdCount++;
@@ -403,10 +434,15 @@ export class SyahriyahService {
     }
 
     return {
-      message: `Berhasil men-generate ${createdCount} tagihan Syahriyah ${namaBulan} ${tahun}`,
+      message: `Berhasil men-generate ${createdCount} tagihan ${finalJudul}`,
       createdCount,
       totalEligibleStudents: students.length
     };
+  }
+
+  // Alias for backward compatibility
+  async generateTagihanBulanan(data: any, user: any) {
+    return this.generateTagihanMassal({ ...data, kategori: data.kategori || 'BULANAN' }, user);
   }
 
   async deleteTagihan(id: string, user: any) {

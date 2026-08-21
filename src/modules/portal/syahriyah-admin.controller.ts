@@ -25,9 +25,14 @@ export class SyahriyahAdminController {
     return this.syahriyahService.createTagihan(body, req.user);
   }
 
+  @Post('tagihan/generate-massal')
+  generateMassal(@Request() req: any, @Body() body: any) {
+    return this.syahriyahService.generateTagihanMassal(body, req.user);
+  }
+
   @Post('tagihan/generate-bulanan')
   generateBulanan(@Request() req: any, @Body() body: any) {
-    return this.syahriyahService.generateTagihanBulanan(body, req.user);
+    return this.syahriyahService.generateTagihanMassal(body, req.user);
   }
 
   @Delete('tagihan/massal')
