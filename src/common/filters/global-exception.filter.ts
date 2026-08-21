@@ -17,12 +17,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'An unexpected error occurred. Please try again later.';
 
-    if (exception instanceof HttpException) {
-      status = exception.getStatus();
-      const exceptionResponse = exception.getResponse();
+    const isHttp =
+      exception instanceof HttpException ||
+      (typeof (exception as any)?.getStatus === 'function' && typeof (exception as any)?.getResponse === 'function');
+
+    if (isHttp) {
+      status = (exception as any).getStatus();
+      const exceptionResponse = (exception as any).getResponse();
       message = typeof exceptionResponse === 'string'
         ? exceptionResponse
-        : (exceptionResponse as any).message || message;
+        : (exceptionResponse as any)?.message || message;
+    } else if (process.env.NODE_ENV !== 'production' && exception instanceof Error) {
+      message = exception.message;
     }
 
     // Log full error internally for debugging (never exposed to client)
@@ -40,6 +46,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     response.status(status).json({
       statusCode: status,
       message,
+      ...(process.env.NODE_ENV !== 'production' && !isHttp && exception instanceof Error
+        ? { error: exception.message, stack: exception.stack }
+        : {}),
       timestamp: new Date().toISOString(),
       path: request.url,
     });

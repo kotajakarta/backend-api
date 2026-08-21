@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { CreateQuestionBankDto } from '../dto/create-question-bank.dto.js';
 import { UpdateQuestionBankDto } from '../dto/update-question-bank.dto.js';
@@ -11,7 +11,7 @@ import { QuestionType, AssignmentStatus, ProjectStatus } from '@prisma/client';
 
 @Injectable()
 export class BankSoalService {
-  constructor(private prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private prisma: PrismaService) {}
 
   /**
    * Cek apakah user memiliki hak akses membaca Bank Soal
