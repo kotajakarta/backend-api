@@ -18,6 +18,9 @@ import { UpdateQuestionBankDto } from './dto/update-question-bank.dto.js';
 import { CreateQuestionItemDto } from './dto/create-question-item.dto.js';
 import { UpdateQuestionItemDto } from './dto/update-question-item.dto.js';
 import { ReorderQuestionsDto } from './dto/reorder-questions.dto.js';
+import { CreateProjectDto } from './dto/create-project.dto.js';
+import { DelegateAssignmentDto } from './dto/delegate-assignment.dto.js';
+import { AssignmentStatus } from '@prisma/client';
 
 @Controller('bank-soal')
 export class BankSoalController {
@@ -25,6 +28,28 @@ export class BankSoalController {
     private readonly bankService: BankSoalService,
     private readonly docxService: DocxExportService,
   ) {}
+
+  // ================= METADATA & FILTERS =================
+
+  @Get('metadata/formal')
+  async getFormalMetadata() {
+    return this.bankService.getFormalMetadata();
+  }
+
+  @Get('metadata/hierarchy')
+  async getBranchesAndTeachers(
+    @Query('wilayahId') wilayahId?: string,
+    @Query('cabangId') cabangId?: string,
+  ) {
+    return this.bankService.getBranchesAndTeachers(wilayahId, cabangId);
+  }
+
+  @Get('filters')
+  async getFilterOptions(@Req() req: any) {
+    return this.bankService.getFilterOptions(req.user);
+  }
+
+  // ================= BANK SOAL (PAKET SOAL) =================
 
   @Get()
   async getQuestionBanks(
@@ -49,13 +74,11 @@ export class BankSoalController {
     });
   }
 
-  @Get('filters')
-  async getFilterOptions(@Req() req: any) {
-    return this.bankService.getFilterOptions(req.user);
-  }
-
   @Post()
-  async createQuestionBank(@Req() req: any, @Body() dto: CreateQuestionBankDto) {
+  async createQuestionBank(
+    @Req() req: any,
+    @Body() dto: CreateQuestionBankDto & { assignmentId?: string },
+  ) {
     return this.bankService.createQuestionBank(dto, req.user);
   }
 
@@ -120,6 +143,51 @@ export class BankSoalController {
     @Body() dto: ReorderQuestionsDto,
   ) {
     return this.bankService.reorderQuestions(bankId, dto, req.user);
+  }
+
+  // ================= PROYEK & PENUGASAN (TASK ASSIGNMENT) =================
+
+  @Get('projects/list')
+  async getProjects(@Req() req: any) {
+    return this.bankService.getProjects(req.user);
+  }
+
+  @Get('projects/:id')
+  async getProjectDetail(@Param('id') id: string) {
+    return this.bankService.getProjectDetail(id);
+  }
+
+  @Post('projects')
+  async createProject(@Req() req: any, @Body() dto: CreateProjectDto) {
+    return this.bankService.createProject(dto, req.user);
+  }
+
+  @Delete('projects/:id')
+  async deleteProject(@Req() req: any, @Param('id') id: string) {
+    return this.bankService.deleteProject(id, req.user);
+  }
+
+  @Get('assignments/list')
+  async getAssignments(
+    @Req() req: any,
+    @Query('projectId') projectId?: string,
+    @Query('status') status?: AssignmentStatus,
+    @Query('onlyMine') onlyMine?: string,
+  ) {
+    return this.bankService.getAssignments(req.user, {
+      projectId,
+      status,
+      onlyMine: onlyMine === 'true',
+    });
+  }
+
+  @Put('assignments/:id/delegate')
+  async delegateAssignment(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: DelegateAssignmentDto,
+  ) {
+    return this.bankService.delegateAssignment(id, dto, req.user);
   }
 
   // ================= DOCX EXPORT STREAMING =================

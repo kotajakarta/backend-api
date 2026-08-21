@@ -11,6 +11,7 @@ model Wilayah {
   kelasDaimi         KelasDaimi[]
   permohonanCabang   PermohonanCabang[]
   permohonanKelas    PermohonanKelas[]
+  bankSoalAssignments BankSoalAssignment[]
 
   @@map("wilayah")
   @@schema("core")
@@ -70,6 +71,7 @@ model Cabang {
   rekeningPembayaran        RekeningPembayaran[]
   questionBanks             QuestionBank[]
   tagihanSantri             TagihanSantri[]
+  bankSoalAssignments      BankSoalAssignment[]
 
   @@map("cabang")
   @@schema("core")
@@ -118,6 +120,8 @@ model User {
   pembayaranWali           PembayaranSantri[]     @relation("PembayaranWaliUser")
   pembayaranVerified       PembayaranSantri[]     @relation("PembayaranVerifiedBy")
   questionBanks            QuestionBank[]
+  bankSoalProjectsCreated  BankSoalProject[]      @relation("ProjectCreatedBy")
+  bankSoalAssignments      BankSoalAssignment[]   @relation("AssignmentTeacher")
 
   @@map("users")
   @@schema("core")

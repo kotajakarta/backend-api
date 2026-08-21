@@ -5,7 +5,9 @@ import { UpdateQuestionBankDto } from '../dto/update-question-bank.dto.js';
 import { CreateQuestionItemDto, QuestionOptionDto } from '../dto/create-question-item.dto.js';
 import { UpdateQuestionItemDto } from '../dto/update-question-item.dto.js';
 import { ReorderQuestionsDto } from '../dto/reorder-questions.dto.js';
-import { QuestionType } from '@prisma/client';
+import { CreateProjectDto } from '../dto/create-project.dto.js';
+import { DelegateAssignmentDto } from '../dto/delegate-assignment.dto.js';
+import { QuestionType, AssignmentStatus, ProjectStatus } from '@prisma/client';
 
 @Injectable()
 export class BankSoalService {
@@ -103,6 +105,13 @@ export class BankSoalService {
           cabang: {
             select: { id: true, name: true },
           },
+          assignment: {
+            select: {
+              id: true,
+              project: { select: { id: true, title: true } },
+              status: true,
+            },
+          },
           _count: {
             select: { questions: true },
           },
@@ -131,6 +140,16 @@ export class BankSoalService {
         cabang: {
           select: { id: true, name: true, wilayahId: true },
         },
+        assignment: {
+          select: {
+            id: true,
+            projectId: true,
+            project: { select: { id: true, title: true, deadline: true } },
+            targetMcqCount: true,
+            targetEssayCount: true,
+            status: true,
+          },
+        },
         questions: {
           orderBy: { orderIndex: 'asc' },
           include: {
@@ -147,28 +166,45 @@ export class BankSoalService {
     return bank;
   }
 
-  async createQuestionBank(dto: CreateQuestionBankDto, user: any) {
+  async createQuestionBank(dto: CreateQuestionBankDto & { assignmentId?: string }, user: any) {
     const teacherId = user?.id;
     if (!teacherId) throw new BadRequestException('ID Pengguna tidak valid.');
 
-    return this.prisma.questionBank.create({
-      data: {
-        title: dto.title,
-        subject: dto.subject,
-        gradeLevel: dto.gradeLevel,
-        timeLimit: dto.timeLimit || null,
-        institution: dto.institution || null,
-        academicYear: dto.academicYear || null,
-        semester: dto.semester || null,
-        instructions: dto.instructions || null,
-        isShared: dto.isShared ?? false,
-        teacherId,
-        cabangId: user?.cabangId || null,
-      },
-      include: {
-        teacher: { select: { id: true, username: true, operatorName: true } },
-        cabang: { select: { id: true, name: true } },
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const bank = await tx.questionBank.create({
+        data: {
+          title: dto.title,
+          subject: dto.subject,
+          gradeLevel: dto.gradeLevel,
+          timeLimit: dto.timeLimit || null,
+          institution: dto.institution || null,
+          academicYear: dto.academicYear || null,
+          semester: dto.semester || null,
+          instructions: dto.instructions || null,
+          isShared: dto.isShared ?? false,
+          teacherId,
+          cabangId: user?.cabangId || null,
+        },
+        include: {
+          teacher: { select: { id: true, username: true, operatorName: true } },
+          cabang: { select: { id: true, name: true } },
+        },
+      });
+
+      // If created from an assignment, link it and update status to DALAM_PROSES
+      if (dto.assignmentId) {
+        await tx.bankSoalAssignment.update({
+          where: { id: dto.assignmentId },
+          data: {
+            questionBankId: bank.id,
+            status: AssignmentStatus.DALAM_PROSES,
+            teacherId: user.id,
+            cabangId: user.cabangId || undefined,
+          },
+        });
+      }
+
+      return bank;
     });
   }
 
@@ -440,6 +476,339 @@ export class BankSoalService {
     );
 
     return { success: true, message: 'Urutan butir soal berhasil diperbarui.' };
+  }
+
+  // ================= PROYEK & PENUGASAN (TASK ASSIGNMENT) =================
+
+  async getProjects(user: any) {
+    const projects = await this.prisma.bankSoalProject.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        createdBy: {
+          select: { id: true, username: true, operatorName: true },
+        },
+        assignments: {
+          include: {
+            wilayah: { select: { id: true, name: true } },
+            cabang: { select: { id: true, name: true } },
+            teacher: { select: { id: true, username: true, operatorName: true } },
+            questionBank: {
+              select: {
+                id: true,
+                title: true,
+                _count: { select: { questions: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return projects.map((p) => {
+      const total = p.assignments.length;
+      const completed = p.assignments.filter(
+        (a) => a.status === AssignmentStatus.SELESAI || a.status === AssignmentStatus.DISETUJUI,
+      ).length;
+      const inProgress = p.assignments.filter((a) => a.status === AssignmentStatus.DALAM_PROSES).length;
+
+      return {
+        ...p,
+        stats: {
+          total,
+          completed,
+          inProgress,
+          pending: total - completed - inProgress,
+          percentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+        },
+      };
+    });
+  }
+
+  async getProjectDetail(id: string) {
+    const project = await this.prisma.bankSoalProject.findUnique({
+      where: { id },
+      include: {
+        createdBy: {
+          select: { id: true, username: true, operatorName: true },
+        },
+        assignments: {
+          orderBy: [{ subjectName: 'asc' }, { gradeLevel: 'asc' }],
+          include: {
+            wilayah: { select: { id: true, name: true } },
+            cabang: { select: { id: true, name: true } },
+            teacher: { select: { id: true, username: true, operatorName: true } },
+            questionBank: {
+              select: {
+                id: true,
+                title: true,
+                updatedAt: true,
+                _count: { select: { questions: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!project) throw new NotFoundException('Proyek Bank Soal tidak ditemukan.');
+    return project;
+  }
+
+  async createProject(dto: CreateProjectDto, user: any) {
+    if (user?.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Global yang dapat membuat proyek penugasan bank soal.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const project = await tx.bankSoalProject.create({
+        data: {
+          title: dto.title,
+          description: dto.description || null,
+          academicYear: dto.academicYear || null,
+          semester: dto.semester || null,
+          deadline: dto.deadline ? new Date(dto.deadline) : null,
+          createdById: user.id,
+        },
+      });
+
+      if (dto.assignments && dto.assignments.length > 0) {
+        await tx.bankSoalAssignment.createMany({
+          data: dto.assignments.map((item) => ({
+            projectId: project.id,
+            subjectId: item.subjectId || null,
+            subjectName: item.subjectName,
+            gradeLevel: item.gradeLevel,
+            targetMcqCount: item.targetMcqCount ?? 40,
+            targetEssayCount: item.targetEssayCount ?? 5,
+            timeLimit: item.timeLimit || null,
+            instructions: item.instructions || null,
+            wilayahId: item.wilayahId || null,
+            cabangId: item.cabangId || null,
+            teacherId: item.teacherId || null,
+            status: item.teacherId
+              ? AssignmentStatus.DITUGASKAN
+              : item.cabangId
+              ? AssignmentStatus.MENUNGGU_PENUGASAN_GURU
+              : AssignmentStatus.MENUNGGU_DELEGASI_CABANG,
+          })),
+        });
+      }
+
+      return tx.bankSoalProject.findUnique({
+        where: { id: project.id },
+        include: { assignments: true },
+      });
+    });
+  }
+
+  async deleteProject(id: string, user: any) {
+    if (user?.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Global yang dapat menghapus proyek.');
+    }
+    await this.prisma.bankSoalProject.delete({ where: { id } });
+    return { success: true, message: 'Proyek berhasil dihapus.' };
+  }
+
+  async getAssignments(
+    user: any,
+    query: {
+      projectId?: string;
+      status?: AssignmentStatus;
+      onlyMine?: boolean;
+    },
+  ) {
+    const where: any = {};
+
+    if (query.projectId) {
+      where.projectId = query.projectId;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    // Role-based filtering
+    if (query.onlyMine || user?.scope === 'GURU') {
+      where.teacherId = user?.id;
+    } else if (user?.scope === 'CABANG' && user.cabangId) {
+      where.OR = [
+        { cabangId: user.cabangId },
+        { teacherId: user.id },
+      ];
+    } else if (user?.scope === 'WILAYAH' && user.wilayahId) {
+      where.OR = [
+        { wilayahId: user.wilayahId },
+        { cabang: { wilayahId: user.wilayahId } },
+      ];
+    }
+
+    return this.prisma.bankSoalAssignment.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }],
+      include: {
+        project: {
+          select: { id: true, title: true, deadline: true, academicYear: true, semester: true },
+        },
+        wilayah: { select: { id: true, name: true } },
+        cabang: { select: { id: true, name: true } },
+        teacher: { select: { id: true, username: true, operatorName: true } },
+        questionBank: {
+          select: {
+            id: true,
+            title: true,
+            updatedAt: true,
+            _count: { select: { questions: true } },
+          },
+        },
+      },
+    });
+  }
+
+  async delegateAssignment(assignmentId: string, dto: DelegateAssignmentDto, user: any) {
+    const assignment = await this.prisma.bankSoalAssignment.findUnique({
+      where: { id: assignmentId },
+      include: { cabang: true },
+    });
+
+    if (!assignment) throw new NotFoundException('Penugasan tidak ditemukan.');
+
+    const updateData: any = {};
+
+    // 1. Admin Global -> Delegasi ke Wilayah
+    if (user?.scope === 'GLOBAL') {
+      if (dto.wilayahId !== undefined) updateData.wilayahId = dto.wilayahId;
+      if (dto.cabangId !== undefined) updateData.cabangId = dto.cabangId;
+      if (dto.teacherId !== undefined) updateData.teacherId = dto.teacherId;
+      if (dto.status !== undefined) updateData.status = dto.status;
+      if (dto.notes !== undefined) updateData.notes = dto.notes;
+    }
+    // 2. Admin Wilayah -> Delegasi ke Cabang
+    else if (user?.scope === 'WILAYAH') {
+      if (assignment.wilayahId && assignment.wilayahId !== user.wilayahId) {
+        throw new ForbiddenException('Tugas ini tidak berada di wilayah Anda.');
+      }
+      if (dto.cabangId) {
+        updateData.cabangId = dto.cabangId;
+        updateData.status = AssignmentStatus.MENUNGGU_PENUGASAN_GURU;
+      }
+      if (dto.notes !== undefined) updateData.notes = dto.notes;
+    }
+    // 3. Admin Cabang -> Delegasi ke Guru
+    else if (user?.scope === 'CABANG') {
+      if (assignment.cabangId && assignment.cabangId !== user.cabangId) {
+        throw new ForbiddenException('Tugas ini tidak berada di cabang Anda.');
+      }
+      if (dto.teacherId) {
+        updateData.teacherId = dto.teacherId;
+        updateData.status = AssignmentStatus.DITUGASKAN;
+      }
+      if (dto.status) updateData.status = dto.status;
+      if (dto.notes !== undefined) updateData.notes = dto.notes;
+    }
+    // 4. Guru -> Perbarui Status / Tautkan Bank Soal
+    else if (assignment.teacherId === user.id) {
+      if (dto.status) updateData.status = dto.status;
+      if (dto.questionBankId) updateData.questionBankId = dto.questionBankId;
+    }
+
+    if (dto.questionBankId) {
+      updateData.questionBankId = dto.questionBankId;
+    }
+
+    return this.prisma.bankSoalAssignment.update({
+      where: { id: assignmentId },
+      data: updateData,
+      include: {
+        project: { select: { id: true, title: true } },
+        wilayah: { select: { id: true, name: true } },
+        cabang: { select: { id: true, name: true } },
+        teacher: { select: { id: true, username: true, operatorName: true } },
+        questionBank: { select: { id: true, title: true } },
+      },
+    });
+  }
+
+  // ================= METADATA FORMAL (MAPEL & TINGKAT) =================
+
+  async getFormalMetadata() {
+    const [mapels, kelases] = await Promise.all([
+      this.prisma.mataPelajaran.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true, kodeMapel: true, grupMapel: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.kelas.findMany({
+        where: { isActive: true },
+        select: { tingkat: true },
+        distinct: ['tingkat'],
+      }),
+    ]);
+
+    // Unique levels from DB and defaults
+    const rawLevels = kelases.map((k) => k.tingkat).filter(Boolean) as string[];
+    const defaultLevels = [
+      'Kelas 1',
+      'Kelas 2',
+      'Kelas 3',
+      'Kelas 4',
+      'Kelas 5',
+      'Kelas 6',
+      'Kelas 7',
+      'Kelas 8',
+      'Kelas 9',
+      'Kelas 10',
+      'Kelas 11',
+      'Kelas 12',
+      'Ula 1',
+      'Ula 2',
+      'Wustha 1',
+      'Wustha 2',
+      'Wustha 3',
+      'Ulya 1',
+      'Ulya 2',
+      'Ulya 3',
+    ];
+
+    const uniqueGradeLevels = Array.from(new Set([...rawLevels, ...defaultLevels])).sort();
+
+    return {
+      subjects: mapels,
+      gradeLevels: uniqueGradeLevels,
+    };
+  }
+
+  async getBranchesAndTeachers(wilayahId?: string, cabangId?: string) {
+    const [branches, teachers] = await Promise.all([
+      this.prisma.cabang.findMany({
+        where: wilayahId ? { wilayahId } : undefined,
+        select: { id: true, name: true, wilayahId: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.user.findMany({
+        where: {
+          cabangId: cabangId || undefined,
+          isApproved: true,
+        },
+        select: {
+          id: true,
+          username: true,
+          operatorName: true,
+          cabangId: true,
+        },
+        orderBy: { operatorName: 'asc' },
+      }),
+    ]);
+
+    const wilayahList = await this.prisma.wilayah.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    return {
+      wilayahList,
+      branches,
+      teachers,
+    };
   }
 
   async getFilterOptions(user: any) {
