@@ -66,6 +66,14 @@ export class PortalController {
     return this.portalService.getKehadiran(req.user.id, studentId, startDate, endDate);
   }
 
+  @Get('students/:studentId/pembelajaran')
+  getPembelajaran(
+    @Request() req: any,
+    @Param('studentId') studentId: string
+  ) {
+    return this.portalService.getPembelajaranSilabus(req.user.id, studentId);
+  }
+
   @Get('pengumuman')
   getPengumuman(@Request() req: any, @Query('studentId') studentId?: string) {
     return this.portalService.getPengumuman(req.user.id, studentId);

@@ -14,12 +14,22 @@ export class PortalService {
   ) {}
 
   // Shared include shape for a wali-facing student profile: biodata, cabang/wilayah,
-  // and formal-track class placement.
+  // formal-track class placement, and daimi group placement.
   private readonly studentInclude = {
     biodata: true,
     cabang: true,
     wilayah: true,
-    siswaFormal: { include: { kelas: true } }
+    siswaFormal: { include: { kelas: true } },
+    dataDaimi: {
+      include: {
+        grup: {
+          include: {
+            ketua: true
+          }
+        },
+        kelas: true
+      }
+    }
   };
 
   // Ownership gate — every wali-facing method that touches a specific studentId must
@@ -131,6 +141,99 @@ export class PortalService {
       harian: { records, tally },
       silabus: { records: mapelRecords, tally: mapelTally }
     };
+  }
+
+  async getPembelajaranSilabus(userId: string, studentId: string) {
+    await this.assertOwnsStudent(userId, studentId);
+
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: {
+        siswaFormal: { include: { kelas: true } }
+      }
+    });
+
+    if (!student) {
+      throw new NotFoundException('Data santri tidak ditemukan');
+    }
+
+    const kelasId = student.siswaFormal?.kelasId;
+
+    // Log absensi santri pada mapel silabus
+    const absensiRecords = await this.prisma.absensiMapel.findMany({
+      where: { studentId },
+      include: {
+        mataPelajaran: { select: { id: true, name: true, kodeMapel: true } },
+        silabus: { select: { id: true, bab: true, section: true, tingkat: true, semester: true, tahunAjaran: true } },
+        kelas: { select: { id: true, name: true } }
+      },
+      orderBy: { tanggal: 'desc' }
+    });
+
+    // Pelaksanaan silabus di kelas santri
+    let pelaksanaanRecords: any[] = [];
+    if (kelasId) {
+      pelaksanaanRecords = await this.prisma.pelaksanaanSilabus.findMany({
+        where: {
+          kelasId,
+          status: 'COMPLETED',
+          tanggalDiajar: { not: null }
+        },
+        include: {
+          mataPelajaran: { select: { id: true, name: true, kodeMapel: true } },
+          silabus: { select: { id: true, bab: true, section: true, tingkat: true, semester: true, tahunAjaran: true } },
+          guru: { select: { id: true, name: true } },
+          kelas: { select: { id: true, name: true } }
+        },
+        orderBy: { tanggalDiajar: 'desc' },
+        take: 50
+      });
+    }
+
+    const absensiMap = new Map<string, any>();
+    absensiRecords.forEach((a) => {
+      const key = `${a.mataPelajaranId}_${a.silabusId}_${new Date(a.tanggal).toISOString().split('T')[0]}`;
+      absensiMap.set(key, a);
+    });
+
+    const combined = pelaksanaanRecords.map((p) => {
+      const dateStr = p.tanggalDiajar ? new Date(p.tanggalDiajar).toISOString().split('T')[0] : '';
+      const key = `${p.mataPelajaranId}_${p.silabusId}_${dateStr}`;
+      const abs = absensiMap.get(key);
+
+      const statusKehadiran = abs ? abs.status : 'HADIR';
+      const catatan = abs?.catatan || p.catatan || null;
+
+      return {
+        id: p.id,
+        tanggal: p.tanggalDiajar,
+        mataPelajaran: p.mataPelajaran,
+        silabus: p.silabus,
+        guru: p.guru,
+        kelas: p.kelas,
+        statusKehadiran,
+        isMengikuti: statusKehadiran === 'HADIR',
+        keterangan: statusKehadiran === 'HADIR' ? 'Hadir Mengikuti' : (statusKehadiran === 'SAKIT' ? 'Sakit' : statusKehadiran === 'IZIN' ? 'Izin' : 'Tidak Hadir (Alpa)'),
+        catatan
+      };
+    });
+
+    if (combined.length === 0 && absensiRecords.length > 0) {
+      return absensiRecords.map((a) => ({
+        id: a.id,
+        tanggal: a.tanggal,
+        mataPelajaran: a.mataPelajaran,
+        silabus: a.silabus,
+        guru: null,
+        kelas: a.kelas,
+        statusKehadiran: a.status,
+        isMengikuti: a.status === 'HADIR',
+        keterangan: a.status === 'HADIR' ? 'Hadir Mengikuti' : (a.status === 'SAKIT' ? 'Sakit' : a.status === 'IZIN' ? 'Izin' : 'Tidak Hadir (Alpa)'),
+        catatan: a.catatan
+      }));
+    }
+
+    return combined;
   }
 
   async getPengumuman(userId?: string, studentId?: string) {
