@@ -18,6 +18,7 @@ import { requestIdMiddleware } from './common/middleware/request-id.middleware.j
 import { loginRateLimiter, globalRateLimiter, daftarUlangRateLimiter, setRateLimitRedisClient } from './common/middleware/rate-limit.middleware.js';
 import { createUploadAuthMiddleware } from './common/middleware/upload-auth.middleware.js';
 import { RedisService } from './common/redis/redis.service.js';
+import { sanitizeTurkishDeep } from './common/utils/turkish-char.util.js';
 
 async function bootstrap() {
   const server = express();
@@ -83,6 +84,20 @@ async function bootstrap() {
   // ════════════════════════════════════════════════════════════════
   server.use(express.json({ limit: '10mb' }));
   server.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+  // ════════════════════════════════════════════════════════════════
+  //  LAYER 5.1: Turkish Character Normalization Middleware
+  //  Normalizes Turkish characters (İ->I, Ü->U, Ö->O, Ş->S, etc.) on all inputs
+  // ════════════════════════════════════════════════════════════════
+  server.use((req, _res, next) => {
+    if (req.body && typeof req.body === 'object') {
+      req.body = sanitizeTurkishDeep(req.body);
+    }
+    if (req.query && typeof req.query === 'object') {
+      req.query = sanitizeTurkishDeep(req.query);
+    }
+    next();
+  });
 
   // Static uploads directory serving with JWT auth protection
   let nestAppInstance: INestApplication | null = null;

@@ -88,3 +88,118 @@ model PengumumanWalsan {
   @@map("pengumuman_walsan")
   @@schema("core")
 }
+
+enum KategoriTagihan {
+  BULANAN
+  TAHUNAN
+  SANTRI_BARU
+  LAINNYA
+
+  @@schema("core")
+}
+
+enum StatusTagihan {
+  LUNAS
+  PENDING
+  BELUM_LUNAS
+
+  @@schema("core")
+}
+
+enum MetodePembayaran {
+  TRANSFER
+  TUNAI
+  QRIS
+
+  @@schema("core")
+}
+
+model SyahriyahTarif {
+  id          String          @id @default(uuid())
+  name        String
+  kategori    KategoriTagihan @default(BULANAN)
+  nominal     Float           @default(0)
+  cabangId    String?         @map("cabang_id")
+  tahunAjaran String?         @map("tahun_ajaran")
+  tingkat     String?
+  deskripsi   String?
+  isActive    Boolean         @default(true) @map("is_active")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  cabang  Cabang?         @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+  tagihan TagihanSantri[]
+
+  @@map("syahriyah_tarif")
+  @@schema("core")
+}
+
+model RekeningPembayaran {
+  id            String   @id @default(uuid())
+  bankName      String   @map("bank_name")
+  nomorRekening String   @map("nomor_rekening")
+  atasNama      String   @map("atas_nama")
+  cabangId      String?  @map("cabang_id")
+  qrisUrl       String?  @map("qris_url")
+  catatan       String?
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  cabang Cabang? @relation(fields: [cabangId], references: [id], onDelete: Cascade)
+
+  @@map("rekening_pembayaran")
+  @@schema("core")
+}
+
+model TagihanSantri {
+  id         String          @id @default(uuid())
+  studentId  String          @map("student_id")
+  tarifId    String?         @map("tarif_id")
+  cabangId   String?         @map("cabang_id")
+  judul      String
+  kategori   KategoriTagihan @default(BULANAN)
+  bulan      Int?
+  tahun      Int             @default(2026)
+  nominal    Float           @default(0)
+  sisaBayar  Float           @default(0) @map("sisa_bayar")
+  status     StatusTagihan   @default(BELUM_LUNAS)
+  jatuhTempo DateTime?       @map("jatuh_tempo")
+  keterangan String?
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  student    Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  tarif      SyahriyahTarif?    @relation(fields: [tarifId], references: [id], onDelete: SetNull)
+  cabang     Cabang?            @relation(fields: [cabangId], references: [id], onDelete: SetNull)
+  pembayaran PembayaranSantri[]
+
+  @@map("tagihan_santri")
+  @@schema("core")
+}
+
+model PembayaranSantri {
+  id           String           @id @default(uuid())
+  tagihanId    String           @map("tagihan_id")
+  studentId    String           @map("student_id")
+  waliUserId   String?          @map("wali_user_id")
+  nominal      Float            @default(0)
+  tanggalBayar DateTime         @default(now()) @map("tanggal_bayar")
+  metode       MetodePembayaran @default(TRANSFER)
+  buktiUrl     String?          @map("bukti_url")
+  status       StatusTagihan    @default(PENDING)
+  catatanWali  String?          @map("catatan_wali")
+  catatanAdmin String?          @map("catatan_admin")
+  verifiedById String?          @map("verified_by_id")
+  verifiedAt   DateTime?        @map("verified_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  tagihan    TagihanSantri @relation(fields: [tagihanId], references: [id], onDelete: Cascade)
+  student    Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  waliUser   User?         @relation("PembayaranWaliUser", fields: [waliUserId], references: [id], onDelete: SetNull)
+  verifiedBy User?         @relation("PembayaranVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+
+  @@map("pembayaran_santri")
+  @@schema("core")
+}

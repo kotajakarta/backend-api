@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Inject, ForbiddenException, NotFoundEx
 import { StatusPool } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
+import { normalizeTurkish, sanitizeTurkishDeep } from '../../../common/utils/turkish-char.util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import sharp from 'sharp';
@@ -124,6 +125,7 @@ export class StudentService {
   }
 
   async createStudent(user: any, data: any) {
+    data = sanitizeTurkishDeep(data);
     await this.validateIdentityNumbers(data);
 
     const { 
@@ -366,7 +368,7 @@ export class StudentService {
               ['nama_siswa', 'fullName', 'Nama Siswa', 'Nama Lengkap', 'Name', 'Nama', 'Nama Peserta Didik', 'Peserta Didik'],
               ['namasiswa', 'namalengkap', 'namapeserta', 'pesertadidik', 'nama', 'name', 'siswa']
             );
-            const fullName = String(fullNameRaw || 'Unknown').trim();
+            const fullName = normalizeTurkish(String(fullNameRaw || 'Unknown').trim());
             
             let tanggalLahir = null;
             const rawTanggalLahir = getValue(['tanggal_lahir', 'tanggalLahir', 'Tanggal Lahir']);
@@ -527,6 +529,7 @@ export class StudentService {
   }
 
   async updateStudent(id: string, data: any, user?: any) {
+    data = sanitizeTurkishDeep(data);
     await this.validateIdentityNumbers(data, id);
     const { 
       nisn, nik, noKk, nisLokal, noGlodemy, fullName, tempatLahir, tanggalLahir, jenisKelamin, kewarganegaraan,

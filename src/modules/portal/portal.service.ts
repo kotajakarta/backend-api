@@ -3,6 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { FormalService } from '../formal/formal.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { PengaturanService } from '../core/pengaturan/pengaturan.service.js';
+import { sanitizeTurkishDeep } from '../../common/utils/turkish-char.util.js';
 import { CreatePermohonanIzinDto } from './dto/create-permohonan-izin.dto.js';
 import { encryptStreamUrl, decryptStreamUrl, decryptStoredStreamUrl } from '../../common/utils/cctv-crypto.js';
 
@@ -455,6 +456,7 @@ export class PortalService {
   // --- EDIT BIODATA SISWA OLEH WALI SANTRI ---
 
   async updateStudentBiodata(userId: string, studentId: string, data: any) {
+    data = sanitizeTurkishDeep(data);
     await this.assertOwnsStudent(userId, studentId);
 
     const student = await this.prisma.student.findUnique({

@@ -146,6 +146,7 @@ export class PengaturanService {
       walsanKehadiranEnabled: true,
       walsanIzinEnabled: true,
       walsanPengumumanEnabled: true,
+      walsanSyahriyahEnabled: true,
       walsanEditBiodataEnabled: false, // Default: false (harus diaktifkan oleh cabang terkait)
       // Cabang granular access
       cabangCctvEnabled: true,
@@ -167,6 +168,7 @@ export class PengaturanService {
       walsanKehadiranEnabled: true,
       walsanIzinEnabled: true,
       walsanPengumumanEnabled: true,
+      walsanSyahriyahEnabled: true,
       walsanEditBiodataEnabled: false,
       cabangCctvEnabled: true,
       cabangIzinEnabled: true,
@@ -186,6 +188,7 @@ export class PengaturanService {
     walsanKehadiranEnabled?: boolean;
     walsanIzinEnabled?: boolean;
     walsanPengumumanEnabled?: boolean;
+    walsanSyahriyahEnabled?: boolean;
     walsanEditBiodataEnabled?: boolean;
     cabangCctvEnabled?: boolean;
     cabangIzinEnabled?: boolean;
@@ -203,6 +206,7 @@ export class PengaturanService {
       ...(data.walsanKehadiranEnabled !== undefined && { walsanKehadiranEnabled: data.walsanKehadiranEnabled }),
       ...(data.walsanIzinEnabled !== undefined && { walsanIzinEnabled: data.walsanIzinEnabled }),
       ...(data.walsanPengumumanEnabled !== undefined && { walsanPengumumanEnabled: data.walsanPengumumanEnabled }),
+      ...(data.walsanSyahriyahEnabled !== undefined && { walsanSyahriyahEnabled: data.walsanSyahriyahEnabled }),
       ...(data.walsanEditBiodataEnabled !== undefined && { walsanEditBiodataEnabled: data.walsanEditBiodataEnabled }),
       ...(data.cabangCctvEnabled !== undefined && { cabangCctvEnabled: data.cabangCctvEnabled }),
       ...(data.cabangIzinEnabled !== undefined && { cabangIzinEnabled: data.cabangIzinEnabled }),

@@ -2,5 +2,8 @@
   "portalWalsanEnabled": true,
   "raporMuadalahEnabled": false,
   "walsanCctvEnabled": false,
-  "cabangCctvEnabled": false
+  "cabangCctvEnabled": false,
+  "cabangEditBiodataMap": {
+    "f6c771eb-c084-493c-ac19-1d26658dfa5c": false
+  }
 }

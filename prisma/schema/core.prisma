@@ -66,6 +66,9 @@ model Cabang {
   targetKuota               TargetKuotaCabang[]
   cctvChannels              CctvChannel[]
   pengumumanWalsan          PengumumanWalsan[]
+  syahriyahTarif            SyahriyahTarif[]
+  rekeningPembayaran        RekeningPembayaran[]
+  tagihanSantri             TagihanSantri[]
 
   @@map("cabang")
   @@schema("core")
@@ -111,6 +114,8 @@ model User {
   permohonanIzinCreated    PermohonanIzinSantri[] @relation("PermohonanIzinCreatedBy")
   permohonanIzinApproved   PermohonanIzinSantri[] @relation("PermohonanIzinApprovedBy")
   pengumumanWalsanCreated  PengumumanWalsan[]     @relation("PengumumanWalsanCreatedBy")
+  pembayaranWali           PembayaranSantri[]     @relation("PembayaranWaliUser")
+  pembayaranVerified       PembayaranSantri[]     @relation("PembayaranVerifiedBy")
 
   @@map("users")
   @@schema("core")
@@ -204,6 +209,8 @@ model Student {
   absensiMapel           AbsensiMapel[]
   waliSantri             WaliSantri[]
   permohonanIzin         PermohonanIzinSantri[]
+  tagihan                TagihanSantri[]
+  pembayaran             PembayaranSantri[]
 
   @@map("students")
   @@schema("core")
