@@ -155,7 +155,7 @@ export class SyahriyahService {
   // 3. TAGIHAN SANTRI & STATISTIK (ADMIN)
   // ═══════════════════════════════════════════════════════════
 
-  async getTagihanList(query: any, user: any) {
+  private buildTagihanWhere(query: any, user: any) {
     const where: any = {};
 
     // Scope check
@@ -199,31 +199,63 @@ export class SyahriyahService {
       ];
     }
 
-    return this.p.tagihanSantri.findMany({
-      where,
-      include: {
-        student: {
-          include: {
-            biodata: true,
-            cabang: { select: { id: true, name: true } },
-            siswaFormal: { include: { kelas: true } }
+    return where;
+  }
+
+  async getTagihanList(query: any, user: any) {
+    const where = this.buildTagihanWhere(query, user);
+
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(query.limit) || 10));
+    const skip = (page - 1) * limit;
+
+    const [total, items] = await Promise.all([
+      this.p.tagihanSantri.count({ where }),
+      this.p.tagihanSantri.findMany({
+        where,
+        include: {
+          student: {
+            include: {
+              biodata: true,
+              cabang: { select: { id: true, name: true } },
+              siswaFormal: { include: { kelas: true } }
+            }
+          },
+          tarif: true,
+          pembayaran: {
+            include: {
+              waliUser: { select: { id: true, username: true, operatorName: true, phone: true } },
+              verifiedBy: { select: { id: true, username: true, operatorName: true } }
+            },
+            orderBy: { createdAt: 'desc' }
           }
         },
-        tarif: true,
-        pembayaran: {
-          include: {
-            waliUser: { select: { id: true, username: true, operatorName: true, phone: true } },
-            verifiedBy: { select: { id: true, username: true, operatorName: true } }
-          },
-          orderBy: { createdAt: 'desc' }
-        }
-      },
-      orderBy: [{ tahun: 'desc' }, { bulan: 'desc' }, { createdAt: 'desc' }]
-    });
+        orderBy: [{ tahun: 'desc' }, { bulan: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take: limit
+      })
+    ]);
+
+    return {
+      data: items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    };
   }
 
   async getSyahriyahStats(query: any, user: any) {
-    const list = await this.getTagihanList(query, user);
+    const where = this.buildTagihanWhere(query, user);
+
+    const list = await this.p.tagihanSantri.findMany({
+      where,
+      select: {
+        id: true,
+        nominal: true,
+        status: true
+      }
+    });
 
     let totalNominal = 0;
     let lunasCount = 0;
