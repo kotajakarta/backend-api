@@ -836,7 +836,10 @@ export class PembelajaranService {
     }
 
     const kelasList = await this.prisma.kelas.findMany({
-      where: kelasWhere,
+      where: {
+        ...kelasWhere,
+        isActive: true
+      },
       include: {
         cabang: { include: { wilayah: true } },
         _count: { select: { siswaFormal: true } }
@@ -1233,7 +1236,10 @@ export class PembelajaranService {
     }
 
     const rawKelasList = await this.prisma.kelas.findMany({
-      where: kelasWhere,
+      where: {
+        ...kelasWhere,
+        isActive: true
+      },
       include: {
         cabang: { include: { wilayah: true } },
         ruang: true,
@@ -1241,13 +1247,14 @@ export class PembelajaranService {
         siswaFormal: {
           where: { student: { isActive: true } }
         }
-      }
+      },
+      orderBy: { name: 'asc' }
     });
 
-    // Hide inactive classes (classes with 0 active students when breakdown is KELAS)
+    // Kelas aktif yang dihitung
     const kelasList = (scopeLevel === 'CABANG' || breakdownLevel === 'KELAS')
       ? rawKelasList.filter(k => k.siswaFormal && k.siswaFormal.length > 0)
-      : rawKelasList;
+      : rawKelasList.filter(k => k.isActive === true);
 
     const kelasIds = kelasList.map(k => k.id);
     const kelasById = new Map(kelasList.map(k => [k.id, k]));
@@ -1256,24 +1263,19 @@ export class PembelajaranService {
     // ===== Filter options (sesuai RBAC) =====
     const filterOptions = { ...emptyFilterOptions };
     if (scopeLevel === 'GLOBAL') {
-      const wilayahSet = new Map<string, string>();
-      const cabangSet = new Map<string, { id: string; name: string; wilayahId: string | null }>();
-      kelasList.forEach(k => {
-        if (k.cabang?.wilayah) wilayahSet.set(k.cabang.wilayahId!, k.cabang.wilayah.name);
-        if (k.cabang) cabangSet.set(k.cabangId!, { id: k.cabangId!, name: k.cabang.name, wilayahId: k.cabang.wilayahId });
-      });
-      filterOptions.wilayahList = Array.from(wilayahSet.entries())
-        .map(([id, name]) => ({ id, name }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      filterOptions.cabangList = Array.from(cabangSet.values())
-        .sort((a, b) => a.name.localeCompare(b.name));
+      const [allWilayah, allCabang] = await Promise.all([
+        this.prisma.wilayah.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+        this.prisma.cabang.findMany({ select: { id: true, name: true, wilayahId: true }, orderBy: { name: 'asc' } })
+      ]);
+      filterOptions.wilayahList = allWilayah;
+      filterOptions.cabangList = allCabang;
     } else if (scopeLevel === 'WILAYAH') {
-      const cabangSet = new Map<string, { id: string; name: string; wilayahId: string | null }>();
-      kelasList.forEach(k => {
-        if (k.cabang) cabangSet.set(k.cabangId!, { id: k.cabangId!, name: k.cabang.name, wilayahId: k.cabang.wilayahId });
+      const allCabang = await this.prisma.cabang.findMany({
+        where: { wilayahId: user.wilayahId },
+        select: { id: true, name: true, wilayahId: true },
+        orderBy: { name: 'asc' }
       });
-      filterOptions.cabangList = Array.from(cabangSet.values())
-        .sort((a, b) => a.name.localeCompare(b.name));
+      filterOptions.cabangList = allCabang;
     }
 
     // ===== Silabus & Pelaksanaan Data =====
@@ -1346,6 +1348,52 @@ export class PembelajaranService {
     const unitMap = new Map<string, UnitAgg>();
     const classToUnitIdMap = new Map<string, string>();
 
+    // Seed unitMap with all relevant Cabangs/Wilayahs to keep complete overview
+    if (breakdownLevel === 'CABANG') {
+      const relevantCabangs = cabangId
+        ? filterOptions.cabangList.filter(c => c.id === cabangId)
+        : wilayahId
+          ? filterOptions.cabangList.filter(c => c.wilayahId === wilayahId)
+          : filterOptions.cabangList;
+
+      relevantCabangs.forEach(c => {
+        const wilName = filterOptions.wilayahList.find(w => w.id === c.wilayahId)?.name || '';
+        unitMap.set(c.id, {
+          id: c.id,
+          name: c.name,
+          parentName: wilName,
+          jumlahCabang: 1,
+          jumlahKelas: 0,
+          jumlahSiswa: 0,
+          silabusCompleted: 0,
+          silabusTotal: 0,
+          hadir: 0,
+          totalAbsensi: 0,
+          cabangSet: new Set([c.id]),
+          kelasSet: new Set(),
+          detailsMap: new Map()
+        });
+      });
+    } else if (breakdownLevel === 'WILAYAH') {
+      filterOptions.wilayahList.forEach(w => {
+        unitMap.set(w.id, {
+          id: w.id,
+          name: w.name,
+          parentName: '',
+          jumlahCabang: 0,
+          jumlahKelas: 0,
+          jumlahSiswa: 0,
+          silabusCompleted: 0,
+          silabusTotal: 0,
+          hadir: 0,
+          totalAbsensi: 0,
+          cabangSet: new Set(),
+          kelasSet: new Set(),
+          detailsMap: new Map()
+        });
+      });
+    }
+
     const unitKeyOf = (kelas: KelasT): { id: string; name: string; parentName: string } => {
       if (breakdownLevel === 'WILAYAH') return {
         id: kelas.cabang?.wilayahId || 'unknown',
@@ -1405,7 +1453,7 @@ export class PembelajaranService {
     });
 
     unitMap.forEach(u => {
-      u.silabusTotal = Math.max(1, u.jumlahKelas) * targetDenominator;
+      u.silabusTotal = u.jumlahKelas * targetDenominator;
       totalSilabusTarget += u.silabusTotal;
     });
 
@@ -1500,8 +1548,8 @@ export class PembelajaranService {
             p => isClassInUnit(p.kelasId) && p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'COMPLETED'
           );
           const wMapelCompleted = wPel.length;
-          const wMapelTarget = Math.max(1, u.jumlahKelas) * 5;
-          const wPersenMapel = isFuture ? 0 : Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
+          const wMapelTarget = u.jumlahKelas * 5;
+          const wPersenMapel = isFuture || wMapelTarget === 0 ? 0 : Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
 
           const wAbsAll = absensiList.filter(
             a => isClassInUnit(a.kelasId) && a.tanggal >= wStartDate && a.tanggal <= wEndDate
