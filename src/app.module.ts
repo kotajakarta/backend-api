@@ -20,6 +20,7 @@ import { KegiatanModule } from './modules/kegiatan/kegiatan.module.js';
 import { PembelajaranModule } from './modules/pembelajaran/pembelajaran.module.js';
 import { SuratModule } from './modules/surat/surat.module.js';
 import { PortalModule } from './modules/portal/portal.module.js';
+import { BankSoalModule } from './modules/bank-soal/bank-soal.module.js';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { PortalModule } from './modules/portal/portal.module.js';
     PembelajaranModule,
     SuratModule,
     PortalModule,
+    BankSoalModule,
     ScheduleModule.forRoot()
   ],
   controllers: [],

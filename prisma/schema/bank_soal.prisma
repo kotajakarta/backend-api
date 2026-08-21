@@ -1,0 +1,70 @@
+enum QuestionType {
+  MCQ_4      // Pilihan Ganda (A-D)
+  MCQ_5      // Pilihan Ganda (A-E)
+  ESSAY      // Soal Uraian / Esai
+  COMPLEX_MC // Pilihan Ganda Kompleks
+  TRUE_FALSE // Benar / Salah
+
+  @@map("question_type")
+  @@schema("bank_soal")
+}
+
+model QuestionBank {
+  id           String         @id @default(uuid())
+  title        String
+  subject      String
+  gradeLevel   String         @map("grade_level")
+  timeLimit    Int?           @map("time_limit")
+  institution  String?
+  academicYear String?        @map("academic_year")
+  semester     String?
+  instructions String?        @db.Text
+  
+  // Ownership Guru & Cabang
+  teacherId    String         @map("teacher_id")
+  teacher      User           @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  cabangId     String?        @map("cabang_id")
+  cabang       Cabang?        @relation(fields: [cabangId], references: [id], onDelete: SetNull)
+  isShared     Boolean        @default(false) @map("is_shared")
+
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  questions    QuestionItem[]
+
+  @@index([teacherId])
+  @@index([cabangId])
+  @@map("question_banks")
+  @@schema("bank_soal")
+}
+
+model QuestionItem {
+  id             String           @id @default(uuid())
+  questionBankId String           @map("question_bank_id")
+  questionBank   QuestionBank     @relation(fields: [questionBankId], references: [id], onDelete: Cascade)
+  type           QuestionType     @default(MCQ_4)
+  contentHtml    String           @db.Text @map("content_html")
+  answerKey      String?          @db.Text @map("answer_key")
+  orderIndex     Int              @default(0) @map("order_index")
+  weight         Float?           @default(1)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  options        QuestionOption[]
+
+  @@index([questionBankId])
+  @@map("question_items")
+  @@schema("bank_soal")
+}
+
+model QuestionOption {
+  id             String       @id @default(uuid())
+  questionItemId String       @map("question_item_id")
+  questionItem   QuestionItem @relation(fields: [questionItemId], references: [id], onDelete: Cascade)
+  label          String       // 'A', 'B', 'C', 'D', 'E'
+  contentHtml    String       @db.Text @map("content_html")
+  isCorrect      Boolean      @default(false) @map("is_correct")
+  orderIndex     Int          @default(0) @map("order_index")
+
+  @@index([questionItemId])
+  @@map("question_options")
+  @@schema("bank_soal")
+}
