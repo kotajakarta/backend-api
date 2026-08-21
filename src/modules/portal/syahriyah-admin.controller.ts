@@ -30,6 +30,16 @@ export class SyahriyahAdminController {
     return this.syahriyahService.generateTagihanBulanan(body, req.user);
   }
 
+  @Delete('tagihan/massal')
+  deleteTagihanMassal(@Request() req: any, @Query() query: any) {
+    return this.syahriyahService.deleteTagihanMassal(query, req.user);
+  }
+
+  @Delete('tagihan/:id')
+  deleteTagihan(@Request() req: any, @Param('id') id: string) {
+    return this.syahriyahService.deleteTagihan(id, req.user);
+  }
+
   @Post('tagihan/:id/bayar-langsung')
   bayarLangsung(@Request() req: any, @Param('id') id: string, @Body() body: any) {
     return this.syahriyahService.bayarLangsungKasir(id, body, req.user);

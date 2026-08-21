@@ -337,7 +337,7 @@ export class SyahriyahService {
     const namaBulan = bulanNames[bulan - 1] || `Bulan ${bulan}`;
 
     // Cari tarif default bulanan jika nominal belum ditentukan
-    let defaultNominal = data.nominal;
+    let defaultNominal = data.nominal !== undefined && data.nominal !== null && Number(data.nominal) > 0 ? Number(data.nominal) : undefined;
     let defaultTarifId: string | null = null;
 
     if (!defaultNominal) {
@@ -349,11 +349,11 @@ export class SyahriyahService {
         },
         orderBy: { cabangId: 'desc' } // Prioritaskan tarif spesifik cabang
       });
-      if (tarif) {
+      if (tarif && tarif.nominal > 0) {
         defaultNominal = tarif.nominal;
         defaultTarifId = tarif.id;
       } else {
-        defaultNominal = 0;
+        throw new BadRequestException('Tarif iuran Syahriyah Bulanan belum diatur di Setting Biaya. Harap buat master tarif terlebih dahulu sebelum men-generate tagihan.');
       }
     }
 
@@ -406,6 +406,63 @@ export class SyahriyahService {
       message: `Berhasil men-generate ${createdCount} tagihan Syahriyah ${namaBulan} ${tahun}`,
       createdCount,
       totalEligibleStudents: students.length
+    };
+  }
+
+  async deleteTagihan(id: string, user: any) {
+    const tagihan = await this.p.tagihanSantri.findUnique({
+      where: { id },
+      include: { student: true }
+    });
+    if (!tagihan) throw new NotFoundException('Tagihan tidak ditemukan');
+
+    if (user.scope === 'CABANG' && tagihan.student.cabangId !== user.cabangId) {
+      throw new ForbiddenException('Tidak memiliki akses menghapus tagihan cabang lain');
+    }
+
+    return this.p.tagihanSantri.delete({ where: { id } });
+  }
+
+  async deleteTagihanMassal(query: any, user: any) {
+    const where: any = {};
+
+    if (user.scope === 'CABANG') {
+      where.student = { cabangId: user.cabangId };
+    } else if (user.scope === 'WILAYAH') {
+      where.student = { cabang: { wilayahId: user.wilayahId } };
+    }
+
+    if (query.cabangId) {
+      where.student = { ...(where.student || {}), cabangId: query.cabangId };
+    }
+
+    if (query.bulan) {
+      where.bulan = Number(query.bulan);
+    }
+
+    if (query.tahun) {
+      where.tahun = Number(query.tahun);
+    }
+
+    if (query.kategori) {
+      where.kategori = query.kategori;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    } else if (query.onlyBelumLunas !== 'false' && query.includeLunas !== 'true') {
+      where.status = 'BELUM_LUNAS';
+    }
+
+    const count = await this.p.tagihanSantri.count({ where });
+    if (count === 0) {
+      return { message: 'Tidak ada data tagihan yang sesuai kriteria untuk dihapus', deletedCount: 0 };
+    }
+
+    const result = await this.p.tagihanSantri.deleteMany({ where });
+    return {
+      message: `Berhasil menghapus ${result.count} tagihan santri`,
+      deletedCount: result.count
     };
   }
 
