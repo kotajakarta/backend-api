@@ -2,6 +2,7 @@ import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestEx
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { FormalService } from '../formal/formal.service.js';
 import { AuthService } from '../auth/auth.service.js';
+import { PengaturanService } from '../core/pengaturan/pengaturan.service.js';
 import { CreatePermohonanIzinDto } from './dto/create-permohonan-izin.dto.js';
 import { encryptStreamUrl, decryptStreamUrl, decryptStoredStreamUrl } from '../../common/utils/cctv-crypto.js';
 
@@ -10,8 +11,18 @@ export class PortalService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(FormalService) private readonly formalService: FormalService,
-    @Inject(AuthService) private readonly authService: AuthService
+    @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(PengaturanService) private readonly pengaturanService: PengaturanService
   ) {}
+
+  // Helper untuk mengecek apakah cabang terkait mengizinkan walisan edit data santri
+  async checkCanEditBiodata(cabangId?: string | null): Promise<boolean> {
+    const settings = await this.pengaturanService.getModuleSettings();
+    if (cabangId && settings.cabangEditBiodataMap && settings.cabangEditBiodataMap[cabangId] !== undefined) {
+      return Boolean(settings.cabangEditBiodataMap[cabangId]);
+    }
+    return Boolean(settings.walsanEditBiodataEnabled ?? false);
+  }
 
   // Shared include shape for a wali-facing student profile: biodata, cabang/wilayah,
   // formal-track class placement, and daimi group placement.
@@ -45,18 +56,45 @@ export class PortalService {
   // --- WALI-FACING ---
 
   async getStudents(userId: string) {
-    return this.prisma.waliSantri.findMany({
+    const links = await this.prisma.waliSantri.findMany({
       where: { userId },
       include: { student: { include: this.studentInclude } }
+    });
+
+    const settings = await this.pengaturanService.getModuleSettings();
+
+    return links.map((link) => {
+      const cabangId = link.student?.cabangId;
+      let canEditBiodata = false;
+      if (cabangId && settings.cabangEditBiodataMap && settings.cabangEditBiodataMap[cabangId] !== undefined) {
+        canEditBiodata = Boolean(settings.cabangEditBiodataMap[cabangId]);
+      } else {
+        canEditBiodata = Boolean(settings.walsanEditBiodataEnabled ?? false);
+      }
+
+      return {
+        ...link,
+        student: {
+          ...link.student,
+          canEditBiodata,
+        },
+      };
     });
   }
 
   async getStudentById(userId: string, studentId: string) {
     await this.assertOwnsStudent(userId, studentId);
-    return this.prisma.student.findUnique({
+    const student = await this.prisma.student.findUnique({
       where: { id: studentId },
       include: this.studentInclude
     });
+    if (!student) return null;
+
+    const canEditBiodata = await this.checkCanEditBiodata(student.cabangId);
+    return {
+      ...student,
+      canEditBiodata,
+    };
   }
 
   async getRiwayatKelas(userId: string, studentId: string) {
@@ -426,6 +464,13 @@ export class PortalService {
 
     if (!student || !student.biodataId) {
       throw new NotFoundException('Data santri atau biodata tidak ditemukan');
+    }
+
+    const canEdit = await this.checkCanEditBiodata(student.cabangId);
+    if (!canEdit) {
+      throw new ForbiddenException(
+        'Fitur perbaruan data santri saat ini sedang dinonaktifkan oleh Cabang terkait. Silakan hubungi pengurus Cabang.'
+      );
     }
 
     // Mapping compatibility (e.g. aktaUrl -> akteUrl)

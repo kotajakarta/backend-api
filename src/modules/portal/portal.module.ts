@@ -7,9 +7,10 @@ import { CctvProxyController } from './cctv-proxy.controller.js';
 import { PortalService } from './portal.service.js';
 import { FormalModule } from '../formal/formal.module.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { PengaturanModule } from '../core/pengaturan/pengaturan.module.js';
 
 @Module({
-  imports: [FormalModule, AuthModule],
+  imports: [FormalModule, AuthModule, PengaturanModule],
   controllers: [PortalController, PermohonanIzinAdminController, PengumumanWalsanAdminController, CctvController, CctvProxyController],
   providers: [PortalService]
 })

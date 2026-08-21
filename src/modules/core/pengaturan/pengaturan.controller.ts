@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, UseInterceptors, UploadedFile, Res, Inject, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, UseInterceptors, UploadedFile, Res, Inject, BadRequestException, Request } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import * as path from 'path';
@@ -32,12 +32,28 @@ export class PengaturanController {
       walsanKehadiranEnabled?: boolean;
       walsanIzinEnabled?: boolean;
       walsanPengumumanEnabled?: boolean;
+      walsanEditBiodataEnabled?: boolean;
       cabangCctvEnabled?: boolean;
       cabangIzinEnabled?: boolean;
       cabangWalsanListEnabled?: boolean;
+      cabangEditBiodataMap?: Record<string, boolean>;
     },
   ) {
     return this.pengaturanService.updateModuleSettings(data);
+  }
+
+  @Put('modules/cabang-edit-biodata')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('CABANG')
+  updateCabangEditBiodata(
+    @Request() req: any,
+    @Body() body: { cabangId?: string; isEnabled: boolean },
+  ) {
+    const targetCabangId = req.user.scope === 'CABANG' ? req.user.cabangId : body.cabangId;
+    if (!targetCabangId) {
+      throw new BadRequestException('ID Cabang tidak valid');
+    }
+    return this.pengaturanService.updateCabangEditBiodata(targetCabangId, body.isEnabled);
   }
 
   @Post('cctv/verify-pin')

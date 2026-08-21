@@ -5,5 +5,6 @@ import { PengaturanService } from './pengaturan.service.js';
 @Module({
   controllers: [PengaturanController],
   providers: [PengaturanService],
+  exports: [PengaturanService],
 })
 export class PengaturanModule {}

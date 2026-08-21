@@ -146,10 +146,12 @@ export class PengaturanService {
       walsanKehadiranEnabled: true,
       walsanIzinEnabled: true,
       walsanPengumumanEnabled: true,
+      walsanEditBiodataEnabled: false, // Default: false (harus diaktifkan oleh cabang terkait)
       // Cabang granular access
       cabangCctvEnabled: true,
       cabangIzinEnabled: true,
       cabangWalsanListEnabled: true,
+      cabangEditBiodataMap: {}, // Map cabangId -> boolean
     };
   }
 
@@ -165,9 +167,11 @@ export class PengaturanService {
       walsanKehadiranEnabled: true,
       walsanIzinEnabled: true,
       walsanPengumumanEnabled: true,
+      walsanEditBiodataEnabled: false,
       cabangCctvEnabled: true,
       cabangIzinEnabled: true,
       cabangWalsanListEnabled: true,
+      cabangEditBiodataMap: {},
       ...publicSettings,
     };
   }
@@ -182,9 +186,11 @@ export class PengaturanService {
     walsanKehadiranEnabled?: boolean;
     walsanIzinEnabled?: boolean;
     walsanPengumumanEnabled?: boolean;
+    walsanEditBiodataEnabled?: boolean;
     cabangCctvEnabled?: boolean;
     cabangIzinEnabled?: boolean;
     cabangWalsanListEnabled?: boolean;
+    cabangEditBiodataMap?: Record<string, boolean>;
   }) {
     const current = await this.getModuleSettings();
     const updated: any = {
@@ -197,9 +203,11 @@ export class PengaturanService {
       ...(data.walsanKehadiranEnabled !== undefined && { walsanKehadiranEnabled: data.walsanKehadiranEnabled }),
       ...(data.walsanIzinEnabled !== undefined && { walsanIzinEnabled: data.walsanIzinEnabled }),
       ...(data.walsanPengumumanEnabled !== undefined && { walsanPengumumanEnabled: data.walsanPengumumanEnabled }),
+      ...(data.walsanEditBiodataEnabled !== undefined && { walsanEditBiodataEnabled: data.walsanEditBiodataEnabled }),
       ...(data.cabangCctvEnabled !== undefined && { cabangCctvEnabled: data.cabangCctvEnabled }),
       ...(data.cabangIzinEnabled !== undefined && { cabangIzinEnabled: data.cabangIzinEnabled }),
       ...(data.cabangWalsanListEnabled !== undefined && { cabangWalsanListEnabled: data.cabangWalsanListEnabled }),
+      ...(data.cabangEditBiodataMap !== undefined && { cabangEditBiodataMap: data.cabangEditBiodataMap }),
     };
     if (data.cctvPin !== undefined && data.cctvPin.trim() !== '') {
       updated.cctvPinHash = await bcrypt.hash(data.cctvPin.trim(), 10);
@@ -211,6 +219,14 @@ export class PengaturanService {
 
     const { cctvPinHash, ...publicUpdated } = updated;
     return publicUpdated;
+  }
+
+  async updateCabangEditBiodata(cabangId: string, isEnabled: boolean) {
+    const current = await this.getModuleSettings();
+    const cabangMap = { ...(current.cabangEditBiodataMap || {}) };
+    cabangMap[cabangId] = isEnabled;
+
+    return this.updateModuleSettings({ cabangEditBiodataMap: cabangMap });
   }
 
   async verifyCctvPin(pin: string) {

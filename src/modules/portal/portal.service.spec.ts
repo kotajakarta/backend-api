@@ -62,19 +62,26 @@ function makeAuthService(overrides: any = {}) {
   } as any;
 }
 
+function makePengaturanService(overrides: any = {}) {
+  return {
+    getModuleSettings: async () => ({ walsanEditBiodataEnabled: true, cabangEditBiodataMap: {} }),
+    ...overrides
+  } as any;
+}
+
 describe('PortalService — assertOwnsStudent (ownership gate)', () => {
   it('passes silently when a WaliSantri link exists', async () => {
     const prisma = makePrisma({
       waliSantri: { findUnique: async () => ({ id: 'link-1', userId: 'user-1', studentId: 'student-1' }) }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.doesNotReject(() => service.assertOwnsStudent('user-1', 'student-1'));
   });
 
   it('throws ForbiddenException when no WaliSantri link exists', async () => {
     const prisma = makePrisma({ waliSantri: { findUnique: async () => null } });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(
       () => service.assertOwnsStudent('user-1', 'student-not-owned'),
@@ -92,7 +99,7 @@ describe('PortalService — assertOwnsStudent (ownership gate)', () => {
         }
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await service.assertOwnsStudent('user-42', 'student-99');
 
@@ -111,7 +118,7 @@ describe('PortalService — listPermohonanIzinStaff scope-based where-clause con
         }
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await service.listPermohonanIzinStaff({ id: 'staff-1', scope: 'CABANG', cabangId: 'cabang-1' });
 
@@ -128,7 +135,7 @@ describe('PortalService — listPermohonanIzinStaff scope-based where-clause con
         }
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await service.listPermohonanIzinStaff({ id: 'staff-1', scope: 'WILAYAH', wilayahId: 'wilayah-1' });
 
@@ -145,7 +152,7 @@ describe('PortalService — listPermohonanIzinStaff scope-based where-clause con
         }
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await service.listPermohonanIzinStaff({ id: 'staff-1', scope: 'GLOBAL' });
 
@@ -160,7 +167,7 @@ describe('PortalService — createPermohonanIzin date validation', () => {
 
   it('throws BadRequestException when tanggalSelesai is before tanggalMulai', async () => {
     const prisma = makePrisma(ownedPrismaOverrides);
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(
       () =>
@@ -177,7 +184,7 @@ describe('PortalService — createPermohonanIzin date validation', () => {
 
   it('accepts when tanggalSelesai equals tanggalMulai (same-day leave)', async () => {
     const prisma = makePrisma(ownedPrismaOverrides);
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     const result = await service.createPermohonanIzin('user-1', {
       studentId: 'student-1',
@@ -192,7 +199,7 @@ describe('PortalService — createPermohonanIzin date validation', () => {
 
   it('accepts when tanggalSelesai is after tanggalMulai', async () => {
     const prisma = makePrisma(ownedPrismaOverrides);
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     const result = await service.createPermohonanIzin('user-1', {
       studentId: 'student-1',
@@ -207,7 +214,7 @@ describe('PortalService — createPermohonanIzin date validation', () => {
 
   it('runs the ownership check before the date validation (still rejects with ForbiddenException for an unowned student, not BadRequestException)', async () => {
     const prisma = makePrisma({ waliSantri: { findUnique: async () => null } });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(
       () =>
@@ -230,7 +237,7 @@ describe('PortalService — approvePermohonanIzin / rejectPermohonanIzin PENDING
         findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'APPROVED' })
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(
       () => service.approvePermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }),
@@ -244,7 +251,7 @@ describe('PortalService — approvePermohonanIzin / rejectPermohonanIzin PENDING
         findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'REJECTED' })
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(
       () => service.approvePermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }),
@@ -258,7 +265,7 @@ describe('PortalService — approvePermohonanIzin / rejectPermohonanIzin PENDING
         findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'APPROVED' })
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(
       () => service.rejectPermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }, 'Alasan penolakan'),
@@ -272,7 +279,7 @@ describe('PortalService — approvePermohonanIzin / rejectPermohonanIzin PENDING
         findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'REJECTED' })
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(
       () => service.rejectPermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }, 'Alasan penolakan'),
@@ -286,7 +293,7 @@ describe('PortalService — approvePermohonanIzin / rejectPermohonanIzin PENDING
         findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'PENDING' })
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     const result = await service.approvePermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' });
     assert.equal(result.status, 'APPROVED');
@@ -298,7 +305,7 @@ describe('PortalService — approvePermohonanIzin / rejectPermohonanIzin PENDING
         findUnique: async () => ({ id: 'izin-1', studentId: 'student-1', status: 'PENDING' })
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     const result = await service.rejectPermohonanIzin('izin-1', { id: 'staff-1', scope: 'GLOBAL' }, 'Alasan penolakan');
     assert.equal(result.status, 'REJECTED');
@@ -312,7 +319,7 @@ describe('PortalService — getPermohonanIzinById caller-ownership check', () =>
         findUnique: async () => ({ id: 'izin-1', createdById: 'user-1' })
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     const result = await service.getPermohonanIzinById('user-1', 'izin-1');
     assert.equal(result.id, 'izin-1');
@@ -324,14 +331,14 @@ describe('PortalService — getPermohonanIzinById caller-ownership check', () =>
         findUnique: async () => ({ id: 'izin-1', createdById: 'someone-else' })
       }
     });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(() => service.getPermohonanIzinById('user-1', 'izin-1'));
   });
 
   it('throws when the record does not exist', async () => {
     const prisma = makePrisma({ permohonanIzinSantri: { findUnique: async () => null } });
-    const service = new PortalService(prisma, makeFormalService(), makeAuthService());
+    const service = new PortalService(prisma, makeFormalService(), makeAuthService(), makePengaturanService());
 
     await assert.rejects(() => service.getPermohonanIzinById('user-1', 'missing'));
   });
