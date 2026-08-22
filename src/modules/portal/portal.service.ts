@@ -44,6 +44,35 @@ export class PortalService {
     }
   };
 
+  private attachCabangLeaders(cabang: any, staffMap: Map<string, any>) {
+    if (!cabang) return null;
+    const ketuaCabang = cabang.ketuaCabangId ? staffMap.get(cabang.ketuaCabangId) : null;
+    const ketuaMuadalah = cabang.ketuaMuadalahId ? staffMap.get(cabang.ketuaMuadalahId) : null;
+    const ketuaIsler = cabang.ketuaIslerId ? staffMap.get(cabang.ketuaIslerId) : null;
+
+    return {
+      ...cabang,
+      ketuaCabang: ketuaCabang ? {
+        id: ketuaCabang.id,
+        name: ketuaCabang.name,
+        phone: ketuaCabang.phone || null,
+        position: ketuaCabang.position || 'Ketua Cabang / Pimpinan Cabang'
+      } : null,
+      ketuaMuadalah: ketuaMuadalah ? {
+        id: ketuaMuadalah.id,
+        name: ketuaMuadalah.name,
+        phone: ketuaMuadalah.phone || null,
+        position: ketuaMuadalah.position || 'Ketua Muadalah'
+      } : null,
+      ketuaIsler: ketuaIsler ? {
+        id: ketuaIsler.id,
+        name: ketuaIsler.name,
+        phone: ketuaIsler.phone || null,
+        position: ketuaIsler.position || 'Ketua Isler'
+      } : null,
+    };
+  }
+
   // Ownership gate — every wali-facing method that touches a specific studentId must
   // call this FIRST, before doing anything else. Not covered by the guard (which only
   // checks scope, not per-resource ownership).
@@ -64,6 +93,24 @@ export class PortalService {
 
     const settings = await this.pengaturanService.getModuleSettings();
 
+    const staffIds: string[] = [];
+    links.forEach((l) => {
+      const c = l.student?.cabang;
+      if (c) {
+        if (c.ketuaCabangId) staffIds.push(c.ketuaCabangId);
+        if (c.ketuaMuadalahId) staffIds.push(c.ketuaMuadalahId);
+        if (c.ketuaIslerId) staffIds.push(c.ketuaIslerId);
+      }
+    });
+
+    const staffMap = new Map<string, any>();
+    if (staffIds.length > 0) {
+      const staffRecords = await this.prisma.staff.findMany({
+        where: { id: { in: Array.from(new Set(staffIds)) } }
+      });
+      staffRecords.forEach((s) => staffMap.set(s.id, s));
+    }
+
     return links.map((link) => {
       const cabangId = link.student?.cabangId;
       let canEditBiodata = false;
@@ -73,10 +120,13 @@ export class PortalService {
         canEditBiodata = Boolean(settings.walsanEditBiodataEnabled ?? false);
       }
 
+      const cabangWithLeaders = this.attachCabangLeaders(link.student?.cabang, staffMap);
+
       return {
         ...link,
         student: {
           ...link.student,
+          cabang: cabangWithLeaders,
           canEditBiodata,
         },
       };
@@ -91,9 +141,27 @@ export class PortalService {
     });
     if (!student) return null;
 
+    const staffIds: string[] = [];
+    if (student.cabang) {
+      if (student.cabang.ketuaCabangId) staffIds.push(student.cabang.ketuaCabangId);
+      if (student.cabang.ketuaMuadalahId) staffIds.push(student.cabang.ketuaMuadalahId);
+      if (student.cabang.ketuaIslerId) staffIds.push(student.cabang.ketuaIslerId);
+    }
+
+    const staffMap = new Map<string, any>();
+    if (staffIds.length > 0) {
+      const staffRecords = await this.prisma.staff.findMany({
+        where: { id: { in: Array.from(new Set(staffIds)) } }
+      });
+      staffRecords.forEach((s) => staffMap.set(s.id, s));
+    }
+
     const canEditBiodata = await this.checkCanEditBiodata(student.cabangId);
+    const cabangWithLeaders = this.attachCabangLeaders(student.cabang, staffMap);
+
     return {
       ...student,
+      cabang: cabangWithLeaders,
       canEditBiodata,
     };
   }

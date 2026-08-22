@@ -40,6 +40,11 @@ function makePrisma(overrides: any = {}) {
     pengumuman: {
       findMany: async () => [],
       ...overrides.pengumuman
+    },
+    staff: {
+      findMany: async () => [],
+      findUnique: async () => null,
+      ...overrides.staff
     }
   } as any;
 }
