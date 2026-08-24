@@ -1,12 +1,16 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
+import { MinioService } from '../../../common/minio/minio.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import bcrypt from 'bcrypt';
 
 @Injectable()
 export class PengaturanService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(MinioService) private readonly minioService: MinioService
+  ) {}
 
   // --- PENGATURAN AKADEMIK ---
 
@@ -80,19 +84,14 @@ export class PengaturanService {
 
     const ext = path.extname(file.originalname).toLowerCase() || '.pdf';
     const filename = `kalender_${Date.now()}${ext}`;
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
+    const objectKey = `kalender/${filename}`;
 
-    const filePath = path.join(uploadDir, filename);
-    fs.writeFileSync(filePath, file.buffer);
+    await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
 
     return this.prisma.kalenderAkademik.create({
       data: {
         title: title || 'Kalender Pendidikan',
-        fileUrl: `/pengaturan/uploads/${filename}`
+        fileUrl: `/uploads/${objectKey}`
       }
     });
   }
@@ -100,13 +99,17 @@ export class PengaturanService {
   async deleteKalender(id: string) {
     const kalender = await this.prisma.kalenderAkademik.findUnique({ where: { id } });
     if (kalender) {
-      const filePath = path.join(process.cwd(), kalender.fileUrl);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      if (kalender.fileUrl) {
+        await this.minioService.deleteObject(kalender.fileUrl);
+        const filePath = path.join(process.cwd(), kalender.fileUrl.startsWith('/') ? kalender.fileUrl.slice(1) : kalender.fileUrl);
+        if (fs.existsSync(filePath)) {
+          try { fs.unlinkSync(filePath); } catch {}
+        }
       }
       return this.prisma.kalenderAkademik.delete({ where: { id } });
     }
   }
+
 
   // --- PENGATURAN MODUL SYSTEM (FEATURE TOGGLES) ---
 

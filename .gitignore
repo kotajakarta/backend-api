@@ -1,9 +1,12 @@
 node_modules/
 dist/
+uploads/
 .env
 .env.local
 .env.*.local
 *.log
 runlocal.sh
 pull.sh
+push.sh
 .claude/worktrees/
+

@@ -1,11 +1,27 @@
 import { Injectable, Inject, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { MinioService } from '../../common/minio/minio.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
 @Injectable()
 export class KegiatanService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(MinioService) private readonly minioService: MinioService
+  ) {}
+
+  private async uploadFileToMinio(file: any, folder: string = 'kegiatan'): Promise<string> {
+    const filename = file.filename || `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
+    const objectKey = `${folder}/${filename}`;
+    if (file.buffer) {
+      await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
+    } else if (file.path && fs.existsSync(file.path)) {
+      await this.minioService.uploadFileFromPath(objectKey, file.path, file.mimetype);
+    }
+    return `/uploads/${objectKey}`;
+  }
+
 
   // CABANG hanya boleh akses BAP kegiatan cabangnya sendiri, WILAYAH hanya di wilayahnya
   private async checkKegiatanScope(user: any, kegiatan: { cabangId: string }) {
@@ -105,10 +121,11 @@ export class KegiatanService {
       if (files && files.length > 0) {
         for (const file of files) {
           const isPhoto = file.mimetype.startsWith('image/');
+          const filePath = await this.uploadFileToMinio(file, 'kegiatan');
           await tx.dokumenTemplate.create({
             data: {
               templateId: template.id,
-              filePath: `/kegiatan/uploads/${file.filename}`,
+              filePath: filePath,
               fileName: file.originalname,
               fileType: isPhoto ? 'PHOTO' : 'DOCUMENT'
             }
@@ -153,10 +170,11 @@ export class KegiatanService {
       if (files && files.length > 0) {
         for (const file of files) {
           const isPhoto = file.mimetype.startsWith('image/');
+          const filePath = await this.uploadFileToMinio(file, 'kegiatan');
           await tx.dokumenTemplate.create({
             data: {
               templateId: id,
-              filePath: `/kegiatan/uploads/${file.filename}`,
+              filePath: filePath,
               fileName: file.originalname,
               fileType: isPhoto ? 'PHOTO' : 'DOCUMENT'
             }
@@ -552,10 +570,11 @@ export class KegiatanService {
       if (files && files.length > 0) {
         for (const file of files) {
           const fileType = this.getFileType(file);
+          const filePath = await this.uploadFileToMinio(file, 'kegiatan');
           await tx.dokumenKegiatan.create({
             data: {
               kegiatanId: kegiatan.id,
-              filePath: `/kegiatan/uploads/${file.filename}`,
+              filePath: filePath,
               fileName: file.originalname,
               fileType: fileType
             }
@@ -733,10 +752,11 @@ export class KegiatanService {
       if (files && files.length > 0) {
         for (const file of files) {
           const fileType = this.getFileType(file);
+          const filePath = await this.uploadFileToMinio(file, 'kegiatan');
           await tx.dokumenKegiatan.create({
             data: {
               kegiatanId: id,
-              filePath: `/kegiatan/uploads/${file.filename}`,
+              filePath: filePath,
               fileName: file.originalname,
               fileType: fileType
             }
@@ -787,7 +807,10 @@ export class KegiatanService {
       throw new ForbiddenException('Dokumen BAP yang telah diterima/disetujui oleh Pusat tidak dapat dihapus.');
     }
 
-    // Try to remove the physical file
+    // Hapus dari MinIO dan disk lokal
+    if (doc.filePath) {
+      await this.minioService.deleteObject(doc.filePath);
+    }
     try {
       const uploadDir = path.join(process.cwd(), 'uploads/kegiatan');
       const filename = path.basename(doc.filePath);

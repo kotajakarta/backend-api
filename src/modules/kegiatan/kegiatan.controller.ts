@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFiles, Res, Inject, ForbiddenException } from '@nestjs/common';
 import { FilesInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
 import { KegiatanService } from './kegiatan.service.js';
+import { MinioService } from '../../common/minio/minio.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { AllowCookieAuth } from '../../common/decorators/access-control.decorator.js';
 import { Response } from 'express';
@@ -52,7 +53,11 @@ const uploadOptions: any = {
 
 @Controller('kegiatan')
 export class KegiatanController {
-  constructor(@Inject(KegiatanService) private readonly kegiatanService: KegiatanService) {}
+  constructor(
+    @Inject(KegiatanService) private readonly kegiatanService: KegiatanService,
+    @Inject(MinioService) private readonly minioService: MinioService
+  ) {}
+
 
   // === ENDPOINT JENIS KEGIATAN ===
 
@@ -222,10 +227,27 @@ export class KegiatanController {
   @Get('uploads/:filename')
   @UseGuards(AccessControlGuard)
   @AllowCookieAuth()
-  serveFile(@Param('filename') filename: string, @Res() res: Response) {
+  async serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
-    const filePath = path.join(uploadDir, safeFilename);
 
+    // Cek di MinIO (kegiatan/${safeFilename} atau ${safeFilename})
+    const keysToCheck = [`kegiatan/${safeFilename}`, safeFilename];
+    for (const key of keysToCheck) {
+      const stat = await this.minioService.statObject(key);
+      if (stat) {
+        const stream = await this.minioService.getObjectStream(key);
+        const mimeType = this.minioService.getMimeType(safeFilename);
+        res.removeHeader('X-Frame-Options');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
+        return stream.pipe(res);
+      }
+    }
+
+    const filePath = path.join(uploadDir, safeFilename);
     if (fs.existsSync(filePath)) {
       res.removeHeader('X-Frame-Options');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -234,4 +256,5 @@ export class KegiatanController {
     }
     return res.status(404).send('File not found');
   }
+
 }

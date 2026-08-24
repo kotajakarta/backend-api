@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Request, Inject, UseInterceptors, UploadedFile, Res, BadRequestException } from '@nestjs/common';
 import { FormalService } from './formal.service.js';
+import { MinioService } from '../../common/minio/minio.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -10,7 +11,10 @@ import { RequireDivisi, RequireScope, AllowCookieAuth } from '../../common/decor
 @Controller('formal')
 @RequireDivisi('FORMAL')
 export class FormalController {
-  constructor(@Inject(FormalService) private readonly formalService: FormalService) {}
+  constructor(
+    @Inject(FormalService) private readonly formalService: FormalService,
+    @Inject(MinioService) private readonly minioService: MinioService
+  ) {}
 
   @Get('kelas')
   @UseGuards(AccessControlGuard)
@@ -260,7 +264,7 @@ export class FormalController {
   @Post('muadalah/upload')
   @UseGuards(AccessControlGuard)
   @UseInterceptors(FileInterceptor('file'))
-  uploadFile(@UploadedFile() file: any) {
+  async uploadFile(@UploadedFile() file: any) {
     if (!file) throw new BadRequestException('File is required');
     
     // Size check: Max 5MB
@@ -284,14 +288,9 @@ export class FormalController {
 
     // Generate a simple unique filename
     const filename = `muadalah_${Date.now()}_${Math.round(Math.random() * 1e9)}${ext}`;
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
+    const objectKey = `muadalah/${filename}`;
 
-    const filePath = path.join(uploadDir, filename);
-    fs.writeFileSync(filePath, file.buffer);
+    await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
 
     return {
       url: `/formal/muadalah/uploads/${filename}`,
@@ -302,8 +301,23 @@ export class FormalController {
   @Get('muadalah/uploads/:filename')
   @UseGuards(AccessControlGuard)
   @AllowCookieAuth()
-  serveFile(@Param('filename') filename: string, @Res() res: Response) {
+  async serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
+
+    // Cek MinIO (muadalah/${safeFilename} atau ${safeFilename})
+    const keysToCheck = [`muadalah/${safeFilename}`, safeFilename];
+    for (const key of keysToCheck) {
+      const stat = await this.minioService.statObject(key);
+      if (stat) {
+        const stream = await this.minioService.getObjectStream(key);
+        const mimeType = this.minioService.getMimeType(safeFilename);
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
+        return stream.pipe(res);
+      }
+    }
+
     const uploadDir = path.join(process.cwd(), 'uploads');
     const filePath = path.join(uploadDir, safeFilename);
 
@@ -383,7 +397,7 @@ export class FormalController {
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')
   @UseInterceptors(FileInterceptor('file'))
-  uploadRiwayatNilaiTemplate(@UploadedFile() file: any) {
+  async uploadRiwayatNilaiTemplate(@UploadedFile() file: any) {
     if (!file) throw new BadRequestException('File is required');
 
     const MAX_SIZE = 5 * 1024 * 1024;
@@ -396,11 +410,14 @@ export class FormalController {
       throw new BadRequestException('Only .xlsx and .xls files are allowed');
     }
 
+    const objectKey = `templates/riwayat_nilai_custom_template${ext}`;
+    await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
+
+    // Also write local for fallback
     const uploadDir = path.join(process.cwd(), 'uploads');
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
-
     const filePath = path.join(uploadDir, `riwayat_nilai_custom_template${ext}`);
     fs.writeFileSync(filePath, file.buffer);
 
@@ -409,7 +426,20 @@ export class FormalController {
 
   @Get('erapor/nilai/riwayat-import/template')
   @UseGuards(AccessControlGuard)
-  getRiwayatNilaiTemplate(@Res() res: Response) {
+  async getRiwayatNilaiTemplate(@Res() res: Response) {
+    for (const ext of ['.xlsx', '.xls']) {
+      const objectKey = `templates/riwayat_nilai_custom_template${ext}`;
+      const stat = await this.minioService.statObject(objectKey);
+      if (stat) {
+        const stream = await this.minioService.getObjectStream(objectKey);
+        const mimeType = this.minioService.getMimeType(objectKey);
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Content-Disposition', `attachment; filename="Template_Import_Riwayat_Nilai${ext}"`);
+        return stream.pipe(res);
+      }
+    }
+
     const uploadDir = path.join(process.cwd(), 'uploads');
     for (const ext of ['.xlsx', '.xls']) {
       const filePath = path.join(uploadDir, `riwayat_nilai_custom_template${ext}`);

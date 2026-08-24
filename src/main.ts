@@ -18,6 +18,7 @@ import { requestIdMiddleware } from './common/middleware/request-id.middleware.j
 import { loginRateLimiter, globalRateLimiter, daftarUlangRateLimiter, setRateLimitRedisClient } from './common/middleware/rate-limit.middleware.js';
 import { createUploadAuthMiddleware } from './common/middleware/upload-auth.middleware.js';
 import { RedisService } from './common/redis/redis.service.js';
+import { MinioService } from './common/minio/minio.service.js';
 import { sanitizeTurkishDeep } from './common/utils/turkish-char.util.js';
 
 async function bootstrap() {
@@ -107,7 +108,7 @@ async function bootstrap() {
     next();
   });
 
-  // Static uploads directory serving with JWT auth protection
+  // Static uploads directory serving with JWT auth protection (MinIO Stream + Fallback)
   let nestAppInstance: INestApplication | null = null;
   const uploadAuthMiddleware = createUploadAuthMiddleware(() => nestAppInstance);
 
@@ -115,9 +116,56 @@ async function bootstrap() {
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
-  server.use('/uploads', uploadAuthMiddleware, express.static(uploadDir));
-  server.use(`/${apiPrefix}/uploads`, uploadAuthMiddleware, express.static(uploadDir));
-  server.use(`/${apiPrefix}/pengaturan/uploads`, uploadAuthMiddleware, express.static(uploadDir));
+
+  const uploadServeHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    try {
+      const app = nestAppInstance;
+      let reqPath = req.path;
+      if (reqPath.startsWith('/')) reqPath = reqPath.slice(1);
+
+      if (!app || !reqPath) {
+        return next();
+      }
+
+      const minioService = app.get(MinioService);
+      const stat = await minioService.statObject(reqPath);
+
+      if (stat) {
+        const stream = await minioService.getObjectStream(reqPath);
+        const mimeType = minioService.getMimeType(reqPath);
+        const filename = path.basename(reqPath);
+
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('ETag', stat.etag);
+        res.setHeader('Last-Modified', stat.lastModified.toUTCString());
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
+        stream.pipe(res);
+        return;
+      }
+
+      // Fallback: File lokal jika belum termigrasi
+      const localFilePath = path.join(uploadDir, reqPath);
+      if (fs.existsSync(localFilePath) && fs.statSync(localFilePath).isFile()) {
+        return res.sendFile(localFilePath);
+      }
+
+      return res.status(404).json({ status: false, message: 'File tidak ditemukan' });
+    } catch (err: any) {
+      const localFilePath = path.join(uploadDir, req.path.startsWith('/') ? req.path.slice(1) : req.path);
+      if (fs.existsSync(localFilePath) && fs.statSync(localFilePath).isFile()) {
+        return res.sendFile(localFilePath);
+      }
+      return res.status(404).json({ status: false, message: 'File tidak ditemukan' });
+    }
+  };
+
+  server.use('/uploads', uploadAuthMiddleware, uploadServeHandler);
+  server.use(`/${apiPrefix}/uploads`, uploadAuthMiddleware, uploadServeHandler);
+  server.use(`/${apiPrefix}/pengaturan/uploads`, uploadAuthMiddleware, uploadServeHandler);
+
 
   // ════════════════════════════════════════════════════════════════
   //  NestJS Application Bootstrap

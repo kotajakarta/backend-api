@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "build": "tsc",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "migrate:minio": "tsx src/scripts/migrate-to-minio.ts",
+    "migrate:wilayah": "tsx src/scripts/migrate-wilayah-codes.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.27",
@@ -28,6 +30,7 @@
     "helmet": "^8.2.0",
     "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
+    "minio": "^8.0.7",
     "multer": "1.4.5-lts.1",
     "otplib": "^13.4.1",
     "papaparse": "^5.5.4",

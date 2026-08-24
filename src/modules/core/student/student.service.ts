@@ -3,6 +3,7 @@ import { StatusPool } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
 import { normalizeTurkish, sanitizeTurkishDeep } from '../../../common/utils/turkish-char.util.js';
+import { MinioService } from '../../../common/minio/minio.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import sharp from 'sharp';
@@ -32,8 +33,10 @@ const JENIS_TO_FIELD: Record<DokumenJenis, string> = {
 export class StudentService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(AuditLogService) private readonly auditLogService: AuditLogService
+    @Inject(AuditLogService) private readonly auditLogService: AuditLogService,
+    @Inject(MinioService) private readonly minioService: MinioService
   ) {}
+
 
   async checkDuplicate({ nik, nisn, excludeStudentId }: { nik?: string; nisn?: string; excludeStudentId?: string }) {
     let nikDuplicate: { exists: boolean; fullName?: string } = { exists: false };
@@ -945,38 +948,78 @@ export class StudentService {
   async getPhotoThumbnail(photoUrl: string, res: any) {
     if (!photoUrl) throw new BadRequestException('URL foto tidak diberikan');
 
-    const cleanPath = photoUrl.startsWith('/') ? photoUrl.slice(1) : photoUrl;
-    const fullPath = path.join(process.cwd(), cleanPath);
+    const cleanKey = this.minioService.sanitizeKey(photoUrl);
+    const dir = path.dirname(cleanKey);
+    const ext = path.extname(cleanKey);
+    const baseName = path.basename(cleanKey, ext);
+    const thumbKey = path.posix.join(dir, `thumb_${baseName}.webp`);
 
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    if (!fullPath.startsWith(uploadsDir + path.sep) && fullPath !== uploadsDir) {
-      throw new ForbiddenException('Akses ditolak');
+    // 1. Coba ambil thumbnail yang sudah ada di MinIO
+    const thumbStat = await this.minioService.statObject(thumbKey);
+    if (thumbStat) {
+      const stream = await this.minioService.getObjectStream(thumbKey);
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Content-Type', 'image/webp');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      return stream.pipe(res);
     }
 
-    if (!fs.existsSync(fullPath)) {
-      throw new NotFoundException('Foto tidak ditemukan');
-    }
+    // 2. Coba generate thumbnail dari foto asli di MinIO
+    const origStat = await this.minioService.statObject(cleanKey);
+    if (origStat) {
+      const origBuffer = await this.minioService.getObjectBuffer(cleanKey);
+      if (origBuffer) {
+        try {
+          const thumbBuffer = await sharp(origBuffer)
+            .resize(96, 96, { fit: 'cover' })
+            .webp({ quality: 75 })
+            .toBuffer();
 
-    const ext = path.extname(fullPath);
-    const dir = path.dirname(fullPath);
-    const baseName = path.basename(fullPath, ext);
-    const thumbPath = path.join(dir, `thumb_${baseName}.webp`);
+          // Simpan thumbnail baru ke MinIO untuk request berikutnya
+          this.minioService.uploadBuffer(thumbKey, thumbBuffer, 'image/webp').catch(() => {});
 
-    if (!fs.existsSync(thumbPath)) {
-      try {
-        await sharp(fullPath)
-          .resize(96, 96, { fit: 'cover' })
-          .webp({ quality: 75 })
-          .toFile(thumbPath);
-      } catch (e) {
-        return res.sendFile(fullPath);
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+          res.setHeader('Content-Type', 'image/webp');
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          return res.send(thumbBuffer);
+        } catch (e) {
+          const stream = await this.minioService.getObjectStream(cleanKey);
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+          res.setHeader('Content-Type', this.minioService.getMimeType(cleanKey));
+          return stream.pipe(res);
+        }
       }
     }
 
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Content-Type', 'image/webp');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    return res.sendFile(thumbPath);
+    // 3. Fallback disk lokal
+    const cleanLocalPath = photoUrl.startsWith('/') ? photoUrl.slice(1) : photoUrl;
+    const fullPath = path.join(process.cwd(), cleanLocalPath);
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+
+    if ((fullPath.startsWith(uploadsDir + path.sep) || fullPath === uploadsDir) && fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+      const localExt = path.extname(fullPath);
+      const localDir = path.dirname(fullPath);
+      const localBase = path.basename(fullPath, localExt);
+      const localThumb = path.join(localDir, `thumb_${localBase}.webp`);
+
+      if (!fs.existsSync(localThumb)) {
+        try {
+          await sharp(fullPath)
+            .resize(96, 96, { fit: 'cover' })
+            .webp({ quality: 75 })
+            .toFile(localThumb);
+        } catch (e) {
+          return res.sendFile(fullPath);
+        }
+      }
+
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Content-Type', 'image/webp');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      return res.sendFile(localThumb);
+    }
+
+    throw new NotFoundException('Foto tidak ditemukan');
   }
 
   async exportStudentDetail(user: any) {
@@ -1770,33 +1813,34 @@ export class StudentService {
       throw new BadRequestException('Ukuran file maksimal 10MB');
     }
 
-    const uploadDir = path.join(process.cwd(), 'uploads', jenis);
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
     const filename = `biodata_${biodataId}_${jenis}${ext}`;
-    const filePath = path.join(uploadDir, filename);
+    const objectKey = `${jenis}/${filename}`;
 
-    // Hapus file lama jika ada
+    // Hapus file lama jika ada (dari MinIO dan lokal)
     const biodata = await this.prisma.biodata.findUnique({ where: { id: biodataId } });
     const oldUrl: string | null = (biodata as any)?.[field] ?? null;
     if (oldUrl) {
+      await this.minioService.deleteObject(oldUrl);
       const oldPath = path.join(process.cwd(), oldUrl.startsWith('/') ? oldUrl.slice(1) : oldUrl);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      if (fs.existsSync(oldPath)) {
+        try { fs.unlinkSync(oldPath); } catch {}
+      }
     }
 
-    fs.writeFileSync(filePath, file.buffer);
+    // Upload ke MinIO
+    await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
 
+    // Thumbnail khusus passfoto
     if (jenis === 'passfoto' && ext !== '.pdf') {
-      const thumbPath = path.join(uploadDir, `thumb_biodata_${biodataId}_${jenis}.webp`);
       try {
-        await sharp(file.buffer)
+        const thumbBuffer = await sharp(file.buffer)
           .resize(96, 96, { fit: 'cover' })
           .webp({ quality: 75 })
-          .toFile(thumbPath);
+          .toBuffer();
+        const thumbKey = `${jenis}/thumb_biodata_${biodataId}_${jenis}.webp`;
+        await this.minioService.uploadBuffer(thumbKey, thumbBuffer, 'image/webp');
       } catch (e) {
-        console.error('Gagal membuat thumbnail:', e);
+        console.error('Gagal membuat thumbnail MinIO:', e);
       }
     }
 
@@ -1827,14 +1871,11 @@ export class StudentService {
       throw new BadRequestException('Ukuran file maksimal 10MB');
     }
 
-    const uploadDir = path.join(process.cwd(), 'uploads', 'temp');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
     const filename = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
-    const filePath = path.join(uploadDir, filename);
-    fs.writeFileSync(filePath, file.buffer);
+    const objectKey = `temp/${filename}`;
+
+    // Upload langsung ke MinIO
+    await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
 
     const fileUrl = `/uploads/temp/${filename}`;
     return { url: fileUrl, jenis, filename };
@@ -1847,17 +1888,27 @@ export class StudentService {
     for (const [jenis, field] of Object.entries(JENIS_TO_FIELD)) {
       const url = data[field];
       if (url && typeof url === 'string' && url.includes('/uploads/temp/')) {
-        const tempPath = path.join(process.cwd(), url.startsWith('/') ? url.slice(1) : url);
-        if (fs.existsSync(tempPath)) {
-          const ext = path.extname(tempPath) || '.jpg';
-          const uploadDir = path.join(process.cwd(), 'uploads', jenis);
-          if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
+        const srcKey = this.minioService.sanitizeKey(url);
+        const ext = path.extname(srcKey) || '.jpg';
+        const filename = `biodata_${biodataId}_${jenis}${ext}`;
+        const dstKey = `${jenis}/${filename}`;
+
+        let moved = false;
+        try {
+          await this.minioService.moveObject(srcKey, dstKey);
+          moved = true;
+        } catch (minioErr) {
+          // Fallback jika file temp ada di disk lokal
+          const tempPath = path.join(process.cwd(), url.startsWith('/') ? url.slice(1) : url);
+          if (fs.existsSync(tempPath)) {
+            const buffer = fs.readFileSync(tempPath);
+            await this.minioService.uploadBuffer(dstKey, buffer);
+            try { fs.unlinkSync(tempPath); } catch {}
+            moved = true;
           }
-          const filename = `biodata_${biodataId}_${jenis}${ext}`;
-          const newPath = path.join(uploadDir, filename);
-          fs.copyFileSync(tempPath, newPath);
-          try { fs.unlinkSync(tempPath); } catch {}
+        }
+
+        if (moved) {
           updates[field] = `/uploads/${jenis}/${filename}`;
         } else {
           updates[field] = url;

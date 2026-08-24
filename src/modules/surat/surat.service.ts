@@ -1,5 +1,6 @@
 import { Injectable, Inject, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { MinioService } from '../../common/minio/minio.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -19,7 +20,22 @@ function toRoman(num: number): string {
 
 @Injectable()
 export class SuratService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(MinioService) private readonly minioService: MinioService
+  ) {}
+
+  private async uploadFileToMinio(file: any, folder: string): Promise<string> {
+    const filename = file.filename || `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname || '')}`;
+    const objectKey = `${folder}/${filename}`;
+    if (file.buffer) {
+      await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
+    } else if (file.path && fs.existsSync(file.path)) {
+      await this.minioService.uploadFileFromPath(objectKey, file.path, file.mimetype);
+    }
+    return filename;
+  }
+
 
   private get db(): any {
     return this.prisma as any;
@@ -260,11 +276,12 @@ export class SuratService {
     if (!file) {
       throw new BadRequestException('File template wajib diunggah.');
     }
+    const filename = await this.uploadFileToMinio(file, 'surat-templates');
     return this.db.template.create({
       data: {
         title: body.title,
         description: body.description || '',
-        fileName: file.filename,
+        fileName: filename,
         originalName: file.originalname,
         userId: userId || null,
       },
@@ -275,6 +292,10 @@ export class SuratService {
     const tmpl = await this.db.template.findUnique({ where: { id } });
     if (!tmpl) throw new NotFoundException('Template tidak ditemukan.');
 
+    if (tmpl.fileName) {
+      await this.minioService.deleteObject('surat-templates/' + tmpl.fileName);
+      await this.minioService.deleteObject(tmpl.fileName);
+    }
     const filePath = path.join(uploadDirTemplates, tmpl.fileName);
     if (fs.existsSync(filePath)) {
       try { fs.unlinkSync(filePath); } catch (e) { console.error(e); }
@@ -404,6 +425,11 @@ export class SuratService {
 
     const uniqueId = `SURAT-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
+    let savedFilename: string | null = null;
+    if (file) {
+      savedFilename = await this.uploadFileToMinio(file, 'surat');
+    }
+
     const letter = await this.db.letter.create({
       data: {
         uniqueId,
@@ -418,7 +444,7 @@ export class SuratService {
         letterDate,
         subject: body.subject,
         addressedTo: body.addressedTo,
-        fileUrl: file ? file.filename : null,
+        fileUrl: savedFilename,
       },
       include: {
         letterType: true,
@@ -445,6 +471,8 @@ export class SuratService {
     }
 
     if (letter.fileUrl) {
+      await this.minioService.deleteObject('surat/' + letter.fileUrl);
+      await this.minioService.deleteObject(letter.fileUrl);
       const filePath = path.join(uploadDirSurat, letter.fileUrl);
       if (fs.existsSync(filePath)) {
         try { fs.unlinkSync(filePath); } catch (e) { console.error(e); }

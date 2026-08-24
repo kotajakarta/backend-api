@@ -4,12 +4,17 @@ import { Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import { PengaturanService } from './pengaturan.service.js';
+import { MinioService } from '../../../common/minio/minio.service.js';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
 import { RequireScope } from '../../../common/decorators/access-control.decorator.js';
 
 @Controller('pengaturan')
 export class PengaturanController {
-  constructor(@Inject(PengaturanService) private readonly pengaturanService: PengaturanService) {}
+  constructor(
+    @Inject(PengaturanService) private readonly pengaturanService: PengaturanService,
+    @Inject(MinioService) private readonly minioService: MinioService
+  ) {}
+
 
   // --- MODUL SYSTEM (FEATURE TOGGLES & CCTV PROTECTION) ---
   @Get('modules')
@@ -135,8 +140,25 @@ export class PengaturanController {
 
   @Get('uploads/:filename')
   @UseGuards(AccessControlGuard)
-  serveFile(@Param('filename') filename: string, @Res() res: Response) {
+  async serveFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
+
+    // Cek di MinIO (coba direct key atau prefix kalender/)
+    const keysToCheck = [`kalender/${safeFilename}`, safeFilename];
+    for (const key of keysToCheck) {
+      const stat = await this.minioService.statObject(key);
+      if (stat) {
+        const stream = await this.minioService.getObjectStream(key);
+        const mimeType = this.minioService.getMimeType(safeFilename);
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
+        return stream.pipe(res);
+      }
+    }
+
+    // Fallback: local disk
     const uploadDir = path.join(process.cwd(), 'uploads');
     const filePath = path.join(uploadDir, safeFilename);
 
@@ -161,6 +183,7 @@ export class PengaturanController {
     }
     return res.status(404).send('File not found');
   }
+
 
   @Delete('kalender/:id')
   @UseGuards(AccessControlGuard)

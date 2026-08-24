@@ -20,8 +20,10 @@ import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
 import { SuratService } from './surat.service.js';
+import { MinioService } from '../../common/minio/minio.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireScope } from '../../common/decorators/access-control.decorator.js';
+
 
 const uploadDirSurat = path.join(process.cwd(), 'uploads/surat');
 const uploadDirTemplates = path.join(process.cwd(), 'uploads/surat-templates');
@@ -84,7 +86,11 @@ const uploadOptionsTemplate = {
 
 @Controller('surat')
 export class SuratController {
-  constructor(@Inject(SuratService) private readonly suratService: SuratService) {}
+  constructor(
+    @Inject(SuratService) private readonly suratService: SuratService,
+    @Inject(MinioService) private readonly minioService: MinioService
+  ) {}
+
 
   // === DASHBOARD & STATS ===
   @Get('stats')
@@ -215,8 +221,23 @@ export class SuratController {
 
   @Get('templates/download/:filename')
   @UseGuards(AccessControlGuard)
-  serveTemplateFile(@Param('filename') filename: string, @Res() res: Response) {
+  async serveTemplateFile(@Param('filename') filename: string, @Res() res: Response) {
     const safeFilename = path.basename(filename);
+
+    // Cek di MinIO (surat-templates/${safeFilename} atau ${safeFilename})
+    const keysToCheck = [`surat-templates/${safeFilename}`, safeFilename];
+    for (const key of keysToCheck) {
+      const stat = await this.minioService.statObject(key);
+      if (stat) {
+        const stream = await this.minioService.getObjectStream(key);
+        const mimeType = this.minioService.getMimeType(safeFilename);
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        return stream.pipe(res);
+      }
+    }
+
     const filePath = path.join(uploadDirTemplates, safeFilename);
     if (fs.existsSync(filePath)) {
       return res.download(filePath);
@@ -267,10 +288,26 @@ export class SuratController {
     if (!allowed) {
       return res.status(403).send('Anda tidak memiliki akses ke berkas surat ini.');
     }
+
+    // Cek di MinIO (surat/${safeFilename} atau ${safeFilename})
+    const keysToCheck = [`surat/${safeFilename}`, safeFilename];
+    for (const key of keysToCheck) {
+      const stat = await this.minioService.statObject(key);
+      if (stat) {
+        const stream = await this.minioService.getObjectStream(key);
+        const mimeType = this.minioService.getMimeType(safeFilename);
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        return stream.pipe(res);
+      }
+    }
+
     const filePath = path.join(uploadDirSurat, safeFilename);
     if (fs.existsSync(filePath)) {
       return res.download(filePath);
     }
     return res.status(404).send('File surat tidak ditemukan.');
   }
+
 }
