@@ -24,7 +24,7 @@ Volume=/webku/appsku/esantri/backend-api/uploads:/app/uploads:Z
 Exec=node dist/main.js
 
 # Menggunakan berkas environment host RHEL
-EnvironmentFile=/webku/appsku/esantri/backend-api/.env
+EnvironmentFile=%h/.secrets/esantri.secret
 
 # === SEKSI HEALTH CHECK ===
 HealthCmd=node --input-type=module -e "import http from 'http'; http.get('http://localhost:8080/api/v1/health', (r) => { if (r.statusCode === 200) process.exit(0); else process.exit(1); }).on('error', () => process.exit(1));"
