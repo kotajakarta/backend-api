@@ -85,6 +85,24 @@ export class MasterDataController {
     return this.masterDataService.deleteGuru(req.params.id, req.user);
   }
 
+  @Post('guru/:id/create-account')
+  @UseGuards(AccessControlGuard)
+  createTeacherAccount(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.masterDataService.createTeacherAccount(id, req.user, body);
+  }
+
+  @Post('guru/:id/reset-password')
+  @UseGuards(AccessControlGuard)
+  resetTeacherPassword(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.masterDataService.resetTeacherPassword(id, req.user, body);
+  }
+
+  @Post('guru/bulk-create-accounts')
+  @UseGuards(AccessControlGuard)
+  generateBulkTeacherAccounts(@Request() req: any, @Body() body: any) {
+    return this.masterDataService.generateBulkTeacherAccounts(req.user, body);
+  }
+
   @Get('pool-guru')
   @UseGuards(AccessControlGuard)
   @RequireScope('GLOBAL')

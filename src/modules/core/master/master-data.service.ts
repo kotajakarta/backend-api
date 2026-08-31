@@ -1,4 +1,5 @@
 import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import bcrypt from 'bcrypt';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
 
@@ -126,6 +127,22 @@ export class MasterDataService {
         cabangId: true,
         wilayahId: true,
         grupDaimiId: true,
+        user: {
+          select: {
+            id: true,
+            username: true,
+            scope: true,
+            isApproved: true,
+            status: true,
+          }
+        },
+        kelasWali: {
+          select: {
+            id: true,
+            name: true,
+            tingkat: true,
+          }
+        },
         wilayah: {
           select: { id: true, name: true }
         },
@@ -154,6 +171,233 @@ export class MasterDataService {
         { name: 'asc' }
       ]
     });
+  }
+
+  /**
+   * Membuat akun login guru (Scope: GURU atau WALI_KELAS)
+   */
+  async createTeacherAccount(staffId: string, currentUser: any, body: any) {
+    const staff = await this.prisma.staff.findUnique({
+      where: { id: staffId },
+      include: {
+        user: true,
+        cabang: true,
+        kelasWali: { where: { isActive: true } },
+      }
+    });
+
+    if (!staff) throw new NotFoundException('Data Guru/Staf tidak ditemukan.');
+
+    // Verifikasi izin akses wilayah / cabang
+    if (currentUser.scope === 'CABANG' && currentUser.cabangId && staff.cabangId !== currentUser.cabangId) {
+      throw new ForbiddenException('Anda hanya dapat membuat akun untuk guru di cabang Anda.');
+    }
+    if (currentUser.scope === 'WILAYAH' && currentUser.wilayahId && staff.wilayahId !== currentUser.wilayahId) {
+      throw new ForbiddenException('Anda hanya dapat membuat akun untuk guru di wilayah Anda.');
+    }
+
+    if (staff.user) {
+      throw new BadRequestException(`Guru ini sudah memiliki akun login (Username: ${staff.user.username}).`);
+    }
+
+    // 1. Tentukan Username
+    let requestedUsername = (body.username || '').trim();
+    if (!requestedUsername) {
+      if (staff.nik && staff.nik.trim().length >= 4) {
+        requestedUsername = staff.nik.trim();
+      } else {
+        const clean = staff.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '.')
+          .replace(/\.+/g, '.')
+          .replace(/^\.|\.$/g, '');
+        requestedUsername = clean.slice(0, 20) || 'guru';
+      }
+    }
+
+    let finalUsername = requestedUsername;
+    let counter = 1;
+    while (await this.prisma.user.findUnique({ where: { username: finalUsername } })) {
+      finalUsername = `${requestedUsername}.${counter}`;
+      counter++;
+    }
+
+    // 2. Tentukan Scope (Otomatis WALI_KELAS jika ada kelas binaan aktif, atau GURU)
+    const isHomeroom = (staff.kelasWali && staff.kelasWali.length > 0) || Boolean(staff.waliKelas);
+    const scope = body.scope || (isHomeroom ? 'WALI_KELAS' : 'GURU');
+
+    // 3. Tentukan Password
+    const plainPassword = (body.password || '').trim() || (staff.nik ? `${staff.nik.slice(-6)}@Santri` : 'Sulaimaniyah2026!');
+    const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
+    const newUser = await this.prisma.user.create({
+      data: {
+        username: finalUsername,
+        password: hashedPassword,
+        scope: scope as any,
+        divisi: 'ALL',
+        operatorName: staff.name,
+        phone: staff.phone || null,
+        nik: staff.nik || null,
+        staffId: staff.id,
+        cabangId: staff.cabangId || null,
+        wilayahId: staff.wilayahId || null,
+        status: 'APPROVED',
+        isApproved: true,
+      }
+    });
+
+    return {
+      success: true,
+      message: `Akun untuk ${staff.name} berhasil dibuat!`,
+      username: finalUsername,
+      password: plainPassword,
+      scope: newUser.scope,
+      staff: {
+        id: staff.id,
+        name: staff.name,
+        phone: staff.phone,
+        cabangName: staff.cabang?.name,
+      }
+    };
+  }
+
+  /**
+   * Reset password akun login guru
+   */
+  async resetTeacherPassword(staffId: string, currentUser: any, body: any) {
+    const staff = await this.prisma.staff.findUnique({
+      where: { id: staffId },
+      include: { user: true, cabang: true }
+    });
+
+    if (!staff) throw new NotFoundException('Data Guru tidak ditemukan.');
+    if (!staff.user) throw new NotFoundException('Guru ini belum memiliki akun login.');
+
+    if (currentUser.scope === 'CABANG' && currentUser.cabangId && staff.cabangId !== currentUser.cabangId) {
+      throw new ForbiddenException('Anda hanya dapat mereset akun guru di cabang Anda.');
+    }
+    if (currentUser.scope === 'WILAYAH' && currentUser.wilayahId && staff.wilayahId !== currentUser.wilayahId) {
+      throw new ForbiddenException('Anda hanya dapat mereset akun guru di wilayah Anda.');
+    }
+
+    const plainPassword = (body.newPassword || '').trim() || (staff.nik ? `${staff.nik.slice(-6)}@Santri` : 'Sulaimaniyah2026!');
+    const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
+    await this.prisma.user.update({
+      where: { id: staff.user.id },
+      data: { password: hashedPassword }
+    });
+
+    return {
+      success: true,
+      message: `Password akun ${staff.name} (${staff.user.username}) berhasil di-reset.`,
+      username: staff.user.username,
+      newPassword: plainPassword,
+      staff: {
+        id: staff.id,
+        name: staff.name,
+        phone: staff.phone,
+        cabangName: staff.cabang?.name,
+      }
+    };
+  }
+
+  /**
+   * Generate akun massal untuk seluruh guru cabang yang belum punya akun
+   */
+  async generateBulkTeacherAccounts(currentUser: any, body: any) {
+    let cabangId = currentUser.cabangId;
+    if (currentUser.scope === 'GLOBAL' || currentUser.scope === 'WILAYAH') {
+      cabangId = body.cabangId || currentUser.cabangId;
+    }
+
+    if (!cabangId && currentUser.scope !== 'GLOBAL') {
+      throw new BadRequestException('ID Cabang diperlukan untuk membuat akun massal.');
+    }
+
+    const where: any = {
+      statusPool: 'AKTIF_CABANG',
+      user: null, // Hanya yang belum memiliki akun
+    };
+    if (cabangId) {
+      where.cabangId = cabangId;
+    } else if (currentUser.scope === 'WILAYAH' && currentUser.wilayahId) {
+      where.wilayahId = currentUser.wilayahId;
+    }
+
+    const teachersWithoutAccount = await this.prisma.staff.findMany({
+      where,
+      include: {
+        cabang: true,
+        kelasWali: { where: { isActive: true } },
+      }
+    });
+
+    if (teachersWithoutAccount.length === 0) {
+      return {
+        success: true,
+        message: 'Seluruh guru yang terdaftar sudah memiliki akun login.',
+        totalCreated: 0,
+        accounts: [],
+      };
+    }
+
+    const createdAccounts = [];
+    const defaultPass = (body.defaultPassword || '').trim() || 'Sulaimaniyah2026!';
+    const hashedDefaultPassword = await bcrypt.hash(defaultPass, 10);
+
+    for (const staff of teachersWithoutAccount) {
+      let baseUsername = (staff.nik && staff.nik.trim().length >= 4)
+        ? staff.nik.trim()
+        : staff.name.toLowerCase().replace(/[^a-z0-9]/g, '.').replace(/\.+/g, '.').replace(/^\.|\.$/g, '').slice(0, 20) || 'guru';
+
+      let finalUsername = baseUsername;
+      let counter = 1;
+      while (await this.prisma.user.findUnique({ where: { username: finalUsername } })) {
+        finalUsername = `${baseUsername}.${counter}`;
+        counter++;
+      }
+
+      const isHomeroom = (staff.kelasWali && staff.kelasWali.length > 0) || Boolean(staff.waliKelas);
+      const scope = isHomeroom ? 'WALI_KELAS' : 'GURU';
+      const staffPassword = staff.nik ? `${staff.nik.slice(-6)}@Santri` : defaultPass;
+      const staffHashed = staff.nik ? await bcrypt.hash(staffPassword, 10) : hashedDefaultPassword;
+
+      await this.prisma.user.create({
+        data: {
+          username: finalUsername,
+          password: staffHashed,
+          scope: scope as any,
+          divisi: 'ALL',
+          operatorName: staff.name,
+          phone: staff.phone || null,
+          nik: staff.nik || null,
+          staffId: staff.id,
+          cabangId: staff.cabangId || null,
+          wilayahId: staff.wilayahId || null,
+          status: 'APPROVED',
+          isApproved: true,
+        }
+      });
+
+      createdAccounts.push({
+        staffId: staff.id,
+        name: staff.name,
+        phone: staff.phone,
+        cabangName: staff.cabang?.name || '-',
+        username: finalUsername,
+        password: staffPassword,
+        scope,
+      });
+    }
+
+    return {
+      success: true,
+      message: `Berhasil membuat ${createdAccounts.length} akun guru baru!`,
+      totalCreated: createdAccounts.length,
+      accounts: createdAccounts,
+    };
   }
 
   async importGuru(user: any, data: any[]) {
