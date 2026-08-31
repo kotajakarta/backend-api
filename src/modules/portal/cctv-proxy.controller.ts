@@ -4,6 +4,7 @@ import * as http from 'http';
 import * as https from 'https';
 import { decryptStreamUrl, encryptStreamUrl, isSafeStreamUrl } from '../../common/utils/cctv-crypto.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { assertCctvEnabled } from '../../common/utils/module-guard.js';
 
 @Controller('cctv/stream-proxy')
 export class CctvProxyController {
@@ -19,6 +20,7 @@ export class CctvProxyController {
     @Query('token') token: string,
     @Res() res: Response
   ) {
+    assertCctvEnabled();
     if (!token) {
       throw new BadRequestException('Token streaming CCTV wajib disertakan');
     }
@@ -98,6 +100,7 @@ export class CctvProxyController {
    */
   @Get('segment')
   async getSegment(@Query('token') token: string, @Res() res: Response) {
+    assertCctvEnabled();
     if (!token) {
       throw new BadRequestException('Token segment CCTV wajib disertakan');
     }

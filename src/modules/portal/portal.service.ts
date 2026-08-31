@@ -6,6 +6,7 @@ import { PengaturanService } from '../core/pengaturan/pengaturan.service.js';
 import { sanitizeTurkishDeep } from '../../common/utils/turkish-char.util.js';
 import { CreatePermohonanIzinDto } from './dto/create-permohonan-izin.dto.js';
 import { encryptStreamUrl, decryptStreamUrl, decryptStoredStreamUrl } from '../../common/utils/cctv-crypto.js';
+import { isCctvEnabled } from '../../common/utils/module-guard.js';
 
 @Injectable()
 export class PortalService {
@@ -486,6 +487,10 @@ export class PortalService {
   }
 
   async getCctvChannelsForWali(userId: string, studentId?: string) {
+    if (!isCctvEnabled()) {
+      return [];
+    }
+
     let cabangId: string | undefined;
     if (studentId) {
       await this.assertOwnsStudent(userId, studentId);

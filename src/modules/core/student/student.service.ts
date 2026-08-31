@@ -118,11 +118,11 @@ export class StudentService {
       }
     }
 
-    if (nikAyah && statusHidupAyah !== 'Wafat' && nikAyah.trim() !== '' && !/^\d{16}$/.test(nikAyah.trim())) {
+    if (nikAyah && statusHidupAyah !== 'Sudah Meninggal' && statusHidupAyah !== 'Wafat' && nikAyah.trim() !== '' && !/^\d{16}$/.test(nikAyah.trim())) {
       throw new BadRequestException('NIK Ayah harus 16 digit angka.');
     }
 
-    if (nikIbu && statusHidupIbu !== 'Wafat' && nikIbu.trim() !== '' && !/^\d{16}$/.test(nikIbu.trim())) {
+    if (nikIbu && statusHidupIbu !== 'Sudah Meninggal' && statusHidupIbu !== 'Wafat' && nikIbu.trim() !== '' && !/^\d{16}$/.test(nikIbu.trim())) {
       throw new BadRequestException('NIK Ibu harus 16 digit angka.');
     }
   }
@@ -849,6 +849,10 @@ export class StudentService {
             id: true,
             studentId: true,
             kelasId: true,
+            tingkat: true,
+            nis: true,
+            nisn: true,
+            isVerval: true,
             kelas: {
               select: {
                 id: true,

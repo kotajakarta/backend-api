@@ -2,6 +2,72 @@ import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestEx
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
 
+function normalizeDaimiKey(str?: string | null): string {
+  if (!str) return '';
+  return str
+    .trim()
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/ı/g, 'I')
+    .replace(/Ü/g, 'U')
+    .replace(/ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/ö/g, 'O')
+    .replace(/Ş/g, 'S')
+    .replace(/ş/g, 'S')
+    .replace(/Ç/g, 'C')
+    .replace(/ç/g, 'C')
+    .replace(/Ğ/g, 'G')
+    .replace(/ğ/g, 'G');
+}
+
+function resolveDaimiGroupKey(st: any, masterJenisNormList: { original: string; norm: string }[]): string {
+  const jenisRaw = st.dataDaimi?.grup?.jenis || st.dataDaimi?.kelas?.grup?.jenis;
+  const nameRaw = st.dataDaimi?.grup?.name || st.dataDaimi?.kelas?.grup?.name || st.grupDaimi;
+
+  const normJenis = normalizeDaimiKey(jenisRaw);
+  const normName = normalizeDaimiKey(nameRaw);
+
+  if (normJenis) {
+    const matchedMaster = masterJenisNormList.find(m => m.norm === normJenis);
+    if (matchedMaster) return matchedMaster.norm;
+
+    if (normJenis.includes('2. YIL LISE') || normJenis.includes('2.YIL LISE')) return '2. YIL LISE';
+    if (normJenis.includes('2. YIL ORTAOKUL') || normJenis.includes('2.YIL ORTAOKUL')) return '2. YIL ORTAOKUL';
+    if (normJenis.includes('HAZIRLIK LISE')) return 'HAZIRLIK LISE';
+    if (normJenis.includes('HAZIRLIK ORTAOKUL')) return 'HAZIRLIK ORTAOKUL';
+    if (normJenis.includes('HAFIZLIK') || normJenis.includes('TAHFIZ') || normJenis.includes('HAFIZ')) return 'HAFIZLIK';
+    if (normJenis.includes('IBTIDAI') || normJenis.includes('IBTIDA')) return 'IBTIDAI';
+    if (normJenis.includes('IHZARI')) return 'IHZARI';
+    if (normJenis.includes('PRA TEDRIS') || normJenis.includes('PRA TADRIS')) return 'PRA TEDRIS';
+    if (normJenis.includes('TEKAMULALTI')) return 'TEKAMULALTI';
+    if (normJenis.includes('TEKAMUL')) return 'TEKAMUL';
+
+    return normJenis;
+  }
+
+  if (!normName || normName === '-' || normName.includes('TANPA') || normName === 'NO_GRUP' || normName === 'NONE') {
+    return 'NO_GRUP';
+  }
+
+  // If no explicit jenis, infer from grup.name / student.grupDaimi
+  const matchedMaster = masterJenisNormList.find(m => normName === m.norm || normName.includes(m.norm));
+  if (matchedMaster) return matchedMaster.norm;
+
+  if (normName.includes('2. YIL LISE') || normName.includes('2.YIL LISE')) return '2. YIL LISE';
+  if (normName.includes('2. YIL ORTAOKUL') || normName.includes('2.YIL ORTAOKUL') || normName.includes('2. YIL')) return '2. YIL ORTAOKUL';
+  if (normName.includes('HAZIRLIK LISE')) return 'HAZIRLIK LISE';
+  if (normName.includes('HAZIRLIK ORTAOKUL') || normName.includes('HAZIRLIK') || normName.includes('HQ')) return 'HAZIRLIK ORTAOKUL';
+  if (normName.includes('HAFIZLIK') || normName.includes('TAHFIZ') || normName.includes('HAFIZ')) return 'HAFIZLIK';
+  if (normName.includes('IBTIDAI') || normName.includes('IBTIDA')) return 'IBTIDAI';
+  if (normName.includes('IHZARI')) return 'IHZARI';
+  if (normName.includes('PRA TEDRIS') || normName.includes('PRA TADRIS')) return 'PRA TEDRIS';
+  if (normName.includes('TEKAMULALTI')) return 'TEKAMULALTI';
+  if (normName.includes('TEKAMUL')) return 'TEKAMUL';
+
+  return normName;
+}
+
 @Injectable()
 export class MasterDataService {
   constructor(
@@ -584,6 +650,9 @@ export class MasterDataService {
     } else if (user.scope === 'CABANG' && user.cabangId) {
       whereClause = { id: user.cabangId };
     }
+
+    const masterJenis = await this.prisma.jenisGrupDaimi.findMany({ select: { name: true } });
+    const masterJenisNormList = masterJenis.map(j => ({ original: j.name, norm: normalizeDaimiKey(j.name) }));
     
     const cabangs = await this.prisma.cabang.findMany({
       where: whereClause,
@@ -646,8 +715,22 @@ export class MasterDataService {
               select: {
                 grup: {
                   select: {
-                    jenis: true,
-                    name: true
+                    id: true,
+                    name: true,
+                    jenis: true
+                  }
+                },
+                kelas: {
+                  select: {
+                    id: true,
+                    name: true,
+                    grup: {
+                      select: {
+                        id: true,
+                        name: true,
+                        jenis: true
+                      }
+                    }
                   }
                 }
               }
@@ -726,21 +809,12 @@ export class MasterDataService {
       cabang.students.forEach(st => {
         if (!st.isActive) return;
 
-        const gdRaw = st.dataDaimi?.grup?.jenis || st.dataDaimi?.grup?.name || st.grupDaimi || 'NO_GRUP';
-        const gdUpper = gdRaw.trim().toUpperCase();
+        const groupKey = resolveDaimiGroupKey(st, masterJenisNormList);
 
-        let groupKey = 'NO_GRUP';
-        if (gdUpper.includes('HAZIRLIK') || gdUpper.includes('HQ')) {
-          hazirlik++; groupKey = 'HAZIRLIK';
-        } else if (gdUpper.includes('HAFIZLIK') || gdUpper.includes('TAHFIZ')) {
-          hafizlik++; groupKey = 'HAFIZLIK';
-        } else if (gdUpper.includes('IBTIDAI')) {
-          ibtidai++; groupKey = 'IBTIDAI';
-        } else if (gdUpper.includes('IHZARI')) {
-          ihzari++; groupKey = 'IHZARI';
-        } else if (gdUpper && gdUpper !== 'NO_GRUP' && gdUpper !== '-') {
-          groupKey = gdUpper;
-        }
+        if (groupKey.includes('HAZIRLIK') || groupKey.includes('HQ')) hazirlik++;
+        else if (groupKey.includes('HAFIZLIK') || groupKey.includes('TAHFIZ') || groupKey.includes('HAFIZ')) hafizlik++;
+        else if (groupKey.includes('IBTIDAI') || groupKey.includes('IBTIDA')) ibtidai++;
+        else if (groupKey.includes('IHZARI')) ihzari++;
 
         if (!siswaStatsByGrup[groupKey]) {
           siswaStatsByGrup[groupKey] = {

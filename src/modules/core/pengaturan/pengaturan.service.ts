@@ -1,6 +1,7 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { MinioService } from '../../../common/minio/minio.service.js';
+import { isCctvEnabled } from '../../../common/utils/module-guard.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import bcrypt from 'bcrypt';
@@ -122,30 +123,32 @@ export class PengaturanService {
   }
 
   async getModuleSettings() {
+    const isCctvOn = isCctvEnabled();
     const filePath = this.getModuleSettingsFilePath();
+    let loadedSettings: any = {};
     if (fs.existsSync(filePath)) {
       try {
         const raw = fs.readFileSync(filePath, 'utf-8');
-        const settings = JSON.parse(raw);
-        if (settings.cctvPin && !settings.cctvPinHash) {
+        loadedSettings = JSON.parse(raw);
+        if (loadedSettings.cctvPin && !loadedSettings.cctvPinHash) {
           // One-time migration: earlier versions stored the PIN as plain text.
-          settings.cctvPinHash = await bcrypt.hash(String(settings.cctvPin), 10);
-          delete settings.cctvPin;
-          fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf-8');
+          loadedSettings.cctvPinHash = await bcrypt.hash(String(loadedSettings.cctvPin), 10);
+          delete loadedSettings.cctvPin;
+          fs.writeFileSync(filePath, JSON.stringify(loadedSettings, null, 2), 'utf-8');
         }
-        return settings;
       } catch (e) {
         // Fallback default
       }
     }
-    return {
+    const defaultSettings = {
       portalWalsanEnabled: true,
       raporMuadalahEnabled: true,
       bankSoalEnabled: true,
-      cctvProtectionEnabled: true,
+      cctvEnabled: isCctvOn,
+      cctvProtectionEnabled: isCctvOn,
       cctvPinHash: await bcrypt.hash('123456', 10),
       // Walsan granular menus
-      walsanCctvEnabled: true,
+      walsanCctvEnabled: isCctvOn,
       walsanRaporEnabled: true,
       walsanKehadiranEnabled: true,
       walsanIzinEnabled: true,
@@ -153,33 +156,46 @@ export class PengaturanService {
       walsanSyahriyahEnabled: true,
       walsanEditBiodataEnabled: false, // Default: false (harus diaktifkan oleh cabang terkait)
       // Cabang granular access
-      cabangCctvEnabled: true,
+      cabangCctvEnabled: isCctvOn,
       cabangIzinEnabled: true,
       cabangWalsanListEnabled: true,
       cabangEditBiodataMap: {}, // Map cabangId -> boolean
     };
+
+    const merged = {
+      ...defaultSettings,
+      ...loadedSettings,
+      cctvEnabled: isCctvOn,
+      walsanCctvEnabled: isCctvOn ? (loadedSettings.walsanCctvEnabled !== false) : false,
+      cabangCctvEnabled: isCctvOn ? (loadedSettings.cabangCctvEnabled !== false) : false,
+      cctvProtectionEnabled: isCctvOn ? (loadedSettings.cctvProtectionEnabled !== false) : false,
+    };
+
+    return merged;
   }
 
   /** Settings shape safe to return from the public, unauthenticated GET /pengaturan/modules endpoint. */
   async getPublicModuleSettings() {
+    const isCctvOn = isCctvEnabled();
     const { cctvPin, cctvPinHash, ...publicSettings } = await this.getModuleSettings();
     return {
       portalWalsanEnabled: true,
       raporMuadalahEnabled: true,
       bankSoalEnabled: true,
-      cctvProtectionEnabled: true,
-      walsanCctvEnabled: true,
       walsanRaporEnabled: true,
       walsanKehadiranEnabled: true,
       walsanIzinEnabled: true,
       walsanPengumumanEnabled: true,
       walsanSyahriyahEnabled: true,
       walsanEditBiodataEnabled: false,
-      cabangCctvEnabled: true,
       cabangIzinEnabled: true,
       cabangWalsanListEnabled: true,
       cabangEditBiodataMap: {},
       ...publicSettings,
+      cctvEnabled: isCctvOn,
+      walsanCctvEnabled: isCctvOn ? (publicSettings.walsanCctvEnabled !== false) : false,
+      cabangCctvEnabled: isCctvOn ? (publicSettings.cabangCctvEnabled !== false) : false,
+      cctvProtectionEnabled: isCctvOn ? (publicSettings.cctvProtectionEnabled !== false) : false,
     };
   }
 
@@ -201,26 +217,27 @@ export class PengaturanService {
     cabangWalsanListEnabled?: boolean;
     cabangEditBiodataMap?: Record<string, boolean>;
   }) {
+    const isCctvOn = isCctvEnabled();
     const current = await this.getModuleSettings();
     const updated: any = {
       ...current,
       ...(data.portalWalsanEnabled !== undefined && { portalWalsanEnabled: data.portalWalsanEnabled }),
       ...(data.raporMuadalahEnabled !== undefined && { raporMuadalahEnabled: data.raporMuadalahEnabled }),
       ...(data.bankSoalEnabled !== undefined && { bankSoalEnabled: data.bankSoalEnabled }),
-      ...(data.cctvProtectionEnabled !== undefined && { cctvProtectionEnabled: data.cctvProtectionEnabled }),
-      ...(data.walsanCctvEnabled !== undefined && { walsanCctvEnabled: data.walsanCctvEnabled }),
+      ...(data.cctvProtectionEnabled !== undefined && { cctvProtectionEnabled: isCctvOn ? data.cctvProtectionEnabled : false }),
+      ...(data.walsanCctvEnabled !== undefined && { walsanCctvEnabled: isCctvOn ? data.walsanCctvEnabled : false }),
       ...(data.walsanRaporEnabled !== undefined && { walsanRaporEnabled: data.walsanRaporEnabled }),
       ...(data.walsanKehadiranEnabled !== undefined && { walsanKehadiranEnabled: data.walsanKehadiranEnabled }),
       ...(data.walsanIzinEnabled !== undefined && { walsanIzinEnabled: data.walsanIzinEnabled }),
       ...(data.walsanPengumumanEnabled !== undefined && { walsanPengumumanEnabled: data.walsanPengumumanEnabled }),
       ...(data.walsanSyahriyahEnabled !== undefined && { walsanSyahriyahEnabled: data.walsanSyahriyahEnabled }),
       ...(data.walsanEditBiodataEnabled !== undefined && { walsanEditBiodataEnabled: data.walsanEditBiodataEnabled }),
-      ...(data.cabangCctvEnabled !== undefined && { cabangCctvEnabled: data.cabangCctvEnabled }),
+      ...(data.cabangCctvEnabled !== undefined && { cabangCctvEnabled: isCctvOn ? data.cabangCctvEnabled : false }),
       ...(data.cabangIzinEnabled !== undefined && { cabangIzinEnabled: data.cabangIzinEnabled }),
       ...(data.cabangWalsanListEnabled !== undefined && { cabangWalsanListEnabled: data.cabangWalsanListEnabled }),
       ...(data.cabangEditBiodataMap !== undefined && { cabangEditBiodataMap: data.cabangEditBiodataMap }),
     };
-    if (data.cctvPin !== undefined && data.cctvPin.trim() !== '') {
+    if (isCctvOn && data.cctvPin !== undefined && data.cctvPin.trim() !== '') {
       updated.cctvPinHash = await bcrypt.hash(data.cctvPin.trim(), 10);
     }
     delete updated.cctvPin; // never persist plaintext, even if it was present on `current` from an old file
@@ -229,7 +246,13 @@ export class PengaturanService {
     fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
 
     const { cctvPinHash, ...publicUpdated } = updated;
-    return publicUpdated;
+    return {
+      ...publicUpdated,
+      cctvEnabled: isCctvOn,
+      walsanCctvEnabled: isCctvOn ? (publicUpdated.walsanCctvEnabled !== false) : false,
+      cabangCctvEnabled: isCctvOn ? (publicUpdated.cabangCctvEnabled !== false) : false,
+      cctvProtectionEnabled: isCctvOn ? (publicUpdated.cctvProtectionEnabled !== false) : false,
+    };
   }
 
   async updateCabangEditBiodata(cabangId: string, isEnabled: boolean) {
@@ -241,6 +264,9 @@ export class PengaturanService {
   }
 
   async verifyCctvPin(pin: string) {
+    if (!isCctvEnabled()) {
+      throw new BadRequestException('Fitur CCTV saat ini dinonaktifkan di konfigurasi server (.env).');
+    }
     if (!pin) {
       throw new BadRequestException('PIN wajib diisi');
     }

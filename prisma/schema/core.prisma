@@ -88,6 +88,21 @@ model Faq {
   @@schema("core")
 }
 
+model PpdbSetting {
+  id           String   @id @default("default")
+  tahunAjaran  String   @default("2027–2028") @map("tahun_ajaran")
+  semboyan     String   @default("Dari Indonesia, Untuk Indonesia — Mendidik Generasi yang Mengabdi untuk Negeri")
+  portalUrl    String   @default("https://pendaftaran.tahfidzsulaimaniyah.org/") @map("portal_url")
+  websiteResmi String   @default("www.tahfidzsulaimaniyah.org") @map("website_resmi")
+  isActive     Boolean  @default(true) @map("is_active")
+  data         Json     @map("data")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("ppdb_settings")
+  @@schema("core")
+}
+
 model User {
   id                       String                 @id @default(uuid())
   username                 String                 @unique

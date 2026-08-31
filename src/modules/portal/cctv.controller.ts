@@ -3,7 +3,7 @@ import { AccessControlGuard } from '../../common/guards/access-control.guard.js'
 import { RequireScope } from '../../common/decorators/access-control.decorator.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { encryptStreamUrl, decryptStreamUrl, encryptStoredStreamUrl, decryptStoredStreamUrl } from '../../common/utils/cctv-crypto.js';
-import { assertModuleEnabled } from '../../common/utils/module-guard.js';
+import { assertCctvEnabled, assertModuleEnabled } from '../../common/utils/module-guard.js';
 
 @Controller('cctv')
 @UseGuards(AccessControlGuard)
@@ -13,6 +13,7 @@ export class CctvController {
 
   @Get('channels')
   async getChannels(@Request() req: any, @Query('cabangId') cabangId?: string) {
+    assertCctvEnabled();
     assertModuleEnabled('portalWalsanEnabled');
     const user = req.user;
     const where: any = {};
@@ -47,6 +48,7 @@ export class CctvController {
 
   @Post('channels')
   async createChannel(@Request() req: any, @Body() body: any) {
+    assertCctvEnabled();
     const user = req.user;
     const targetCabangId = user.scope === 'CABANG' ? user.cabangId : body.cabangId;
 
@@ -71,6 +73,7 @@ export class CctvController {
 
   @Put('channels/:id')
   async updateChannel(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    assertCctvEnabled();
     const channel = await this.prisma.cctvChannel.findUnique({ where: { id } });
     if (!channel) throw new NotFoundException('Kamera CCTV tidak ditemukan');
 
@@ -95,6 +98,7 @@ export class CctvController {
 
   @Delete('channels/:id')
   async deleteChannel(@Request() req: any, @Param('id') id: string) {
+    assertCctvEnabled();
     const channel = await this.prisma.cctvChannel.findUnique({ where: { id } });
     if (!channel) throw new NotFoundException('Kamera CCTV tidak ditemukan');
 

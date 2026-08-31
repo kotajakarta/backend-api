@@ -22,6 +22,7 @@ import { PembelajaranModule } from './modules/pembelajaran/pembelajaran.module.j
 import { SuratModule } from './modules/surat/surat.module.js';
 import { PortalModule } from './modules/portal/portal.module.js';
 import { BankSoalModule } from './modules/bank-soal/bank-soal.module.js';
+import { PpdbModule } from './modules/ppdb/ppdb.module.js';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { BankSoalModule } from './modules/bank-soal/bank-soal.module.js';
     SuratModule,
     PortalModule,
     BankSoalModule,
+    PpdbModule,
     ScheduleModule.forRoot()
   ],
   controllers: [],
