@@ -2481,7 +2481,17 @@ export class FormalService {
     };
   }
 
-  // --- LAPORAN KELENGKAPAN NILAI (Deteksi Gap Nilai Raport Lampau) ---
+  // --- LAPORAN KELENGKAPAN NILAI (Deteksi Gap Nilai Raport Lampau / Continuity) ---
+
+  async getRiwayatContinuity(params: {
+    kelasId?: string;
+    search?: string;
+    statusFilter?: 'ALL' | 'BERMASALAH' | 'LENGKAP';
+    page: number;
+    pageSize: number;
+  }, user: any) {
+    return this.getLaporanNilaiGap(params, user);
+  }
 
   async getLaporanNilaiGap(params: {
     kelasId?: string;
@@ -2500,14 +2510,18 @@ export class FormalService {
     const activeSemesterOrder = semesterOrder(pengaturan?.semesterAktif);
 
     const studentWhere: any = {};
-    if (user.scope === 'WALI_KELAS') {
-      studentWhere.cabangId = user.cabangId;
-    } else if (user.scope === 'GURU') {
-      studentWhere.cabangId = user.cabangId;
-    } else if (user.scope === 'CABANG' && user.cabangId) {
-      studentWhere.cabangId = user.cabangId;
+    if (user.scope === 'GLOBAL' || user.scope === 'AUDITOR') {
+      // Akses global
     } else if (user.scope === 'WILAYAH' && user.wilayahId) {
       studentWhere.wilayahId = user.wilayahId;
+    } else if (user.scope === 'CABANG' && user.cabangId) {
+      studentWhere.cabangId = user.cabangId;
+    } else if (user.scope === 'WALI_KELAS') {
+      studentWhere.cabangId = user.cabangId || '__UNAUTHORIZED__';
+    } else if (user.scope === 'GURU') {
+      studentWhere.cabangId = user.cabangId || '__UNAUTHORIZED__';
+    } else {
+      throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses');
     }
     if (search?.trim()) {
       studentWhere.biodata = { fullName: { contains: search.trim(), mode: 'insensitive' } };
