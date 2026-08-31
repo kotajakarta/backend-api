@@ -32,9 +32,9 @@ export class BankSoalService {
   private checkWriteAccess(bank: any, user: any) {
     if (!user) return;
     if (user.scope === 'GLOBAL') return;
-    if (bank.teacherId === user.id) return;
-    if (user.scope === 'CABANG' && user.cabangId && bank.cabangId === user.cabangId && user.divisi === 'ALL') return;
-    throw new ForbiddenException('Akses ditolak: Anda bukan pembuat Bank Soal ini.');
+    if (bank.teacherId === user.id || bank.createdById === user.id) return;
+    if (user.scope === 'CABANG' && user.cabangId && bank.cabangId === user.cabangId) return;
+    throw new ForbiddenException('Akses ditolak: Anda tidak memiliki izin mengedit Bank Soal ini.');
   }
 
   async getQuestionBanks(
@@ -73,8 +73,13 @@ export class BankSoalService {
     }
 
     // Filter RBAC / Scope
-    if (query.onlyMine && user?.id) {
-      where.teacherId = user.id;
+    if (query.onlyMine || user?.scope === 'GURU' || user?.scope === 'WALI_KELAS') {
+      where.OR = [
+        { teacherId: user.id },
+        { createdById: user.id },
+        { isShared: true },
+        ...(user.cabangId ? [{ cabangId: user.cabangId }] : []),
+      ];
     } else if (user?.scope === 'CABANG' && user.cabangId) {
       where.OR = [
         { cabangId: user.cabangId },
@@ -628,7 +633,7 @@ export class BankSoalService {
     }
 
     // Role-based filtering
-    if (query.onlyMine || user?.scope === 'GURU') {
+    if (query.onlyMine || user?.scope === 'GURU' || user?.scope === 'WALI_KELAS') {
       where.teacherId = user?.id;
     } else if (user?.scope === 'CABANG' && user.cabangId) {
       where.OR = [
@@ -788,12 +793,17 @@ export class BankSoalService {
         where: {
           cabangId: cabangId || undefined,
           isApproved: true,
+          scope: { in: ['GURU', 'WALI_KELAS', 'CABANG'] },
         },
         select: {
           id: true,
           username: true,
           operatorName: true,
           cabangId: true,
+          scope: true,
+          staff: {
+            select: { id: true, name: true, position: true },
+          },
         },
         orderBy: { operatorName: 'asc' },
       }),

@@ -31,6 +31,10 @@ export class CreateUserDto {
   @IsOptional()
   cabangId?: string;
 
+  @IsString()
+  @IsOptional()
+  staffId?: string;
+
   @IsArray()
   @IsOptional()
   @IsString({ each: true })

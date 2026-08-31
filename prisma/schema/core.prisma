@@ -119,6 +119,8 @@ model User {
   twoFactorEnabled         Boolean                @default(false) @map("two_factor_enabled")
   twoFactorSecret          String?                @map("two_factor_secret")
   twoFactorBackupCodes     String[]               @default([]) @map("two_factor_backup_codes")
+  staffId                  String?                @unique @map("staff_id")
+  staff                    Staff?                 @relation(fields: [staffId], references: [id], onDelete: SetNull)
   cabang                   Cabang?                @relation(fields: [cabangId], references: [id])
   wilayah                  Wilayah?               @relation(fields: [wilayahId], references: [id])
   confirmedKegiatan        Kegiatan[]
@@ -284,6 +286,7 @@ model Staff {
   kelasWali          Kelas[]              @relation("KelasWali")
   panitia            Panitia[]
   kehadiranGuru      KehadiranGuru[]
+  user               User?
 
   @@map("staff")
   @@schema("core")
@@ -363,6 +366,8 @@ enum UserScope {
   GLOBAL
   WILAYAH
   CABANG
+  WALI_KELAS
+  GURU
   WALI
   AUDITOR
 

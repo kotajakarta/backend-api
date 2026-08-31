@@ -1268,7 +1268,7 @@ export class StudentService {
       };
     }
     
-    return this.prisma.permintaanTarikData.findMany({
+    const requests = await this.prisma.permintaanTarikData.findMany({
       where: whereClause,
       include: {
         student: {
@@ -1276,12 +1276,70 @@ export class StudentService {
             biodata: true
           }
         },
-        requestingCabang: true,
-        targetCabang: true,
+        requestingCabang: {
+          include: {
+            users: {
+              where: { isApproved: true },
+              select: { id: true, operatorName: true, phone: true, username: true }
+            },
+            staff: {
+              select: { id: true, name: true, phone: true, position: true }
+            }
+          }
+        },
+        targetCabang: {
+          include: {
+            users: {
+              where: { isApproved: true },
+              select: { id: true, operatorName: true, phone: true, username: true }
+            },
+            staff: {
+              select: { id: true, name: true, phone: true, position: true }
+            }
+          }
+        },
       },
       orderBy: {
         createdAt: 'desc'
       }
+    });
+
+    const staffIds = new Set<string>();
+    for (const r of requests) {
+      if (r.targetCabang?.ketuaMuadalahId) staffIds.add(r.targetCabang.ketuaMuadalahId);
+      if (r.requestingCabang?.ketuaMuadalahId) staffIds.add(r.requestingCabang.ketuaMuadalahId);
+    }
+
+    const staffList = staffIds.size > 0 ? await this.prisma.staff.findMany({
+      where: { id: { in: Array.from(staffIds) } },
+      select: { id: true, name: true, phone: true, position: true }
+    }) : [];
+
+    const staffMap = new Map<string, any>();
+    for (const s of staffList) {
+      staffMap.set(s.id, s);
+    }
+
+    return requests.map(r => {
+      const targetKetua = r.targetCabang?.ketuaMuadalahId
+        ? staffMap.get(r.targetCabang.ketuaMuadalahId) || r.targetCabang?.staff?.find(s => s.id === r.targetCabang?.ketuaMuadalahId)
+        : r.targetCabang?.staff?.find(s => s.position?.toLowerCase().includes('muadalah'));
+
+      const requestingKetua = r.requestingCabang?.ketuaMuadalahId
+        ? staffMap.get(r.requestingCabang.ketuaMuadalahId) || r.requestingCabang?.staff?.find(s => s.id === r.requestingCabang?.ketuaMuadalahId)
+        : r.requestingCabang?.staff?.find(s => s.position?.toLowerCase().includes('muadalah'));
+
+      return {
+        ...r,
+        targetCabang: r.targetCabang ? {
+          ...r.targetCabang,
+          ketuaMuadalah: targetKetua || null
+        } : null,
+        requestingCabang: r.requestingCabang ? {
+          ...r.requestingCabang,
+          ketuaMuadalah: requestingKetua || null
+        } : null
+      };
     });
   }
 

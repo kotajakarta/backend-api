@@ -111,7 +111,8 @@ export class AdminService {
           divisi: isWali ? 'ALL' : data.divisi,
           operatorName: data.operatorName || null,
           wilayahId: isWali ? null : (data.wilayahId || null),
-          cabangId: isWali ? null : (data.cabangId || null)
+          cabangId: isWali ? null : (data.cabangId || null),
+          staffId: data.staffId || null,
         }
       });
 
@@ -152,7 +153,8 @@ export class AdminService {
         divisi: isWali ? 'ALL' : data.divisi,
         operatorName: data.operatorName || null,
         wilayahId: isWali ? null : (data.wilayahId || null),
-        cabangId: isWali ? null : (data.cabangId || null)
+        cabangId: isWali ? null : (data.cabangId || null),
+        staffId: data.staffId !== undefined ? data.staffId : undefined,
       };
 
       if (hashedPassword) {

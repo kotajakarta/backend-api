@@ -23,6 +23,7 @@ import { SuratModule } from './modules/surat/surat.module.js';
 import { PortalModule } from './modules/portal/portal.module.js';
 import { BankSoalModule } from './modules/bank-soal/bank-soal.module.js';
 import { PpdbModule } from './modules/ppdb/ppdb.module.js';
+import { PesantrenExternalModule } from './modules/external/pesantren/pesantren-external.module.js';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { PpdbModule } from './modules/ppdb/ppdb.module.js';
     MinioModule,
     AuthModule,
     StudentModule,
+    PesantrenExternalModule,
 
     MasterDataModule,
     PengaturanModule,

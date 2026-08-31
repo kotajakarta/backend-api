@@ -29,7 +29,8 @@ export class AuthService {
       where: { username },
       include: {
         wilayah: true,
-        cabang: true
+        cabang: true,
+        staff: true,
       }
     });
     if (!user) {
@@ -69,11 +70,12 @@ export class AuthService {
     const payload = {
       id: user.id,
       username: user.username,
-      operatorName: user.operatorName || null,
+      operatorName: user.operatorName || user.staff?.name || null,
       scope: user.scope,
       divisi: user.divisi,
-      wilayahId: user.wilayahId,
-      cabangId: user.cabangId,
+      staffId: user.staffId || null,
+      wilayahId: user.wilayahId || user.staff?.wilayahId || null,
+      cabangId: user.cabangId || user.staff?.cabangId || null,
       wilayahName: user.wilayah?.name || null,
       cabangName: user.cabang?.name || null,
       twoFactorEnabled: false
@@ -102,19 +104,20 @@ export class AuthService {
         issuer: JWT_ISSUER,
         audience: JWT_AUDIENCE,
       });
-    } catch (e) {
-      throw new UnauthorizedException('Sesi verifikasi 2FA telah kadaluarsa, silakan login kembali');
+    } catch {
+      throw new UnauthorizedException('Token verifikasi tidak valid atau telah kedaluwarsa');
     }
 
     if (!decoded || !decoded.is2FATemp || !decoded.id) {
-      throw new UnauthorizedException('Sesi verifikasi 2FA tidak valid');
+      throw new UnauthorizedException('Token 2FA tidak valid');
     }
 
     const user = await this.prisma.user.findUnique({
       where: { id: decoded.id },
       include: {
         wilayah: true,
-        cabang: true
+        cabang: true,
+        staff: true
       }
     });
 
@@ -148,11 +151,12 @@ export class AuthService {
     const payload = {
       id: user.id,
       username: user.username,
-      operatorName: user.operatorName || null,
+      operatorName: user.operatorName || user.staff?.name || null,
       scope: user.scope,
       divisi: user.divisi,
-      wilayahId: user.wilayahId,
-      cabangId: user.cabangId,
+      staffId: user.staffId || null,
+      wilayahId: user.wilayahId || user.staff?.wilayahId || null,
+      cabangId: user.cabangId || user.staff?.cabangId || null,
       wilayahName: user.wilayah?.name || null,
       cabangName: user.cabang?.name || null,
       twoFactorEnabled: true

@@ -94,6 +94,27 @@ export class AccessControlGuard implements CanActivate {
         throw new ForbiddenException('Akun wali santri tidak memiliki akses ke endpoint ini');
       }
 
+      // Protection for GURU & WALI_KELAS from sensitive financial, mutation, and admin settings routes
+      if (payload.scope === 'GURU' || payload.scope === 'WALI_KELAS') {
+        const url = req.originalUrl || req.url || '';
+        // Block mutasi / tarik data siswa
+        if (url.includes('/permintaan-tarik') || url.includes('/tarik-massal')) {
+          throw new ForbiddenException('Akses ditolak: Akun Guru/Wali Kelas tidak memiliki izin permohonan mutasi/tarik data santri');
+        }
+        // Block data keuangan syahriyah & pembayaran
+        if (url.includes('/syahriyah') || url.includes('/pembayaran')) {
+          throw new ForbiddenException('Akses ditolak: Data keuangan dan syahriyah dilindungi dan tidak dapat diakses oleh akun Guru/Wali Kelas');
+        }
+        // Block pengaturan master sistem & sync
+        if (url.includes('/pengaturan') || url.includes('/sync') || url.includes('/admin/users')) {
+          throw new ForbiddenException('Akses ditolak: Akun Guru/Wali Kelas tidak memiliki izin ke menu konfigurasi sistem');
+        }
+        // Block mutasi staff kepegawaian (POST/PUT/DELETE /staff)
+        if (url.includes('/staff') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(httpMethod)) {
+          throw new ForbiddenException('Akses ditolak: Pengelolaan data staf hanya dapat dilakukan oleh Admin/Operator Cabang');
+        }
+      }
+
       if (requiredScope) {
         if (requiredScope === 'WALI') {
           if (payload.scope !== 'WALI') throw new ForbiddenException('Endpoint khusus portal wali santri');
@@ -102,7 +123,11 @@ export class AccessControlGuard implements CanActivate {
         } else if (requiredScope === 'WILAYAH') {
           if (payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires WILAYAH scope');
         } else if (requiredScope === 'CABANG') {
-          if (payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH' && payload.scope !== 'CABANG' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires CABANG scope');
+          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'AUDITOR'].includes(payload.scope)) throw new ForbiddenException('Requires CABANG scope');
+        } else if (requiredScope === 'WALI_KELAS') {
+          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'WALI_KELAS', 'AUDITOR'].includes(payload.scope)) throw new ForbiddenException('Requires WALI_KELAS scope');
+        } else if (requiredScope === 'GURU') {
+          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'WALI_KELAS', 'GURU', 'AUDITOR'].includes(payload.scope)) throw new ForbiddenException('Requires GURU scope');
         }
       }
 

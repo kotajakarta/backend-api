@@ -107,18 +107,52 @@ export class MasterDataService {
     }
     return this.prisma.staff.findMany({
       where: whereClause,
-      include: {
-        wilayah: true,
-        cabang: true,
-        grupDaimi: true,
+      select: {
+        id: true,
+        name: true,
+        position: true,
+        phone: true,
+        nik: true,
+        jenisKelamin: true,
+        pendidikanTerakhir: true,
+        perguruanTinggi: true,
+        programStudi: true,
+        tahunLulus: true,
+        tempatLahir: true,
+        tanggalLahir: true,
+        statusPool: true,
+        mapelUmum: true,
+        waliKelas: true,
+        cabangId: true,
+        wilayahId: true,
+        grupDaimiId: true,
+        wilayah: {
+          select: { id: true, name: true }
+        },
+        cabang: {
+          select: { id: true, name: true, wilayahId: true }
+        },
+        grupDaimi: {
+          select: { id: true, name: true }
+        },
         guruMapelKelas: {
-          include: {
+          select: {
+            id: true,
+            kelasId: true,
+            mataPelajaranId: true,
+            mataPelajaran: {
+              select: { id: true, name: true }
+            },
             kelas: {
-              include: { lembagaMuadalah: true }
+              select: { id: true, name: true, tingkat: true, lembagaMuadalahId: true }
             }
           }
         }
-      }
+      },
+      orderBy: [
+        { cabang: { name: 'asc' } },
+        { name: 'asc' }
+      ]
     });
   }
 
