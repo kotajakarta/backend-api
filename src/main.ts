@@ -135,6 +135,8 @@ async function bootstrap() {
         const mimeType = minioService.getMimeType(reqPath);
         const filename = path.basename(reqPath);
 
+        res.removeHeader('X-Frame-Options');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
         res.setHeader('Content-Type', mimeType);
         res.setHeader('Content-Length', stat.size);
         res.setHeader('ETag', stat.etag);
@@ -149,6 +151,8 @@ async function bootstrap() {
       // Fallback: File lokal jika belum termigrasi
       const localFilePath = path.join(uploadDir, reqPath);
       if (fs.existsSync(localFilePath) && fs.statSync(localFilePath).isFile()) {
+        res.removeHeader('X-Frame-Options');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
         return res.sendFile(localFilePath);
       }
 
@@ -156,6 +160,8 @@ async function bootstrap() {
     } catch (err: any) {
       const localFilePath = path.join(uploadDir, req.path.startsWith('/') ? req.path.slice(1) : req.path);
       if (fs.existsSync(localFilePath) && fs.statSync(localFilePath).isFile()) {
+        res.removeHeader('X-Frame-Options');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
         return res.sendFile(localFilePath);
       }
       return res.status(404).json({ status: false, message: 'File tidak ditemukan' });

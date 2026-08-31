@@ -31,13 +31,21 @@ export class AccessControlGuard implements CanActivate {
     let token: string | null = null;
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
       token = req.headers.authorization.split(' ')[1];
-    } else if (req.headers.cookie) {
+    } else {
       const allowCookieAuth = this.reflector.getAllAndOverride<boolean>('allowCookieAuth', [
         context.getHandler(),
         context.getClass(),
       ]);
       if (allowCookieAuth) {
-        token = extractTokenFromCookieHeader(req.headers.cookie);
+        if (req.headers.cookie) {
+          token = extractTokenFromCookieHeader(req.headers.cookie);
+        }
+        if (!token && req.query) {
+          const qToken = req.query.token || req.query.t;
+          if (typeof qToken === 'string' && qToken.trim() !== '') {
+            token = qToken.trim();
+          }
+        }
       }
     }
 

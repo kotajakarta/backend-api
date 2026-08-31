@@ -16,6 +16,13 @@ export function createUploadAuthMiddleware(getNestApp: () => INestApplication | 
     else if (req.headers.cookie) {
       token = extractTokenFromCookieHeader(req.headers.cookie);
     }
+    // 3. Cek dari query parameter (?token=... atau ?t=...) untuk request media <img>/<iframe>/<a download>
+    else if (req.query) {
+      const qToken = req.query.token || (req.query as any).t;
+      if (typeof qToken === 'string' && qToken.trim() !== '') {
+        token = qToken.trim();
+      }
+    }
 
     if (!token) {
       return res.status(401).json({
