@@ -16,21 +16,12 @@ if (!fs.existsSync(uploadDir)) {
 
 import { Request as ExpressRequest } from 'express';
 
-const storage = multer.diskStorage({
-  destination: (req: ExpressRequest, file: any, cb: (error: Error | null, destination: string) => void) => {
-    cb(null, uploadDir);
-  },
-  filename: (req: ExpressRequest, file: any, cb: (error: Error | null, filename: string) => void) => {
-    const ext = path.extname(file.originalname);
-    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    cb(null, uniqueName);
-  }
-});
+const storage = multer.memoryStorage();
 
 const uploadOptions: any = {
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 15 * 1024 * 1024, // 15MB
   },
   fileFilter: (req: ExpressRequest, file: any, cb: any) => {
     const allowedMimeTypes = [
@@ -46,7 +37,7 @@ const uploadOptions: any = {
     if (allowedMimeTypes.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
-      cb(new Error('Format berkas tidak didukung. Hanya PDF dan Gambar yang diperbolehkan.'), false);
+      cb(new Error('Format berkas tidak didukung. Hanya PDF, Dokumen Word, dan Gambar yang diperbolehkan.'), false);
     }
   }
 };

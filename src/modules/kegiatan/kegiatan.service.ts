@@ -12,14 +12,28 @@ export class KegiatanService {
   ) {}
 
   private async uploadFileToMinio(file: any, folder: string = 'kegiatan'): Promise<string> {
-    const filename = file.filename || `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const filename = file.filename || `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
     const objectKey = `${folder}/${filename}`;
+
     if (file.buffer) {
-      await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
+      try {
+        await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
+      } catch (err) {
+        const localDir = path.join(process.cwd(), `uploads/${folder}`);
+        if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+        fs.writeFileSync(path.join(localDir, filename), file.buffer);
+      }
     } else if (file.path && fs.existsSync(file.path)) {
-      await this.minioService.uploadFileFromPath(objectKey, file.path, file.mimetype);
+      try {
+        await this.minioService.uploadFileFromPath(objectKey, file.path, file.mimetype);
+      } catch (err) {
+        const localDir = path.join(process.cwd(), `uploads/${folder}`);
+        if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+        fs.copyFileSync(file.path, path.join(localDir, filename));
+      }
     }
-    return `/uploads/${objectKey}`;
+    return `/kegiatan/uploads/${filename}`;
   }
 
 

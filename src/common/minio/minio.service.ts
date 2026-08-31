@@ -147,6 +147,8 @@ export class MinioService implements OnModuleInit {
     if (cleaned.startsWith('/')) cleaned = cleaned.slice(1);
     if (cleaned.startsWith('uploads/')) cleaned = cleaned.slice(8);
     if (cleaned.startsWith('pengaturan/uploads/')) cleaned = cleaned.slice(19);
+    if (cleaned.startsWith('kegiatan/uploads/')) cleaned = `kegiatan/${cleaned.slice(17)}`;
+    if (cleaned.startsWith('formal/muadalah/uploads/')) cleaned = `muadalah/${cleaned.slice(24)}`;
     return cleaned;
   }
 
