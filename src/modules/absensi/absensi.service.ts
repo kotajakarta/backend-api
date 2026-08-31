@@ -191,15 +191,31 @@ export class AbsensiService {
     };
   }
 
-  async getKehadiran(programId: string, kelasId?: string, cabangId?: string, wilayahId?: string) {
+  async getKehadiran(programId: string, kelasId?: string, cabangId?: string, wilayahId?: string, user?: any) {
     const studentWhere: any = { isActive: true };
-    if (cabangId) {
-      studentWhere.cabangId = cabangId;
-    } else if (wilayahId) {
-      studentWhere.cabang = { wilayahId };
-    }
-    if (kelasId) {
-      studentWhere.siswaFormal = { kelasId };
+    if (user?.scope === 'WALI_KELAS') {
+      studentWhere.cabangId = user.cabangId;
+      if (kelasId) {
+        studentWhere.siswaFormal = { kelasId };
+      } else if (user.staffId) {
+        studentWhere.siswaFormal = { kelas: { waliKelasId: user.staffId } };
+      }
+    } else if (user?.scope === 'GURU') {
+      studentWhere.cabangId = user.cabangId;
+      if (kelasId) {
+        studentWhere.siswaFormal = { kelasId };
+      } else if (user.staffId) {
+        studentWhere.siswaFormal = { kelas: { guruMapelKelas: { some: { staffId: user.staffId } } } };
+      }
+    } else {
+      if (cabangId) {
+        studentWhere.cabangId = cabangId;
+      } else if (wilayahId) {
+        studentWhere.cabang = { wilayahId };
+      }
+      if (kelasId) {
+        studentWhere.siswaFormal = { kelasId };
+      }
     }
 
     const students = await this.prisma.student.findMany({
@@ -255,8 +271,8 @@ export class AbsensiService {
       select: { id: true, cabangId: true }
     });
 
-    // IDOR Enforcement: If user is CABANG scope, verify all students belong to user's branch
-    if (user?.scope === 'CABANG' && user?.cabangId) {
+    // IDOR Enforcement: If user is CABANG, WALI_KELAS, or GURU, verify all students belong to user's branch
+    if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user?.scope) && user?.cabangId) {
       const unauthorizedStudent = students.find(s => s.cabangId !== user.cabangId);
       if (unauthorizedStudent || students.length !== studentIds.length) {
         throw new ForbiddenException('Akses ditolak: Terdapat data santri yang berada di luar cabang Anda.');
@@ -396,7 +412,7 @@ export class AbsensiService {
     let effectiveWilayahId = wilayahId;
     let effectiveCabangId = cabangId;
     
-    if (user?.scope === 'CABANG') {
+    if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user?.scope)) {
       effectiveWilayahId = user.wilayahId;
       effectiveCabangId = user.cabangId;
     } else if (user?.scope === 'WILAYAH') {
@@ -447,12 +463,20 @@ export class AbsensiService {
 
     const programIds = programs.map(p => p.id);
 
+    const studentWhereClause: any = {
+      isActive: true,
+      ...(effectiveCabangId ? { cabangId: effectiveCabangId } : (effectiveWilayahId ? { cabang: { wilayahId: effectiveWilayahId } } : {})),
+      ...(kelasId
+        ? { siswaFormal: { kelasId } }
+        : user?.scope === 'WALI_KELAS' && user.staffId
+        ? { siswaFormal: { kelas: { waliKelasId: user.staffId } } }
+        : user?.scope === 'GURU' && user.staffId
+        ? { siswaFormal: { kelas: { guruMapelKelas: { some: { staffId: user.staffId } } } } }
+        : {}),
+    };
+
     const students = await this.prisma.student.findMany({
-      where: {
-        isActive: true,
-        ...(effectiveCabangId ? { cabangId: effectiveCabangId } : (effectiveWilayahId ? { cabang: { wilayahId: effectiveWilayahId } } : {})),
-        ...(kelasId ? { siswaFormal: { kelasId } } : {}),
-      },
+      where: studentWhereClause,
       include: {
         biodata: {
           select: {

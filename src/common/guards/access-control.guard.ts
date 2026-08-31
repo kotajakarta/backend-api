@@ -59,12 +59,28 @@ export class AccessControlGuard implements CanActivate {
         audience: JWT_AUDIENCE,
       }) as any;
       
-      const user = await this.prisma.user.findUnique({ where: { id: payload.id } });
+      const user = await this.prisma.user.findUnique({ 
+        where: { id: payload.id },
+        include: { staff: true, cabang: true, wilayah: true }
+      });
       if (!user) {
         throw new UnauthorizedException('Session invalid');
       }
 
-      req.user = payload;
+      req.user = {
+        ...payload,
+        scope: user.scope || payload.scope,
+        divisi: user.divisi || payload.divisi,
+        staffId: user.staffId || payload.staffId || null,
+        cabangId: user.cabangId || user.staff?.cabangId || payload.cabangId || null,
+        wilayahId: user.wilayahId || user.staff?.wilayahId || payload.wilayahId || null,
+        operatorName: user.operatorName || user.staff?.name || payload.operatorName || null,
+      };
+
+      const VALID_SCOPES = ['GLOBAL', 'WILAYAH', 'CABANG', 'WALI_KELAS', 'GURU', 'WALI', 'AUDITOR'];
+      if (!VALID_SCOPES.includes(req.user.scope)) {
+        throw new ForbiddenException(`Akses ditolak: Scope pengguna (${req.user.scope}) tidak valid atau tidak dikenali oleh sistem.`);
+      }
 
       const requiredDivisi = this.reflector.getAllAndOverride<string>('requireDivisi', [
         context.getHandler(),

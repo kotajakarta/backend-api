@@ -10,11 +10,25 @@ export class FormalService {
   ) {}
 
   async getKelas(user: any) {
-    let whereClause = {};
-    if (user.scope === 'CABANG' && user.cabangId) {
-      whereClause = { cabangId: user.cabangId };
+    let whereClause: any = {};
+    if (user.scope === 'GLOBAL' || user.scope === 'AUDITOR') {
+      whereClause = {};
     } else if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause = { cabang: { wilayahId: user.wilayahId } };
+    } else if (user.scope === 'CABANG' && user.cabangId) {
+      whereClause = { cabangId: user.cabangId };
+    } else if (user.scope === 'WALI_KELAS') {
+      whereClause = {
+        cabangId: user.cabangId || '__UNAUTHORIZED__',
+        ...(user.staffId ? { waliKelasId: user.staffId } : {})
+      };
+    } else if (user.scope === 'GURU') {
+      whereClause = {
+        cabangId: user.cabangId || '__UNAUTHORIZED__',
+        ...(user.staffId ? { guruMapelKelas: { some: { staffId: user.staffId } } } : {})
+      };
+    } else {
+      throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses daftar kelas');
     }
     return this.prisma.kelas.findMany({
       where: whereClause,
@@ -352,10 +366,34 @@ export class FormalService {
       jenisSiswa: 'MUADALAH' 
     };
     
-    if (user.scope === 'CABANG' && user.cabangId) {
-      whereClause.cabangId = user.cabangId;
+    if (user.scope === 'GLOBAL' || user.scope === 'AUDITOR') {
+      // Akses global
     } else if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause.wilayahId = user.wilayahId;
+    } else if (user.scope === 'CABANG' && user.cabangId) {
+      whereClause.cabangId = user.cabangId;
+    } else if (user.scope === 'WALI_KELAS') {
+      whereClause.cabangId = user.cabangId || '__UNAUTHORIZED__';
+      if (user.staffId) {
+        whereClause.siswaFormal = {
+          kelas: {
+            waliKelasId: user.staffId
+          }
+        };
+      }
+    } else if (user.scope === 'GURU') {
+      whereClause.cabangId = user.cabangId || '__UNAUTHORIZED__';
+      if (user.staffId) {
+        whereClause.siswaFormal = {
+          kelas: {
+            guruMapelKelas: {
+              some: { staffId: user.staffId }
+            }
+          }
+        };
+      }
+    } else {
+      throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses santri formal');
     }
 
     return this.prisma.student.findMany({
@@ -636,7 +674,7 @@ export class FormalService {
         throw new ForbiddenException('Anda tidak memiliki akses untuk mengedit aktivitas belajar siswa di luar wilayah Anda');
       }
     }
-    if (user.scope === 'CABANG') {
+    if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope)) {
       if (student.cabangId !== user.cabangId) {
         throw new ForbiddenException('Anda tidak memiliki akses untuk mengedit aktivitas belajar siswa di luar cabang Anda');
       }
@@ -650,7 +688,7 @@ export class FormalService {
         throw new ForbiddenException('Anda tidak memiliki akses ke kelas di luar wilayah Anda');
       }
     }
-    if (user.scope === 'CABANG') {
+    if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope)) {
       if (kelas.cabangId !== user.cabangId) {
         throw new ForbiddenException('Anda tidak memiliki akses ke kelas di luar cabang Anda');
       }
@@ -1023,10 +1061,29 @@ export class FormalService {
 
   async getGuruMapelKelas(user: any) {
     let whereClause: any = {};
-    if (user.scope === 'CABANG') {
-      whereClause = { kelas: { cabangId: user.cabangId } };
-    } else if (user.scope === 'WILAYAH') {
+    if (user.scope === 'GLOBAL' || user.scope === 'AUDITOR') {
+      whereClause = {};
+    } else if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause = { kelas: { cabang: { wilayahId: user.wilayahId } } };
+    } else if (user.scope === 'CABANG' && user.cabangId) {
+      whereClause = { kelas: { cabangId: user.cabangId } };
+    } else if (user.scope === 'WALI_KELAS') {
+      whereClause = {
+        kelas: { cabangId: user.cabangId || '__UNAUTHORIZED__' },
+        ...(user.staffId ? {
+          OR: [
+            { kelas: { waliKelasId: user.staffId } },
+            { staffId: user.staffId }
+          ]
+        } : {})
+      };
+    } else if (user.scope === 'GURU') {
+      whereClause = {
+        kelas: { cabangId: user.cabangId || '__UNAUTHORIZED__' },
+        ...(user.staffId ? { staffId: user.staffId } : {})
+      };
+    } else {
+      throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses penugasan mapel');
     }
 
     return this.prisma.guruMapelKelas.findMany({
@@ -2313,6 +2370,16 @@ export class FormalService {
     let kelasWhere: any = {};
     if (kelasId) {
       kelasWhere = { id: kelasId };
+    } else if (user.scope === 'WALI_KELAS') {
+      kelasWhere = {
+        cabangId: user.cabangId,
+        ...(user.staffId ? { waliKelasId: user.staffId } : {})
+      };
+    } else if (user.scope === 'GURU') {
+      kelasWhere = {
+        cabangId: user.cabangId,
+        ...(user.staffId ? { guruMapelKelas: { some: { staffId: user.staffId } } } : {})
+      };
     } else if (user.scope === 'CABANG' && user.cabangId) {
       kelasWhere = { cabangId: user.cabangId };
     } else if (user.scope === 'WILAYAH' && user.wilayahId) {
@@ -2414,19 +2481,18 @@ export class FormalService {
     };
   }
 
-  // Laporan kelengkapan riwayat belajar & nilai per siswa: memindai semua siswa formal
-  // (dalam scope cabang/wilayah/global) dan menandai tingkat+semester mana yang riwayat
-  // kelasnya (RiwayatKelasFormal) dan/atau nilainya (NilaiFormal) masih kosong, dari tingkat
-  // pertama yang tercatat sampai tingkat siswa saat ini.
-  async getRiwayatContinuity(params: {
+  // --- LAPORAN KELENGKAPAN NILAI (Deteksi Gap Nilai Raport Lampau) ---
+
+  async getLaporanNilaiGap(params: {
     kelasId?: string;
     search?: string;
+    statusFilter?: 'ALL' | 'BERMASALAH' | 'LENGKAP';
     page: number;
     pageSize: number;
   }, user: any) {
-    const { kelasId, search, page, pageSize } = params;
+    const { kelasId, search, statusFilter = 'ALL', page, pageSize } = params;
 
-    // Periode aktif sekarang (dan apa pun setelahnya) belum "seharusnya" ada isinya - itu
+    // Ambil tahun ajaran & semester aktif untuk referensi: gap pada semester AKTIF adalah
     // tanggung jawab tab Input Nilai Mapel, bukan laporan riwayat lampau ini. Jadi semester
     // aktif & yang akan datang pada tingkat siswa SAAT INI tidak boleh ikut ditandai sebagai gap.
     const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
@@ -2434,7 +2500,11 @@ export class FormalService {
     const activeSemesterOrder = semesterOrder(pengaturan?.semesterAktif);
 
     const studentWhere: any = {};
-    if (user.scope === 'CABANG' && user.cabangId) {
+    if (user.scope === 'WALI_KELAS') {
+      studentWhere.cabangId = user.cabangId;
+    } else if (user.scope === 'GURU') {
+      studentWhere.cabangId = user.cabangId;
+    } else if (user.scope === 'CABANG' && user.cabangId) {
       studentWhere.cabangId = user.cabangId;
     } else if (user.scope === 'WILAYAH' && user.wilayahId) {
       studentWhere.wilayahId = user.wilayahId;

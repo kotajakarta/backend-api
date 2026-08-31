@@ -808,10 +808,34 @@ export class StudentService {
       statusPool: { not: 'TERSEDIA' }
     };
 
-    if (scope === 'WILAYAH' && wilayahId) {
+    if (scope === 'GLOBAL' || scope === 'AUDITOR') {
+      // Akses global
+    } else if (scope === 'WILAYAH' && wilayahId) {
       whereClause.wilayahId = wilayahId;
     } else if (scope === 'CABANG' && cabangId) {
       whereClause.cabangId = cabangId;
+    } else if (scope === 'WALI_KELAS') {
+      whereClause.cabangId = cabangId || '__UNAUTHORIZED__';
+      if (user.staffId) {
+        whereClause.siswaFormal = {
+          kelas: {
+            waliKelasId: user.staffId,
+          }
+        };
+      }
+    } else if (scope === 'GURU') {
+      whereClause.cabangId = cabangId || '__UNAUTHORIZED__';
+      if (user.staffId) {
+        whereClause.siswaFormal = {
+          kelas: {
+            guruMapelKelas: {
+              some: { staffId: user.staffId }
+            }
+          }
+        };
+      }
+    } else {
+      throw new ForbiddenException('Akses ditolak: Scope tidak dikenali atau tidak memiliki izin akses data santri');
     }
 
     return this.prisma.student.findMany({

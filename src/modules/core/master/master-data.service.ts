@@ -101,10 +101,14 @@ export class MasterDataService {
 
   async getGuru(user: any) {
     let whereClause: any = { statusPool: 'AKTIF_CABANG' };
-    if (user.scope === 'WILAYAH' && user.wilayahId) {
+    if (user.scope === 'GLOBAL' || user.scope === 'AUDITOR') {
+      // Akses global
+    } else if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause.wilayahId = user.wilayahId;
-    } else if (user.scope === 'CABANG' && user.cabangId) {
+    } else if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope) && user.cabangId) {
       whereClause.cabangId = user.cabangId;
+    } else {
+      throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses data guru');
     }
     return this.prisma.staff.findMany({
       where: whereClause,
@@ -922,11 +926,15 @@ export class MasterDataService {
   }
 
   async getCabang(user: any) {
-    let whereClause = {};
-    if (user.scope === 'WILAYAH' && user.wilayahId) {
+    let whereClause: any = {};
+    if (user.scope === 'GLOBAL' || user.scope === 'AUDITOR') {
+      whereClause = {};
+    } else if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereClause = { wilayahId: user.wilayahId };
-    } else if (user.scope === 'CABANG' && user.cabangId) {
+    } else if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope) && user.cabangId) {
       whereClause = { id: user.cabangId };
+    } else {
+      throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses data cabang');
     }
 
     const masterJenis = await this.prisma.jenisGrupDaimi.findMany({ select: { name: true } });

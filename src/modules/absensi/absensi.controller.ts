@@ -69,13 +69,13 @@ export class AbsensiController {
   ) {
     let effectiveWilayahId = wilayahId;
     let effectiveCabangId = cabangId;
-    if (req?.user?.scope === 'CABANG') {
+    if (['CABANG', 'WALI_KELAS', 'GURU'].includes(req?.user?.scope)) {
       effectiveWilayahId = req.user.wilayahId;
       effectiveCabangId = req.user.cabangId;
     } else if (req?.user?.scope === 'WILAYAH') {
       effectiveWilayahId = req.user.wilayahId;
     }
-    return this.absensiService.getKehadiran(programId, kelasId, effectiveCabangId, effectiveWilayahId);
+    return this.absensiService.getKehadiran(programId, kelasId, effectiveCabangId, effectiveWilayahId, req?.user);
   }
 
   @Get('rekap')
@@ -106,7 +106,7 @@ export class AbsensiController {
   @Post('kehadiran/bulk')
   @UseGuards(AccessControlGuard)
   saveKehadiranBulk(@Body() body: { programId: string; cabangId?: string; logs: any[] }, @Request() req: any) {
-    const cabangId = req.user?.scope === 'CABANG' ? req.user.cabangId : (body.cabangId || req.user?.cabangId);
+    const cabangId = ['CABANG', 'WALI_KELAS', 'GURU'].includes(req.user?.scope) ? req.user.cabangId : (body.cabangId || req.user?.cabangId);
     return this.absensiService.saveKehadiranBulk(body.programId, cabangId, body.logs, req.user);
   }
 
@@ -120,7 +120,7 @@ export class AbsensiController {
   ) {
     let effectiveWilayahId = wilayahId;
     let effectiveCabangId = cabangId;
-    if (req?.user?.scope === 'CABANG') {
+    if (['CABANG', 'WALI_KELAS', 'GURU'].includes(req?.user?.scope)) {
       effectiveWilayahId = req.user.wilayahId;
       effectiveCabangId = req.user.cabangId;
     } else if (req?.user?.scope === 'WILAYAH') {
@@ -132,7 +132,7 @@ export class AbsensiController {
   @Post('kehadiran-guru/bulk')
   @UseGuards(AccessControlGuard)
   saveKehadiranGuruBulk(@Body() body: { programId: string; cabangId?: string; logs: any[] }, @Request() req: any) {
-    const cabangId = req.user?.scope === 'CABANG' ? req.user.cabangId : (body.cabangId || req.user?.cabangId);
+    const cabangId = ['CABANG', 'WALI_KELAS', 'GURU'].includes(req.user?.scope) ? req.user.cabangId : (body.cabangId || req.user?.cabangId);
     return this.absensiService.saveKehadiranGuruBulk(body.programId, cabangId, body.logs, req.user);
   }
 }

@@ -20,8 +20,13 @@ export class DashboardService {
 
     if (user.scope === 'WILAYAH') {
       whereClause.wilayahId = user.wilayahId;
-    } else if (user.scope === 'CABANG') {
+    } else if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope)) {
       whereClause.cabangId = user.cabangId;
+      if (user.scope === 'WALI_KELAS' && user.staffId) {
+        whereClause.siswaFormal = { kelas: { waliKelasId: user.staffId } };
+      } else if (user.scope === 'GURU' && user.staffId) {
+        whereClause.siswaFormal = { kelas: { guruMapelKelas: { some: { staffId: user.staffId } } } };
+      }
     }
 
     if (wilayahId && user.scope === 'GLOBAL') {
@@ -172,7 +177,14 @@ export class DashboardService {
       kelasWhere.cabang = { wilayahId };
     } else {
       if (user.scope === 'WILAYAH') kelasWhere.cabang = { wilayahId: user.wilayahId };
-      else if (user.scope === 'CABANG') kelasWhere.cabangId = user.cabangId;
+      else if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope)) {
+        kelasWhere.cabangId = user.cabangId;
+        if (user.scope === 'WALI_KELAS' && user.staffId) {
+          kelasWhere.waliKelasId = user.staffId;
+        } else if (user.scope === 'GURU' && user.staffId) {
+          kelasWhere.guruMapelKelas = { some: { staffId: user.staffId } };
+        }
+      }
     }
 
     const totalKelas = await this.prisma.kelas.count({
@@ -189,7 +201,7 @@ export class DashboardService {
       cabangWhere.wilayahId = wilayahId;
     } else {
       if (user.scope === 'WILAYAH') cabangWhere.wilayahId = user.wilayahId;
-      else if (user.scope === 'CABANG') cabangWhere.id = user.cabangId;
+      else if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope)) cabangWhere.id = user.cabangId;
     }
 
     const cabangs = await this.prisma.cabang.findMany({
@@ -262,7 +274,7 @@ export class DashboardService {
       activityWhere.wilayahId = wilayahId;
     } else {
       if (user.scope === 'WILAYAH') activityWhere.wilayahId = user.wilayahId;
-      else if (user.scope === 'CABANG') activityWhere.cabangId = user.cabangId;
+      else if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope)) activityWhere.cabangId = user.cabangId;
     }
 
     const recentLogs = await this.prisma.auditLog.findMany({
@@ -294,8 +306,12 @@ export class DashboardService {
       if (taAktif && semAktif) {
 
         let kelasWhereRapor: any = {};
-        if (user.scope === 'CABANG' && user.cabangId) {
-          kelasWhereRapor = { cabangId: user.cabangId };
+        if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope) && user.cabangId) {
+          kelasWhereRapor = {
+            cabangId: user.cabangId,
+            ...(user.scope === 'WALI_KELAS' && user.staffId ? { waliKelasId: user.staffId } : {}),
+            ...(user.scope === 'GURU' && user.staffId ? { guruMapelKelas: { some: { staffId: user.staffId } } } : {})
+          };
         } else if (user.scope === 'WILAYAH' && user.wilayahId) {
           kelasWhereRapor = { cabang: { wilayahId: user.wilayahId } };
         }
@@ -498,7 +514,7 @@ export class DashboardService {
       }
     }
 
-    if (user.scope === 'CABANG' && user.cabangId) {
+    if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user.scope) && user.cabangId) {
       const c = await this.prisma.cabang.findUnique({ 
         where: { id: user.cabangId },
         include: { wilayah: true }
