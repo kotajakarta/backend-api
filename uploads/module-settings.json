@@ -1,8 +1,20 @@
 {
-  "portalWalsanEnabled": true,
+  "portalWalsanEnabled": false,
   "raporMuadalahEnabled": false,
+  "bankSoalEnabled": true,
+  "cctvEnabled": false,
+  "cctvProtectionEnabled": false,
+  "cctvPinHash": "$2b$10$dax7.Pi4ziNqLcgKNdRD2.HRgsgO7zFKS02ROLHcc5ZV92GklSaPG",
   "walsanCctvEnabled": false,
+  "walsanRaporEnabled": true,
+  "walsanKehadiranEnabled": true,
+  "walsanIzinEnabled": true,
+  "walsanPengumumanEnabled": true,
+  "walsanSyahriyahEnabled": true,
+  "walsanEditBiodataEnabled": false,
   "cabangCctvEnabled": false,
+  "cabangIzinEnabled": true,
+  "cabangWalsanListEnabled": true,
   "cabangEditBiodataMap": {
     "f6c771eb-c084-493c-ac19-1d26658dfa5c": false
   }

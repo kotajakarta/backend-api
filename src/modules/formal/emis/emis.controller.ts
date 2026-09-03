@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   ValidationPipe,
+  Inject,
 } from '@nestjs/common';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
 import { RequireScope } from '../../../common/decorators/access-control.decorator.js';
@@ -43,8 +44,8 @@ class ReconcileDto {
 @RequireScope('GLOBAL')
 export class EmisController {
   constructor(
-    private readonly emisService: EmisService,
-    private readonly vervalService: VervalService,
+    @Inject(EmisService) private readonly emisService: EmisService,
+    @Inject(VervalService) private readonly vervalService: VervalService,
   ) {}
 
   /**

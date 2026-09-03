@@ -1,4 +1,4 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus, Inject } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { EmisCryptoService } from './emis-crypto.service.js';
 import { VervalStudentItem } from './verval.service.js';
@@ -82,8 +82,8 @@ export class EmisService {
   private readonly logger = new Logger(EmisService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly cryptoService: EmisCryptoService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmisCryptoService) private readonly cryptoService: EmisCryptoService,
   ) {}
 
   /**
