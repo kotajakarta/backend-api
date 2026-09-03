@@ -2,6 +2,7 @@ import { Controller, Post, Body, Get, Put, UseGuards, Request, Inject } from '@n
 import { AuthService } from './auth.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
 import { RequireDivisi } from '../../common/decorators/access-control.decorator.js';
+import { assertModuleEnabled } from '../../common/utils/module-guard.js';
 import { LoginDto } from './login.dto.js';
 
 @Controller()
@@ -56,6 +57,7 @@ export class AuthController {
 
   @Post('auth/walsan/verify-student')
   async verifyStudentForWalsan(@Body() body: { nik: string; tanggalLahir: string }) {
+    assertModuleEnabled('portalWalsanEnabled');
     return this.authService.verifyStudentForWalsan(body.nik, body.tanggalLahir);
   }
 
@@ -78,6 +80,7 @@ export class AuthController {
       phone: string;
     },
   ) {
+    assertModuleEnabled('portalWalsanEnabled');
     return this.authService.registerWalsan(body);
   }
 

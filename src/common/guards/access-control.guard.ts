@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import jwt from 'jsonwebtoken';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { extractTokenFromCookieHeader } from '../utils/cookie-token.js';
+import { assertModuleEnabled } from '../utils/module-guard.js';
 
 /**
  * Enterprise Access Control Guard.
@@ -106,8 +107,11 @@ export class AccessControlGuard implements CanActivate {
       }
 
       // WALI tokens may only ever reach routes explicitly opted into WALI via @RequireScope('WALI').
-      if (payload.scope === 'WALI' && requiredScope !== 'WALI') {
-        throw new ForbiddenException('Akun wali santri tidak memiliki akses ke endpoint ini');
+      if (payload.scope === 'WALI') {
+        if (requiredScope !== 'WALI') {
+          throw new ForbiddenException('Akun wali santri tidak memiliki akses ke endpoint ini');
+        }
+        assertModuleEnabled('portalWalsanEnabled', 'Modul Portal Wali Santri sedang dinonaktifkan oleh Administrator Pusat.');
       }
 
       // Protection for GURU & WALI_KELAS from sensitive financial, mutation, and admin settings routes

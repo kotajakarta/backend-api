@@ -5,6 +5,7 @@ import { generateSecret, generateURI, verifySync } from 'otplib';
 import QRCode from 'qrcode';
 import crypto from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { assertModuleEnabled } from '../../common/utils/module-guard.js';
 
 /**
  * JWT Security Hardening:
@@ -45,6 +46,7 @@ export class AuthService {
 
     // Check approval status for WALI accounts
     if (user.scope === 'WALI') {
+      assertModuleEnabled('portalWalsanEnabled', 'Modul Portal Wali Santri saat ini sedang dinonaktifkan oleh Administrator Pusat.');
       if (user.isApproved === false || user.status === 'PENDING') {
         throw new ForbiddenException('Akun Anda sedang menunggu persetujuan (approval) dari pihak Cabang atau Admin Pusat.');
       }
