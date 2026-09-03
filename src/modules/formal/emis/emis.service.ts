@@ -258,7 +258,7 @@ export class EmisService {
     return results;
   }
 
-  // ── Helper Normalisasi String & Tanggal ──
+  // ── Helper Normalisasi String, Tanggal & Rombel ──
   normalizeText(str: string): string {
     return (str || '')
       .toLowerCase()
@@ -267,8 +267,53 @@ export class EmisService {
       .replace(/[^a-z0-9\s]/g, '');
   }
 
+  /**
+   * Mengurai nama tingkat/rombel versi EMIS.
+   * Contoh input: "Kelas 7 - 7-W2060" -> tingkat: "Kelas 7", rombel: "7-W2060"
+   * Contoh input: "Kelas 12 - U2352"   -> tingkat: "Kelas 12", rombel: "U2352"
+   */
+  parseEmisRombel(rawRombelOrTingkat: string): { tingkat: string; rombel: string } {
+    if (!rawRombelOrTingkat) return { tingkat: '', rombel: '' };
+    const str = String(rawRombelOrTingkat).trim();
+    const match = str.match(/Kelas\s*(\d+)\s*-\s*(.+)/i);
+    if (match) {
+      return {
+        tingkat: `Kelas ${match[1].trim()}`,
+        rombel: match[2].trim(),
+      };
+    }
+    return {
+      tingkat: '',
+      rombel: str,
+    };
+  }
+
+  /**
+   * Normalisasi rombel untuk pencocokan toleran terhadap spasi dan tanda hubung
+   */
+  normalizeRombel(str: string): string {
+    if (!str) return '';
+    const parsed = this.parseEmisRombel(str);
+    const target = parsed.rombel || str;
+    return this.normalizeText(target).replace(/[\s-_]/g, '');
+  }
+
   createMergeKey(nama: string, tempatLahir: string): string {
     return `${this.normalizeText(nama)}|${this.normalizeText(tempatLahir)}`;
+  }
+
+  createNameBirthDateKey(nama: string, rawDate: any): string {
+    const normName = this.normalizeText(nama);
+    const normDate = this.normalizeDate(rawDate);
+    if (!normName || !normDate) return '';
+    return `${normName}|${normDate}`;
+  }
+
+  createNameRombelKey(nama: string, rawRombel: string): string {
+    const normName = this.normalizeText(nama);
+    const normRombel = this.normalizeRombel(rawRombel);
+    if (!normName || !normRombel) return '';
+    return `${normName}|${normRombel}`;
   }
 
   normalizeDate(rawDate: any): string | null {
@@ -360,32 +405,52 @@ export class EmisService {
     });
 
     // 2. Buat Lookup Map untuk EMIS
-    // Kunci 1: NISN, Kunci 2: MergeKey (nama|tempatLahir)
+    // Kunci 1: NISN
+    // Kunci 2: Nama + Tanggal Lahir (sangat presisi)
+    // Kunci 3: Nama + Tempat Lahir
+    // Kunci 4: Nama + Rombel
     const emisByNisn = new Map<string, any>();
-    const emisByMergeKey = new Map<string, any>();
+    const emisByNameBirthDate = new Map<string, any>();
+    const emisByNameBirthPlace = new Map<string, any>();
+    const emisByNameRombel = new Map<string, any>();
     const processedEmisKeys = new Set<string>();
 
     for (const em of emisStudents) {
       const nisn = (em.nisn || em.list_nisn || '').trim();
       const nama = em.full_name || em.nama || em.list_full_name || em.list_nama || '';
       const tmptLahir = em.birth_place || em.tempat_lahir || em.list_birth_place || '';
-      const key = this.createMergeKey(nama, tmptLahir);
+      const tglLahir = em.birth_date || em.tanggal_lahir || em.list_birth_date || '';
+
+      // Parsing format EMIS: "Kelas 7 - 7-W2060" atau "Kelas 12 - U2352"
+      const rawRombelOrTingkat = em.tingkat || em.la_study_group_name || em.study_group_name || em.rombel || em.nama_rombel || '';
+      const { rombel: parsedRombel, tingkat: parsedTingkat } = this.parseEmisRombel(rawRombelOrTingkat);
+      em._parsed_rombel = parsedRombel || rawRombelOrTingkat;
+      em._parsed_tingkat = parsedTingkat;
+
+      const keyNameBirthDate = this.createNameBirthDateKey(nama, tglLahir);
+      const keyNameBirthPlace = this.createMergeKey(nama, tmptLahir);
+      const keyNameRombel = this.createNameRombelKey(nama, em._parsed_rombel);
 
       if (nisn) emisByNisn.set(nisn, em);
-      if (key) emisByMergeKey.set(key, em);
+      if (keyNameBirthDate) emisByNameBirthDate.set(keyNameBirthDate, em);
+      if (keyNameBirthPlace) emisByNameBirthPlace.set(keyNameBirthPlace, em);
+      if (keyNameRombel) emisByNameRombel.set(keyNameRombel, em);
     }
 
     // 3. Buat Lookup Map untuk Verval
     const vervalByNisn = new Map<string, VervalStudentItem>();
-    const vervalByMergeKey = new Map<string, VervalStudentItem>();
+    const vervalByNameBirthDate = new Map<string, VervalStudentItem>();
+    const vervalByNameBirthPlace = new Map<string, VervalStudentItem>();
     const processedVervalKeys = new Set<string>();
 
     for (const vv of vervalStudents) {
       const nisn = (vv.nisn || '').trim();
-      const key = this.createMergeKey(vv.nama, vv.tempatLahir);
+      const keyNameBirthDate = this.createNameBirthDateKey(vv.nama, vv.tanggalLahir);
+      const keyNameBirthPlace = this.createMergeKey(vv.nama, vv.tempatLahir);
 
       if (nisn) vervalByNisn.set(nisn, vv);
-      if (key) vervalByMergeKey.set(key, vv);
+      if (keyNameBirthDate) vervalByNameBirthDate.set(keyNameBirthDate, vv);
+      if (keyNameBirthPlace) vervalByNameBirthPlace.set(keyNameBirthPlace, vv);
     }
 
     // 4. Lakukan Komparasi untuk Setiap Santri di Database eSantri
@@ -438,22 +503,38 @@ export class EmisService {
       const tmptLahirEsantri = bio.tempatLahir || '';
       const tglLahirEsantriStr = this.normalizeDate(bio.tanggalLahir);
       const nisnEsantri = (sf?.nisn || bio.nisn || '').trim();
-      const mergeKey = this.createMergeKey(namaEsantri, tmptLahirEsantri);
+      const esantriRombel = sf?.kelas?.name || '';
+      const esantriTingkat = sf?.tingkat || sf?.kelas?.tingkat || '';
 
-      // --- Matching EMIS ---
+      const keyNameBirthDate = this.createNameBirthDateKey(namaEsantri, bio.tanggalLahir);
+      const keyNameBirthPlace = this.createMergeKey(namaEsantri, tmptLahirEsantri);
+      const keyNameRombel = this.createNameRombelKey(namaEsantri, esantriRombel);
+
+      // --- Matching EMIS (Hirarki: NISN -> Nama+TglLahir -> Nama+TmptLahir -> Nama+Rombel) ---
       let matchedEmis: any = null;
+      let matchMethodEmis = '';
       if (nisnEsantri && emisByNisn.has(nisnEsantri)) {
         matchedEmis = emisByNisn.get(nisnEsantri);
-      } else if (mergeKey && emisByMergeKey.has(mergeKey)) {
-        matchedEmis = emisByMergeKey.get(mergeKey);
+        matchMethodEmis = 'NISN';
+      } else if (keyNameBirthDate && emisByNameBirthDate.has(keyNameBirthDate)) {
+        matchedEmis = emisByNameBirthDate.get(keyNameBirthDate);
+        matchMethodEmis = 'NAMA_TGL_LAHIR';
+      } else if (keyNameBirthPlace && emisByNameBirthPlace.has(keyNameBirthPlace)) {
+        matchedEmis = emisByNameBirthPlace.get(keyNameBirthPlace);
+        matchMethodEmis = 'NAMA_TMPT_LAHIR';
+      } else if (keyNameRombel && emisByNameRombel.has(keyNameRombel)) {
+        matchedEmis = emisByNameRombel.get(keyNameRombel);
+        matchMethodEmis = 'NAMA_ROMBEL';
       }
 
-      // --- Matching Verval ---
+      // --- Matching Verval (Hirarki: NISN -> Nama+TglLahir -> Nama+TmptLahir) ---
       let matchedVerval: VervalStudentItem | null = null;
       if (nisnEsantri && vervalByNisn.has(nisnEsantri)) {
         matchedVerval = vervalByNisn.get(nisnEsantri)!;
-      } else if (mergeKey && vervalByMergeKey.has(mergeKey)) {
-        matchedVerval = vervalByMergeKey.get(mergeKey)!;
+      } else if (keyNameBirthDate && vervalByNameBirthDate.has(keyNameBirthDate)) {
+        matchedVerval = vervalByNameBirthDate.get(keyNameBirthDate)!;
+      } else if (keyNameBirthPlace && vervalByNameBirthPlace.has(keyNameBirthPlace)) {
+        matchedVerval = vervalByNameBirthPlace.get(keyNameBirthPlace)!;
       }
 
       const discrepancies: string[] = [];
@@ -464,10 +545,10 @@ export class EmisService {
 
       // Evaluasi EMIS
       if (matchedEmis) {
-        processedEmisKeys.add(matchedEmis._emis_id || mergeKey);
+        processedEmisKeys.add(matchedEmis._emis_id || keyNameBirthDate || keyNameBirthPlace || keyNameRombel);
         const emisNisn = (matchedEmis.nisn || matchedEmis.list_nisn || '').trim();
         const emisTgl = this.normalizeDate(matchedEmis.birth_date || matchedEmis.tanggal_lahir);
-        const emisJk = (matchedEmis.m_gender_name || matchedEmis.gender || '').toUpperCase();
+        const emisRombelName = matchedEmis._parsed_rombel || matchedEmis.la_study_group_name || matchedEmis.study_group_name || '';
 
         if (nisnEsantri && emisNisn && nisnEsantri !== emisNisn) {
           discrepancies.push(`NISN Berbeda: eSantri (${nisnEsantri}) vs EMIS (${emisNisn})`);
@@ -478,6 +559,14 @@ export class EmisService {
 
         if (tglLahirEsantriStr && emisTgl && tglLahirEsantriStr !== emisTgl) {
           discrepancies.push(`Tanggal Lahir Berbeda: eSantri (${tglLahirEsantriStr}) vs EMIS (${emisTgl})`);
+        }
+
+        if (esantriRombel && emisRombelName) {
+          const normEsantriRombel = this.normalizeRombel(esantriRombel);
+          const normEmisRombel = this.normalizeRombel(emisRombelName);
+          if (normEsantriRombel !== normEmisRombel) {
+            discrepancies.push(`Rombel Berbeda: eSantri (${esantriRombel}) vs EMIS (${emisRombelName})`);
+          }
         }
 
         cStat.terdaftarEmis++;
@@ -492,7 +581,7 @@ export class EmisService {
 
       // Evaluasi Verval
       if (matchedVerval) {
-        processedVervalKeys.add(matchedVerval.pesertaDidikId || mergeKey);
+        processedVervalKeys.add(matchedVerval.pesertaDidikId || keyNameBirthDate || keyNameBirthPlace);
         if (matchedVerval.isResidu) {
           statusVerval = 'RESIDU_VERVAL';
           butuhTindakan = true;
@@ -517,7 +606,7 @@ export class EmisService {
       if (discrepancies.length > 0) {
         butuhTindakan = true;
         totalDiskrepansi++;
-        rekomendasiList.push('Cabang perlu menyelaraskan data NISN/Lahir dengan dokumen asli');
+        rekomendasiList.push('Cabang perlu menyelaraskan data NISN/Lahir/Rombel dengan dokumen asli');
       }
 
       if (butuhTindakan) {
@@ -543,7 +632,7 @@ export class EmisService {
         statusEmis,
         emisId: matchedEmis?._emis_id,
         nisnEmis: matchedEmis?.nisn || matchedEmis?.list_nisn || '-',
-        rombelEmis: matchedEmis?.la_study_group_name || matchedEmis?.study_group_name || '-',
+        rombelEmis: matchedEmis?._parsed_rombel || matchedEmis?.la_study_group_name || matchedEmis?.study_group_name || '-',
 
         statusVerval,
         vervalPdId: matchedVerval?.pesertaDidikId,
