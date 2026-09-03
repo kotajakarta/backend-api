@@ -51,6 +51,8 @@ export interface ReconciledStudentItem {
 }
 
 export interface ReconciliationSummary {
+  batchId?: string;
+  executedAt?: Date;
   totalSantriEsantri: number;
   totalTerdaftarEmis: number;
   totalBelumEmis: number;
@@ -328,6 +330,11 @@ export class EmisService {
     return `${normName}|${normRombel}`;
   }
 
+  normalizeNik(rawNik: any): string {
+    if (!rawNik) return '';
+    return String(rawNik).replace(/\D/g, '').trim();
+  }
+
   normalizeDate(rawDate: any): string | null {
     if (!rawDate) return null;
     const str = String(rawDate).trim();
@@ -384,6 +391,8 @@ export class EmisService {
     vervalStudents?: VervalStudentItem[];
     cabangId?: string;
     wilayahId?: string;
+    executedById?: string;
+    catatan?: string;
   }): Promise<ReconciliationSummary> {
     const { emisStudents = [], vervalStudents = [], cabangId, wilayahId } = options;
 
@@ -417,10 +426,12 @@ export class EmisService {
     });
 
     // 2. Buat Lookup Map untuk EMIS
-    // Kunci 1: NISN
-    // Kunci 2: Nama + Tanggal Lahir (sangat presisi)
-    // Kunci 3: Nama + Tempat Lahir
-    // Kunci 4: Nama + Rombel
+    // Kunci 1: NIK (Prioritas Tertinggi / Unik Nasional)
+    // Kunci 2: NISN
+    // Kunci 3: Nama + Tanggal Lahir (sangat presisi)
+    // Kunci 4: Nama + Tempat Lahir
+    // Kunci 5: Nama + Rombel
+    const emisByNik = new Map<string, any>();
     const emisByNisn = new Map<string, any>();
     const emisByNameBirthDate = new Map<string, any>();
     const emisByNameBirthPlace = new Map<string, any>();
@@ -428,6 +439,7 @@ export class EmisService {
     const processedEmisKeys = new Set<string>();
 
     for (const em of emisStudents) {
+      const nik = this.normalizeNik(em.nik || em.list_nik || em.identity_number || em.no_identitas || em.no_kk);
       const nisn = String(em.nisn || em.list_nisn || '').trim();
       const nama = String(em.full_name || em.nama || em.list_full_name || em.list_nama || '').trim();
       const tmptLahir = String(em.birth_place || em.tempat_lahir || em.list_birth_place || '').trim();
@@ -443,6 +455,7 @@ export class EmisService {
       const keyNameBirthPlace = this.createMergeKey(nama, tmptLahir);
       const keyNameRombel = this.createNameRombelKey(nama, em._parsed_rombel);
 
+      if (nik && nik.length >= 10) emisByNik.set(nik, em);
       if (nisn) emisByNisn.set(nisn, em);
       if (keyNameBirthDate) emisByNameBirthDate.set(keyNameBirthDate, em);
       if (keyNameBirthPlace) emisByNameBirthPlace.set(keyNameBirthPlace, em);
@@ -450,12 +463,14 @@ export class EmisService {
     }
 
     // 3. Buat Lookup Map untuk Verval
+    const vervalByNik = new Map<string, VervalStudentItem>();
     const vervalByNisn = new Map<string, VervalStudentItem>();
     const vervalByNameBirthDate = new Map<string, VervalStudentItem>();
     const vervalByNameBirthPlace = new Map<string, VervalStudentItem>();
     const processedVervalKeys = new Set<string>();
 
     for (const vv of vervalStudents) {
+      const nik = this.normalizeNik(vv.nik);
       const nisn = String(vv.nisn || '').trim();
       const nama = String(vv.nama || '').trim();
       const tmpt = String(vv.tempatLahir || '').trim();
@@ -463,6 +478,7 @@ export class EmisService {
       const keyNameBirthDate = this.createNameBirthDateKey(nama, tgl);
       const keyNameBirthPlace = this.createMergeKey(nama, tmpt);
 
+      if (nik && nik.length >= 10) vervalByNik.set(nik, vv);
       if (nisn) vervalByNisn.set(nisn, vv);
       if (keyNameBirthDate) vervalByNameBirthDate.set(keyNameBirthDate, vv);
       if (keyNameBirthPlace) vervalByNameBirthPlace.set(keyNameBirthPlace, vv);
@@ -518,6 +534,7 @@ export class EmisService {
       const tmptLahirEsantri = String(bio.tempatLahir || '').trim();
       const tglLahirEsantriStr = this.normalizeDate(bio.tanggalLahir);
       const nisnEsantri = String(sf?.nisn || bio.nisn || '').trim();
+      const nikEsantriClean = this.normalizeNik(bio.nik);
       const esantriRombel = String(sf?.kelas?.name || '').trim();
       const esantriTingkat = String(sf?.tingkat || sf?.kelas?.tingkat || '').trim();
 
@@ -525,10 +542,13 @@ export class EmisService {
       const keyNameBirthPlace = this.createMergeKey(namaEsantri, tmptLahirEsantri);
       const keyNameRombel = this.createNameRombelKey(namaEsantri, esantriRombel);
 
-      // --- Matching EMIS (Hirarki: NISN -> Nama+TglLahir -> Nama+TmptLahir -> Nama+Rombel) ---
+      // --- Matching EMIS (Hirarki: NIK -> NISN -> Nama+TglLahir -> Nama+TmptLahir -> Nama+Rombel) ---
       let matchedEmis: any = null;
       let matchMethodEmis = '';
-      if (nisnEsantri && emisByNisn.has(nisnEsantri)) {
+      if (nikEsantriClean && nikEsantriClean.length >= 10 && emisByNik.has(nikEsantriClean)) {
+        matchedEmis = emisByNik.get(nikEsantriClean);
+        matchMethodEmis = 'NIK';
+      } else if (nisnEsantri && emisByNisn.has(nisnEsantri)) {
         matchedEmis = emisByNisn.get(nisnEsantri);
         matchMethodEmis = 'NISN';
       } else if (keyNameBirthDate && emisByNameBirthDate.has(keyNameBirthDate)) {
@@ -542,14 +562,21 @@ export class EmisService {
         matchMethodEmis = 'NAMA_ROMBEL';
       }
 
-      // --- Matching Verval (Hirarki: NISN -> Nama+TglLahir -> Nama+TmptLahir) ---
+      // --- Matching Verval (Hirarki: NIK -> NISN -> Nama+TglLahir -> Nama+TmptLahir) ---
       let matchedVerval: VervalStudentItem | null = null;
-      if (nisnEsantri && vervalByNisn.has(nisnEsantri)) {
+      let matchMethodVerval = '';
+      if (nikEsantriClean && nikEsantriClean.length >= 10 && vervalByNik.has(nikEsantriClean)) {
+        matchedVerval = vervalByNik.get(nikEsantriClean)!;
+        matchMethodVerval = 'NIK';
+      } else if (nisnEsantri && vervalByNisn.has(nisnEsantri)) {
         matchedVerval = vervalByNisn.get(nisnEsantri)!;
+        matchMethodVerval = 'NISN';
       } else if (keyNameBirthDate && vervalByNameBirthDate.has(keyNameBirthDate)) {
         matchedVerval = vervalByNameBirthDate.get(keyNameBirthDate)!;
+        matchMethodVerval = 'NAMA_TGL_LAHIR';
       } else if (keyNameBirthPlace && vervalByNameBirthPlace.has(keyNameBirthPlace)) {
         matchedVerval = vervalByNameBirthPlace.get(keyNameBirthPlace)!;
+        matchMethodVerval = 'NAMA_TMPT_LAHIR';
       }
 
       const discrepancies: string[] = [];
@@ -562,18 +589,27 @@ export class EmisService {
       if (matchedEmis) {
         if (matchedEmis._emis_id) processedEmisKeys.add(String(matchedEmis._emis_id));
         if (matchedEmis.id) processedEmisKeys.add(String(matchedEmis.id));
+        if (nikEsantriClean) processedEmisKeys.add(nikEsantriClean);
         if (keyNameBirthDate) processedEmisKeys.add(keyNameBirthDate);
         if (keyNameBirthPlace) processedEmisKeys.add(keyNameBirthPlace);
         if (keyNameRombel) processedEmisKeys.add(keyNameRombel);
+
+        const emisNik = this.normalizeNik(matchedEmis.nik || matchedEmis.list_nik || matchedEmis.identity_number || matchedEmis.no_identitas || matchedEmis.no_kk);
+        if (emisNik) processedEmisKeys.add(emisNik);
 
         const emisNisn = String(matchedEmis.nisn || matchedEmis.list_nisn || '').trim();
         const emisTgl = this.normalizeDate(matchedEmis.birth_date || matchedEmis.tanggal_lahir);
         const emisRombelName = String(matchedEmis._parsed_rombel || matchedEmis.la_study_group_name || matchedEmis.study_group_name || '').trim();
 
+        if (nikEsantriClean && emisNik && nikEsantriClean !== emisNik) {
+          discrepancies.push(`NIK Berbeda: eSantri (${nikEsantriClean}) vs EMIS (${emisNik})`);
+          statusEmis = 'DISKREPANSI';
+        }
+
         if (nisnEsantri && emisNisn && nisnEsantri !== emisNisn) {
           discrepancies.push(`NISN Berbeda: eSantri (${nisnEsantri}) vs EMIS (${emisNisn})`);
           statusEmis = 'DISKREPANSI';
-        } else {
+        } else if (statusEmis !== 'DISKREPANSI') {
           statusEmis = 'TERDAFTAR';
         }
 
@@ -602,8 +638,16 @@ export class EmisService {
       // Evaluasi Verval
       if (matchedVerval) {
         if (matchedVerval.pesertaDidikId) processedVervalKeys.add(String(matchedVerval.pesertaDidikId));
+        if (nikEsantriClean) processedVervalKeys.add(nikEsantriClean);
         if (keyNameBirthDate) processedVervalKeys.add(keyNameBirthDate);
         if (keyNameBirthPlace) processedVervalKeys.add(keyNameBirthPlace);
+
+        const vervalNik = this.normalizeNik(matchedVerval.nik);
+        if (vervalNik) processedVervalKeys.add(vervalNik);
+
+        if (nikEsantriClean && vervalNik && nikEsantriClean !== vervalNik) {
+          discrepancies.push(`NIK Berbeda: eSantri (${nikEsantriClean}) vs Verval (${vervalNik})`);
+        }
 
         if (matchedVerval.isResidu) {
           statusVerval = 'RESIDU_VERVAL';
@@ -687,7 +731,72 @@ export class EmisService {
       }
     }
 
+    // 6. Simpan hasil snapshot komparasi & audit ke database tabel formal.komparasi_emis_batch dan formal.komparasi_emis
+    let savedBatchId: string | undefined = undefined;
+    let savedExecutedAt: Date = new Date();
+    try {
+      const batch = await this.prisma.komparasiEmisBatch.create({
+        data: {
+          executedById: options.executedById || null,
+          totalSantriEsantri: dbStudents.length,
+          totalTerdaftarEmis,
+          totalBelumEmis,
+          totalVervalOk,
+          totalResiduVerval,
+          totalBelumVerval,
+          totalDiskrepansi,
+          totalButuhTindakan,
+          cabangBreakdown: Array.from(cabangStatMap.values()) as any,
+          catatan: options.catatan || null,
+        },
+      });
+      savedBatchId = batch.id;
+      savedExecutedAt = batch.executedAt;
+
+      // Bulk insert data audit komparasi santri dalam batch 500 baris
+      const detailRecords = reconciledList.map((item) => ({
+        batchId: batch.id,
+        studentId: item.id || null,
+        nama: item.nama,
+        cabangId: item.cabangId || null,
+        cabangName: item.cabangName || null,
+        wilayahName: item.wilayahName || null,
+        lembagaMuadalahName: item.lembagaMuadalahName || null,
+        tingkat: item.tingkat || null,
+        kelasName: item.kelasName || null,
+        nisnEsantri: item.nisnEsantri || null,
+        nikEsantri: item.nikEsantri || null,
+        tempatLahirEsantri: item.tempatLahirEsantri || null,
+        tanggalLahirEsantri: item.tanggalLahirEsantri || null,
+        jenisKelaminEsantri: item.jenisKelaminEsantri || null,
+        statusEmis: item.statusEmis,
+        emisId: item.emisId ? String(item.emisId) : null,
+        nisnEmis: item.nisnEmis || null,
+        rombelEmis: item.rombelEmis || null,
+        statusVerval: item.statusVerval,
+        vervalPdId: item.vervalPdId ? String(item.vervalPdId) : null,
+        nisnVerval: item.nisnVerval || null,
+        residuDetail: item.residuDetail ? (item.residuDetail as any) : undefined,
+        butuhTindakan: item.butuhTindakan,
+        discrepancies: item.discrepancies || [],
+        rekomendasiTindakan: item.rekomendasiTindakan || null,
+      }));
+
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < detailRecords.length; i += CHUNK_SIZE) {
+        const chunk = detailRecords.slice(i, i + CHUNK_SIZE);
+        await this.prisma.komparasiEmis.createMany({
+          data: chunk,
+        });
+      }
+      this.logger.log(`Berhasil menyimpan hasil komparasi ke database (Batch ID: ${batch.id}, ${detailRecords.length} records)`);
+    } catch (saveErr: any) {
+      this.logger.error(`Gagal menyimpan hasil komparasi ke database: ${saveErr.message}`, saveErr.stack);
+    }
+
     return {
+      batchId: savedBatchId,
+      executedAt: savedExecutedAt,
       totalSantriEsantri: dbStudents.length,
       totalTerdaftarEmis,
       totalBelumEmis,
@@ -702,6 +811,157 @@ export class EmisService {
         emisOnly,
         vervalOnly,
       },
+    };
+  }
+
+  /**
+   * Mengambil hasil audit & komparasi paling akhir yang tersimpan di database
+   */
+  async getLatestReconcile(cabangId?: string): Promise<ReconciliationSummary | null> {
+    const latestBatch = await this.prisma.komparasiEmisBatch.findFirst({
+      orderBy: { executedAt: 'desc' },
+    });
+
+    if (!latestBatch) return null;
+
+    const whereDetail: any = { batchId: latestBatch.id };
+    if (cabangId && cabangId !== 'ALL') {
+      whereDetail.cabangId = cabangId;
+    }
+
+    const details = await this.prisma.komparasiEmis.findMany({
+      where: whereDetail,
+      orderBy: [{ cabangName: 'asc' }, { nama: 'asc' }],
+    });
+
+    const mappedStudents: ReconciledStudentItem[] = details.map((d: any) => ({
+      id: d.studentId || d.id,
+      nama: d.nama,
+      cabangId: d.cabangId || undefined,
+      cabangName: d.cabangName || '-',
+      wilayahName: d.wilayahName || '-',
+      lembagaMuadalahName: d.lembagaMuadalahName || '-',
+      tingkat: d.tingkat || '-',
+      kelasName: d.kelasName || '-',
+      nisnEsantri: d.nisnEsantri || '-',
+      nikEsantri: d.nikEsantri || '-',
+      tempatLahirEsantri: d.tempatLahirEsantri || '-',
+      tanggalLahirEsantri: d.tanggalLahirEsantri || '-',
+      jenisKelaminEsantri: d.jenisKelaminEsantri || '-',
+      statusEmis: d.statusEmis as any,
+      emisId: d.emisId || undefined,
+      nisnEmis: d.nisnEmis || '-',
+      rombelEmis: d.rombelEmis || '-',
+      statusVerval: d.statusVerval as any,
+      vervalPdId: d.vervalPdId || undefined,
+      nisnVerval: d.nisnVerval || '-',
+      residuDetail: d.residuDetail as any,
+      butuhTindakan: d.butuhTindakan,
+      discrepancies: d.discrepancies || [],
+      rekomendasiTindakan: d.rekomendasiTindakan || '-',
+    }));
+
+    return {
+      batchId: latestBatch.id,
+      executedAt: latestBatch.executedAt,
+      totalSantriEsantri: latestBatch.totalSantriEsantri,
+      totalTerdaftarEmis: latestBatch.totalTerdaftarEmis,
+      totalBelumEmis: latestBatch.totalBelumEmis,
+      totalVervalOk: latestBatch.totalVervalOk,
+      totalResiduVerval: latestBatch.totalResiduVerval,
+      totalBelumVerval: latestBatch.totalBelumVerval,
+      totalDiskrepansi: latestBatch.totalDiskrepansi,
+      totalButuhTindakan: latestBatch.totalButuhTindakan,
+      cabangBreakdown: (latestBatch.cabangBreakdown as any) || [],
+      students: mappedStudents,
+      unmatchedExternal: { emisOnly: [], vervalOnly: [] },
+    };
+  }
+
+  /**
+   * Mengambil daftar riwayat batch audit komparasi lampau
+   */
+  async getReconcileHistory(limit = 10) {
+    return this.prisma.komparasiEmisBatch.findMany({
+      orderBy: { executedAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        executedAt: true,
+        executedById: true,
+        totalSantriEsantri: true,
+        totalTerdaftarEmis: true,
+        totalBelumEmis: true,
+        totalVervalOk: true,
+        totalResiduVerval: true,
+        totalBelumVerval: true,
+        totalDiskrepansi: true,
+        totalButuhTindakan: true,
+        catatan: true,
+      },
+    });
+  }
+
+  /**
+   * Mengambil detail komparasi dari batch ID tertentu
+   */
+  async getReconcileBatchDetail(batchId: string, cabangId?: string): Promise<ReconciliationSummary | null> {
+    const batch = await this.prisma.komparasiEmisBatch.findUnique({
+      where: { id: batchId },
+    });
+    if (!batch) return null;
+
+    const whereDetail: any = { batchId: batch.id };
+    if (cabangId && cabangId !== 'ALL') {
+      whereDetail.cabangId = cabangId;
+    }
+
+    const details = await this.prisma.komparasiEmis.findMany({
+      where: whereDetail,
+      orderBy: [{ cabangName: 'asc' }, { nama: 'asc' }],
+    });
+
+    const mappedStudents: ReconciledStudentItem[] = details.map((d: any) => ({
+      id: d.studentId || d.id,
+      nama: d.nama,
+      cabangId: d.cabangId || undefined,
+      cabangName: d.cabangName || '-',
+      wilayahName: d.wilayahName || '-',
+      lembagaMuadalahName: d.lembagaMuadalahName || '-',
+      tingkat: d.tingkat || '-',
+      kelasName: d.kelasName || '-',
+      nisnEsantri: d.nisnEsantri || '-',
+      nikEsantri: d.nikEsantri || '-',
+      tempatLahirEsantri: d.tempatLahirEsantri || '-',
+      tanggalLahirEsantri: d.tanggalLahirEsantri || '-',
+      jenisKelaminEsantri: d.jenisKelaminEsantri || '-',
+      statusEmis: d.statusEmis as any,
+      emisId: d.emisId || undefined,
+      nisnEmis: d.nisnEmis || '-',
+      rombelEmis: d.rombelEmis || '-',
+      statusVerval: d.statusVerval as any,
+      vervalPdId: d.vervalPdId || undefined,
+      nisnVerval: d.nisnVerval || '-',
+      residuDetail: d.residuDetail as any,
+      butuhTindakan: d.butuhTindakan,
+      discrepancies: d.discrepancies || [],
+      rekomendasiTindakan: d.rekomendasiTindakan || '-',
+    }));
+
+    return {
+      batchId: batch.id,
+      executedAt: batch.executedAt,
+      totalSantriEsantri: batch.totalSantriEsantri,
+      totalTerdaftarEmis: batch.totalTerdaftarEmis,
+      totalBelumEmis: batch.totalBelumEmis,
+      totalVervalOk: batch.totalVervalOk,
+      totalResiduVerval: batch.totalResiduVerval,
+      totalBelumVerval: batch.totalBelumVerval,
+      totalDiskrepansi: batch.totalDiskrepansi,
+      totalButuhTindakan: batch.totalButuhTindakan,
+      cabangBreakdown: (batch.cabangBreakdown as any) || [],
+      students: mappedStudents,
+      unmatchedExternal: { emisOnly: [], vervalOnly: [] },
     };
   }
 }

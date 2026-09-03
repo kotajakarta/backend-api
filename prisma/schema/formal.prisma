@@ -240,3 +240,72 @@ model PermohonanKelas {
   @@map("permohonan_kelas")
   @@schema("formal")
 }
+
+model KomparasiEmisBatch {
+  id                 String          @id @default(uuid())
+  executedAt         DateTime        @default(now()) @map("executed_at")
+  executedById       String?         @map("executed_by_id")
+  totalSantriEsantri Int             @default(0) @map("total_santri_esantri")
+  totalTerdaftarEmis Int             @default(0) @map("total_terdaftar_emis")
+  totalBelumEmis     Int             @default(0) @map("total_belum_emis")
+  totalVervalOk      Int             @default(0) @map("total_verval_ok")
+  totalResiduVerval  Int             @default(0) @map("total_residu_verval")
+  totalBelumVerval   Int             @default(0) @map("total_belum_verval")
+  totalDiskrepansi   Int             @default(0) @map("total_diskrepansi")
+  totalButuhTindakan Int             @default(0) @map("total_butuh_tindakan")
+  cabangBreakdown    Json            @map("cabang_breakdown")
+  catatan            String?
+  createdAt          DateTime        @default(now()) @map("created_at")
+
+  details            KomparasiEmis[]
+
+  @@map("komparasi_emis_batch")
+  @@schema("formal")
+}
+
+model KomparasiEmis {
+  id                  String             @id @default(uuid())
+  batchId             String             @map("batch_id")
+  executedAt          DateTime           @default(now()) @map("executed_at")
+  studentId           String?            @map("student_id")
+  nama                String
+  cabangId            String?            @map("cabang_id")
+  cabangName          String?            @map("cabang_name")
+  wilayahName         String?            @map("wilayah_name")
+  lembagaMuadalahName String?            @map("lembaga_muadalah_name")
+  tingkat             String?
+  kelasName           String?            @map("kelas_name")
+  nisnEsantri         String?            @map("nisn_esantri")
+  nikEsantri          String?            @map("nik_esantri")
+  tempatLahirEsantri  String?            @map("tempat_lahir_esantri")
+  tanggalLahirEsantri String?            @map("tanggal_lahir_esantri")
+  jenisKelaminEsantri String?            @map("jenis_kelamin_esantri")
+
+  statusEmis          String             @map("status_emis")
+  emisId              String?            @map("emis_id")
+  nisnEmis            String?            @map("nisn_emis")
+  rombelEmis          String?            @map("rombel_emis")
+  sourceLembagaEmis   String?            @map("source_lembaga_emis")
+
+  statusVerval        String             @map("status_verval")
+  vervalPdId          String?            @map("verval_pd_id")
+  nisnVerval          String?            @map("nisn_verval")
+  residuDetail        Json?              @map("residu_detail")
+
+  butuhTindakan       Boolean            @default(false) @map("butuh_tindakan")
+  discrepancies       String[]           @default([])
+  rekomendasiTindakan String?            @map("rekomendasi_tindakan")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  batch               KomparasiEmisBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  student             Student?           @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@index([batchId])
+  @@index([cabangId])
+  @@index([statusEmis])
+  @@index([statusVerval])
+  @@index([butuhTindakan])
+  @@map("komparasi_emis")
+  @@schema("formal")
+}

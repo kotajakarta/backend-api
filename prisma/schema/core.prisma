@@ -234,6 +234,7 @@ model Student {
   permohonanIzin         PermohonanIzinSantri[]
   tagihan                TagihanSantri[]
   pembayaran             PembayaranSantri[]
+  komparasiEmis          KomparasiEmis[]
 
   @@map("students")
   @@schema("core")

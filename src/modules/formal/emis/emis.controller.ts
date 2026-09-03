@@ -1,6 +1,10 @@
 import {
   Controller,
   Post,
+  Get,
+  Param,
+  Query,
+  Req,
   Body,
   UseGuards,
   HttpCode,
@@ -138,17 +142,58 @@ export class EmisController {
   /**
    * REKONSILIASI & VALIDASI:
    * Membandingkan data EMIS / Verval dengan database PostgreSQL eSantri.
-   * Murni READ-ONLY untuk audit dan menghasilkan rekomendasi per cabang.
+   * Murni READ-ONLY untuk data santri eSantri, dan otomatis menyimpan snapshot audit ke database (tabel formal.komparasi_emis).
    */
   @Post('reconcile')
   @HttpCode(HttpStatus.OK)
-  async reconcileData(@Body() dto: ReconcileDto) {
+  async reconcileData(@Body() dto: ReconcileDto, @Req() req: any) {
     const result = await this.emisService.reconcileWithDatabase({
       emisStudents: dto.emisStudents || [],
       vervalStudents: dto.vervalStudents || [],
       cabangId: dto.cabangId,
       wilayahId: dto.wilayahId,
+      executedById: req?.user?.id,
     });
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  /**
+   * Mengambil hasil audit & komparasi paling akhir yang tersimpan di database
+   */
+  @Get('latest')
+  async getLatestReconcile(@Query('cabangId') cabangId?: string) {
+    const result = await this.emisService.getLatestReconcile(cabangId);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  /**
+   * Mengambil daftar riwayat sesi/batch audit komparasi lampau
+   */
+  @Get('history')
+  async getReconcileHistory(@Query('limit') limit?: string) {
+    const limitNum = limit ? parseInt(limit, 10) : 15;
+    const history = await this.emisService.getReconcileHistory(limitNum);
+    return {
+      success: true,
+      data: history,
+    };
+  }
+
+  /**
+   * Mengambil detail komparasi dari batch ID tertentu
+   */
+  @Get('history/:batchId')
+  async getReconcileBatchDetail(
+    @Param('batchId') batchId: string,
+    @Query('cabangId') cabangId?: string,
+  ) {
+    const result = await this.emisService.getReconcileBatchDetail(batchId, cabangId);
     return {
       success: true,
       data: result,
