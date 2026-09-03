@@ -94,7 +94,7 @@ export class EmisService {
       throw new HttpException('Bearer Token EMIS tidak boleh kosong', HttpStatus.BAD_REQUEST);
     }
 
-    const cleanToken = token.trim();
+    const cleanToken = token.trim().replace(/^Bearer\s+/i, '');
     const url = 'https://api-emis.kemenag.go.id/v1/students/pontrens/institution/student-list?per_page=10000';
 
     try {
@@ -103,16 +103,28 @@ export class EmisService {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${cleanToken}`,
-          'Accept': 'application/json',
+          'Accept': 'application/json, text/plain, */*',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'Origin': 'https://emis.kemenag.go.id',
+          'Referer': 'https://emis.kemenag.go.id/',
         },
-        signal: AbortSignal.timeout(45000),
+        signal: AbortSignal.timeout(60000),
       });
 
       if (!response.ok) {
+        let errBody = '';
+        try {
+          errBody = await response.text();
+        } catch {}
+        this.logger.error(`EMIS API returned status ${response.status}: ${errBody}`);
+
         if (response.status === 401) {
-          throw new HttpException('Bearer Token EMIS kedaluwarsa (401). Silakan perbarui token dari portal EMIS.', HttpStatus.UNAUTHORIZED);
+          throw new HttpException('Bearer Token EMIS kedaluwarsa atau tidak valid (401). Silakan login ke portal EMIS dan salin Bearer Token baru.', HttpStatus.UNAUTHORIZED);
         }
-        throw new HttpException(`HTTP ${response.status} dari EMIS API`, HttpStatus.BAD_GATEWAY);
+        if (response.status === 403) {
+          throw new HttpException(`Akses ke API EMIS ditolak (403 Forbidden). Pastikan akun operator memiliki hak akses lembaga santri. (${errBody.slice(0, 100)})`, HttpStatus.FORBIDDEN);
+        }
+        throw new HttpException(`Server EMIS Kemenag merespons HTTP ${response.status}: ${errBody.slice(0, 120) || 'Gagal'}`, HttpStatus.BAD_GATEWAY);
       }
 
       const data: any = await response.json();
@@ -259,8 +271,8 @@ export class EmisService {
   }
 
   // ── Helper Normalisasi String, Tanggal & Rombel ──
-  normalizeText(str: string): string {
-    return (str || '')
+  normalizeText(str: any): string {
+    return String(str || '')
       .toLowerCase()
       .trim()
       .replace(/\s+/g, ' ')
@@ -272,7 +284,7 @@ export class EmisService {
    * Contoh input: "Kelas 7 - 7-W2060" -> tingkat: "Kelas 7", rombel: "7-W2060"
    * Contoh input: "Kelas 12 - U2352"   -> tingkat: "Kelas 12", rombel: "U2352"
    */
-  parseEmisRombel(rawRombelOrTingkat: string): { tingkat: string; rombel: string } {
+  parseEmisRombel(rawRombelOrTingkat: any): { tingkat: string; rombel: string } {
     if (!rawRombelOrTingkat) return { tingkat: '', rombel: '' };
     const str = String(rawRombelOrTingkat).trim();
     const match = str.match(/Kelas\s*(\d+)\s*-\s*(.+)/i);
@@ -291,25 +303,25 @@ export class EmisService {
   /**
    * Normalisasi rombel untuk pencocokan toleran terhadap spasi dan tanda hubung
    */
-  normalizeRombel(str: string): string {
+  normalizeRombel(str: any): string {
     if (!str) return '';
     const parsed = this.parseEmisRombel(str);
     const target = parsed.rombel || str;
     return this.normalizeText(target).replace(/[\s-_]/g, '');
   }
 
-  createMergeKey(nama: string, tempatLahir: string): string {
+  createMergeKey(nama: any, tempatLahir: any): string {
     return `${this.normalizeText(nama)}|${this.normalizeText(tempatLahir)}`;
   }
 
-  createNameBirthDateKey(nama: string, rawDate: any): string {
+  createNameBirthDateKey(nama: any, rawDate: any): string {
     const normName = this.normalizeText(nama);
     const normDate = this.normalizeDate(rawDate);
     if (!normName || !normDate) return '';
     return `${normName}|${normDate}`;
   }
 
-  createNameRombelKey(nama: string, rawRombel: string): string {
+  createNameRombelKey(nama: any, rawRombel: any): string {
     const normName = this.normalizeText(nama);
     const normRombel = this.normalizeRombel(rawRombel);
     if (!normName || !normRombel) return '';
@@ -416,13 +428,13 @@ export class EmisService {
     const processedEmisKeys = new Set<string>();
 
     for (const em of emisStudents) {
-      const nisn = (em.nisn || em.list_nisn || '').trim();
-      const nama = em.full_name || em.nama || em.list_full_name || em.list_nama || '';
-      const tmptLahir = em.birth_place || em.tempat_lahir || em.list_birth_place || '';
-      const tglLahir = em.birth_date || em.tanggal_lahir || em.list_birth_date || '';
+      const nisn = String(em.nisn || em.list_nisn || '').trim();
+      const nama = String(em.full_name || em.nama || em.list_full_name || em.list_nama || '').trim();
+      const tmptLahir = String(em.birth_place || em.tempat_lahir || em.list_birth_place || '').trim();
+      const tglLahir = String(em.birth_date || em.tanggal_lahir || em.list_birth_date || '').trim();
 
       // Parsing format EMIS: "Kelas 7 - 7-W2060" atau "Kelas 12 - U2352"
-      const rawRombelOrTingkat = em.tingkat || em.la_study_group_name || em.study_group_name || em.rombel || em.nama_rombel || '';
+      const rawRombelOrTingkat = String(em.tingkat || em.la_study_group_name || em.study_group_name || em.rombel || em.nama_rombel || '').trim();
       const { rombel: parsedRombel, tingkat: parsedTingkat } = this.parseEmisRombel(rawRombelOrTingkat);
       em._parsed_rombel = parsedRombel || rawRombelOrTingkat;
       em._parsed_tingkat = parsedTingkat;
@@ -444,9 +456,12 @@ export class EmisService {
     const processedVervalKeys = new Set<string>();
 
     for (const vv of vervalStudents) {
-      const nisn = (vv.nisn || '').trim();
-      const keyNameBirthDate = this.createNameBirthDateKey(vv.nama, vv.tanggalLahir);
-      const keyNameBirthPlace = this.createMergeKey(vv.nama, vv.tempatLahir);
+      const nisn = String(vv.nisn || '').trim();
+      const nama = String(vv.nama || '').trim();
+      const tmpt = String(vv.tempatLahir || '').trim();
+      const tgl = String(vv.tanggalLahir || '').trim();
+      const keyNameBirthDate = this.createNameBirthDateKey(nama, tgl);
+      const keyNameBirthPlace = this.createMergeKey(nama, tmpt);
 
       if (nisn) vervalByNisn.set(nisn, vv);
       if (keyNameBirthDate) vervalByNameBirthDate.set(keyNameBirthDate, vv);
@@ -499,12 +514,12 @@ export class EmisService {
       const cStat = cabangStatMap.get(cabangIdStr)!;
       cStat.totalSantri++;
 
-      const namaEsantri = bio.fullName || '';
-      const tmptLahirEsantri = bio.tempatLahir || '';
+      const namaEsantri = String(bio.fullName || '').trim();
+      const tmptLahirEsantri = String(bio.tempatLahir || '').trim();
       const tglLahirEsantriStr = this.normalizeDate(bio.tanggalLahir);
-      const nisnEsantri = (sf?.nisn || bio.nisn || '').trim();
-      const esantriRombel = sf?.kelas?.name || '';
-      const esantriTingkat = sf?.tingkat || sf?.kelas?.tingkat || '';
+      const nisnEsantri = String(sf?.nisn || bio.nisn || '').trim();
+      const esantriRombel = String(sf?.kelas?.name || '').trim();
+      const esantriTingkat = String(sf?.tingkat || sf?.kelas?.tingkat || '').trim();
 
       const keyNameBirthDate = this.createNameBirthDateKey(namaEsantri, bio.tanggalLahir);
       const keyNameBirthPlace = this.createMergeKey(namaEsantri, tmptLahirEsantri);
@@ -545,10 +560,15 @@ export class EmisService {
 
       // Evaluasi EMIS
       if (matchedEmis) {
-        processedEmisKeys.add(matchedEmis._emis_id || keyNameBirthDate || keyNameBirthPlace || keyNameRombel);
-        const emisNisn = (matchedEmis.nisn || matchedEmis.list_nisn || '').trim();
+        if (matchedEmis._emis_id) processedEmisKeys.add(String(matchedEmis._emis_id));
+        if (matchedEmis.id) processedEmisKeys.add(String(matchedEmis.id));
+        if (keyNameBirthDate) processedEmisKeys.add(keyNameBirthDate);
+        if (keyNameBirthPlace) processedEmisKeys.add(keyNameBirthPlace);
+        if (keyNameRombel) processedEmisKeys.add(keyNameRombel);
+
+        const emisNisn = String(matchedEmis.nisn || matchedEmis.list_nisn || '').trim();
         const emisTgl = this.normalizeDate(matchedEmis.birth_date || matchedEmis.tanggal_lahir);
-        const emisRombelName = matchedEmis._parsed_rombel || matchedEmis.la_study_group_name || matchedEmis.study_group_name || '';
+        const emisRombelName = String(matchedEmis._parsed_rombel || matchedEmis.la_study_group_name || matchedEmis.study_group_name || '').trim();
 
         if (nisnEsantri && emisNisn && nisnEsantri !== emisNisn) {
           discrepancies.push(`NISN Berbeda: eSantri (${nisnEsantri}) vs EMIS (${emisNisn})`);
@@ -581,7 +601,10 @@ export class EmisService {
 
       // Evaluasi Verval
       if (matchedVerval) {
-        processedVervalKeys.add(matchedVerval.pesertaDidikId || keyNameBirthDate || keyNameBirthPlace);
+        if (matchedVerval.pesertaDidikId) processedVervalKeys.add(String(matchedVerval.pesertaDidikId));
+        if (keyNameBirthDate) processedVervalKeys.add(keyNameBirthDate);
+        if (keyNameBirthPlace) processedVervalKeys.add(keyNameBirthPlace);
+
         if (matchedVerval.isResidu) {
           statusVerval = 'RESIDU_VERVAL';
           butuhTindakan = true;
@@ -630,7 +653,7 @@ export class EmisService {
         jenisKelaminEsantri: bio.jenisKelamin || '-',
 
         statusEmis,
-        emisId: matchedEmis?._emis_id,
+        emisId: matchedEmis?._emis_id || matchedEmis?.id,
         nisnEmis: matchedEmis?.nisn || matchedEmis?.list_nisn || '-',
         rombelEmis: matchedEmis?._parsed_rombel || matchedEmis?.la_study_group_name || matchedEmis?.study_group_name || '-',
 
@@ -648,7 +671,7 @@ export class EmisService {
     // 5. Kumpulkan data EMIS & Verval yang tidak ada di database eSantri (External Only)
     const emisOnly: any[] = [];
     for (const em of emisStudents) {
-      const id = em._emis_id;
+      const id = String(em._emis_id || em.id || '');
       const key = this.createMergeKey(em.full_name || em.nama || '', em.birth_place || em.tempat_lahir || '');
       if ((id && !processedEmisKeys.has(id)) || (!id && !processedEmisKeys.has(key))) {
         emisOnly.push(em);
@@ -657,7 +680,7 @@ export class EmisService {
 
     const vervalOnly: any[] = [];
     for (const vv of vervalStudents) {
-      const id = vv.pesertaDidikId;
+      const id = String(vv.pesertaDidikId || '');
       const key = this.createMergeKey(vv.nama, vv.tempatLahir);
       if ((id && !processedVervalKeys.has(id)) || (!id && !processedVervalKeys.has(key))) {
         vervalOnly.push(vv);

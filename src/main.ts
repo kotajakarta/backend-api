@@ -83,8 +83,8 @@ async function bootstrap() {
   // ════════════════════════════════════════════════════════════════
   //  LAYER 5: Body Parsing & Static Uploads Serving
   // ════════════════════════════════════════════════════════════════
-  server.use(express.json({ limit: '10mb' }));
-  server.use(express.urlencoded({ limit: '10mb', extended: true }));
+  server.use(express.json({ limit: '50mb' }));
+  server.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // ════════════════════════════════════════════════════════════════
   //  LAYER 5.1: Turkish Character Normalization Middleware

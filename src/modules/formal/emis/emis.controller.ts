@@ -13,25 +13,52 @@ import { RequireScope } from '../../../common/decorators/access-control.decorato
 import { EmisService } from './emis.service.js';
 import { VervalService } from './verval.service.js';
 
+import { IsString, IsNotEmpty, IsArray, IsOptional, IsNumber } from 'class-validator';
+
 class FetchEmisListDto {
+  @IsString()
+  @IsNotEmpty()
   token!: string;
 }
 
 class FetchEmisDetailsDto {
+  @IsString()
+  @IsNotEmpty()
   token!: string;
+
+  @IsArray()
   studentIds!: string[];
+
+  @IsOptional()
+  @IsNumber()
   delayMs?: number;
 }
 
 class FetchVervalDto {
+  @IsString()
+  @IsNotEmpty()
   cookie!: string;
+
+  @IsOptional()
+  @IsNumber()
   limit?: number;
 }
 
 class ReconcileDto {
+  @IsOptional()
+  @IsArray()
   emisStudents?: any[];
+
+  @IsOptional()
+  @IsArray()
   vervalStudents?: any[];
+
+  @IsOptional()
+  @IsString()
   cabangId?: string;
+
+  @IsOptional()
+  @IsString()
   wilayahId?: string;
 }
 
