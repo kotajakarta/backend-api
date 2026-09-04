@@ -67,12 +67,13 @@ class ReconcileDto {
 }
 
 /**
- * Controller khusus Admin Global (scope: GLOBAL) untuk audit dan validasi EMIS & Verval.
- * Seluruh endpoint terlindungi AccessControlGuard dan RequireScope('GLOBAL').
+/**
+ * Controller untuk integrasi, audit, dan validasi EMIS & Verval.
+ * Endpoint write/sinkronisasi terproteksi @RequireScope('GLOBAL').
+ * Endpoint baca hasil komparasi terproteksi @RequireScope('CABANG') dengan scoping otomatis sesuai cabang pengguna.
  */
 @Controller('formal/emis')
 @UseGuards(AccessControlGuard)
-@RequireScope('GLOBAL')
 export class EmisController {
   constructor(
     @Inject(EmisService) private readonly emisService: EmisService,
@@ -83,6 +84,7 @@ export class EmisController {
    * Mengambil list santri ringkas dari API EMIS
    */
   @Post('fetch-list')
+  @RequireScope('GLOBAL')
   @HttpCode(HttpStatus.OK)
   async fetchEmisList(@Body() dto: FetchEmisListDto) {
     const students = await this.emisService.fetchStudentList(dto.token);
@@ -97,6 +99,7 @@ export class EmisController {
    * Mengambil detail santri EMIS lengkap dengan enkripsi AES-256-CBC
    */
   @Post('fetch-details')
+  @RequireScope('GLOBAL')
   @HttpCode(HttpStatus.OK)
   async fetchEmisDetails(@Body() dto: FetchEmisDetailsDto) {
     const details = await this.emisService.fetchStudentDetails(
@@ -115,6 +118,7 @@ export class EmisController {
    * Mengambil data siswa dari VervalPD Kemendikbud
    */
   @Post('verval/fetch-daftar')
+  @RequireScope('GLOBAL')
   @HttpCode(HttpStatus.OK)
   async fetchVervalDaftar(@Body() dto: FetchVervalDto) {
     const students = await this.vervalService.fetchDaftarSiswa(dto.cookie, dto.limit || 8000);
@@ -129,6 +133,7 @@ export class EmisController {
    * Mengambil data residu siswa dari VervalPD Kemendikbud
    */
   @Post('verval/fetch-residu')
+  @RequireScope('GLOBAL')
   @HttpCode(HttpStatus.OK)
   async fetchVervalResidu(@Body() dto: FetchVervalDto) {
     const residu = await this.vervalService.fetchResiduSiswa(dto.cookie, dto.limit || 1000);
@@ -145,6 +150,7 @@ export class EmisController {
    * Murni READ-ONLY untuk data santri eSantri, dan otomatis menyimpan snapshot audit ke database (tabel formal.komparasi_emis).
    */
   @Post('reconcile')
+  @RequireScope('GLOBAL')
   @HttpCode(HttpStatus.OK)
   async reconcileData(@Body() dto: ReconcileDto, @Req() req: any) {
     const result = await this.emisService.reconcileWithDatabase({
@@ -161,11 +167,29 @@ export class EmisController {
   }
 
   /**
-   * Mengambil hasil audit & komparasi paling akhir yang tersimpan di database
+   * Mengambil hasil audit & komparasi paling akhir yang tersimpan di database.
+   * Scoped: Jika user adalah role CABANG, otomatis hanya menampilkan santri cabangnya.
    */
   @Get('latest')
-  async getLatestReconcile(@Query('cabangId') cabangId?: string) {
-    const result = await this.emisService.getLatestReconcile(cabangId);
+  @RequireScope('CABANG')
+  async getLatestReconcile(
+    @Req() req: any,
+    @Query('cabangId') queryCabangId?: string,
+    @Query('wilayahId') queryWilayahId?: string,
+  ) {
+    let effectiveCabangId = queryCabangId;
+    let effectiveWilayahId = queryWilayahId;
+
+    if (req.user?.scope === 'CABANG') {
+      effectiveCabangId = req.user.cabangId;
+      effectiveWilayahId = undefined;
+    } else if (req.user?.scope === 'WILAYAH') {
+      if (!effectiveCabangId) {
+        effectiveWilayahId = req.user.wilayahId;
+      }
+    }
+
+    const result = await this.emisService.getLatestReconcile(effectiveCabangId, effectiveWilayahId);
     return {
       success: true,
       data: result,
@@ -176,6 +200,7 @@ export class EmisController {
    * Mengambil daftar riwayat sesi/batch audit komparasi lampau
    */
   @Get('history')
+  @RequireScope('CABANG')
   async getReconcileHistory(@Query('limit') limit?: string) {
     const limitNum = limit ? parseInt(limit, 10) : 15;
     const history = await this.emisService.getReconcileHistory(limitNum);
@@ -189,11 +214,26 @@ export class EmisController {
    * Mengambil detail komparasi dari batch ID tertentu
    */
   @Get('history/:batchId')
+  @RequireScope('CABANG')
   async getReconcileBatchDetail(
+    @Req() req: any,
     @Param('batchId') batchId: string,
-    @Query('cabangId') cabangId?: string,
+    @Query('cabangId') queryCabangId?: string,
+    @Query('wilayahId') queryWilayahId?: string,
   ) {
-    const result = await this.emisService.getReconcileBatchDetail(batchId, cabangId);
+    let effectiveCabangId = queryCabangId;
+    let effectiveWilayahId = queryWilayahId;
+
+    if (req.user?.scope === 'CABANG') {
+      effectiveCabangId = req.user.cabangId;
+      effectiveWilayahId = undefined;
+    } else if (req.user?.scope === 'WILAYAH') {
+      if (!effectiveCabangId) {
+        effectiveWilayahId = req.user.wilayahId;
+      }
+    }
+
+    const result = await this.emisService.getReconcileBatchDetail(batchId, effectiveCabangId, effectiveWilayahId);
     return {
       success: true,
       data: result,

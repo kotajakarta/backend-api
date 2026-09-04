@@ -817,7 +817,7 @@ export class EmisService {
   /**
    * Mengambil hasil audit & komparasi paling akhir yang tersimpan di database
    */
-  async getLatestReconcile(cabangId?: string): Promise<ReconciliationSummary | null> {
+  async getLatestReconcile(cabangId?: string, wilayahId?: string): Promise<ReconciliationSummary | null> {
     const latestBatch = await this.prisma.komparasiEmisBatch.findFirst({
       orderBy: { executedAt: 'desc' },
     });
@@ -827,6 +827,13 @@ export class EmisService {
     const whereDetail: any = { batchId: latestBatch.id };
     if (cabangId && cabangId !== 'ALL') {
       whereDetail.cabangId = cabangId;
+    } else if (wilayahId && wilayahId !== 'ALL') {
+      const cabangsInWilayah = await this.prisma.cabang.findMany({
+        where: { wilayahId },
+        select: { id: true },
+      });
+      const cabangIds = cabangsInWilayah.map((c: any) => c.id);
+      whereDetail.cabangId = { in: cabangIds };
     }
 
     const details = await this.prisma.komparasiEmis.findMany({
@@ -861,17 +868,28 @@ export class EmisService {
       rekomendasiTindakan: d.rekomendasiTindakan || '-',
     }));
 
+    const isFiltered = Boolean((cabangId && cabangId !== 'ALL') || (wilayahId && wilayahId !== 'ALL'));
+
+    const totalSantriEsantri = isFiltered ? details.length : latestBatch.totalSantriEsantri;
+    const totalTerdaftarEmis = isFiltered ? details.filter((d: any) => d.statusEmis === 'TERDAFTAR').length : latestBatch.totalTerdaftarEmis;
+    const totalBelumEmis = isFiltered ? details.filter((d: any) => d.statusEmis === 'BELUM_TERDAFTAR').length : latestBatch.totalBelumEmis;
+    const totalVervalOk = isFiltered ? details.filter((d: any) => d.statusVerval === 'VERVAL_OK').length : latestBatch.totalVervalOk;
+    const totalResiduVerval = isFiltered ? details.filter((d: any) => d.statusVerval === 'RESIDU_VERVAL').length : latestBatch.totalResiduVerval;
+    const totalBelumVerval = isFiltered ? details.filter((d: any) => d.statusVerval === 'BELUM_TERDAFTAR').length : latestBatch.totalBelumVerval;
+    const totalDiskrepansi = isFiltered ? details.filter((d: any) => d.discrepancies && d.discrepancies.length > 0).length : latestBatch.totalDiskrepansi;
+    const totalButuhTindakan = isFiltered ? details.filter((d: any) => d.butuhTindakan).length : latestBatch.totalButuhTindakan;
+
     return {
       batchId: latestBatch.id,
       executedAt: latestBatch.executedAt,
-      totalSantriEsantri: latestBatch.totalSantriEsantri,
-      totalTerdaftarEmis: latestBatch.totalTerdaftarEmis,
-      totalBelumEmis: latestBatch.totalBelumEmis,
-      totalVervalOk: latestBatch.totalVervalOk,
-      totalResiduVerval: latestBatch.totalResiduVerval,
-      totalBelumVerval: latestBatch.totalBelumVerval,
-      totalDiskrepansi: latestBatch.totalDiskrepansi,
-      totalButuhTindakan: latestBatch.totalButuhTindakan,
+      totalSantriEsantri,
+      totalTerdaftarEmis,
+      totalBelumEmis,
+      totalVervalOk,
+      totalResiduVerval,
+      totalBelumVerval,
+      totalDiskrepansi,
+      totalButuhTindakan,
       cabangBreakdown: (latestBatch.cabangBreakdown as any) || [],
       students: mappedStudents,
       unmatchedExternal: { emisOnly: [], vervalOnly: [] },
@@ -905,7 +923,7 @@ export class EmisService {
   /**
    * Mengambil detail komparasi dari batch ID tertentu
    */
-  async getReconcileBatchDetail(batchId: string, cabangId?: string): Promise<ReconciliationSummary | null> {
+  async getReconcileBatchDetail(batchId: string, cabangId?: string, wilayahId?: string): Promise<ReconciliationSummary | null> {
     const batch = await this.prisma.komparasiEmisBatch.findUnique({
       where: { id: batchId },
     });
@@ -914,6 +932,13 @@ export class EmisService {
     const whereDetail: any = { batchId: batch.id };
     if (cabangId && cabangId !== 'ALL') {
       whereDetail.cabangId = cabangId;
+    } else if (wilayahId && wilayahId !== 'ALL') {
+      const cabangsInWilayah = await this.prisma.cabang.findMany({
+        where: { wilayahId },
+        select: { id: true },
+      });
+      const cabangIds = cabangsInWilayah.map((c: any) => c.id);
+      whereDetail.cabangId = { in: cabangIds };
     }
 
     const details = await this.prisma.komparasiEmis.findMany({
@@ -948,17 +973,28 @@ export class EmisService {
       rekomendasiTindakan: d.rekomendasiTindakan || '-',
     }));
 
+    const isFiltered = Boolean((cabangId && cabangId !== 'ALL') || (wilayahId && wilayahId !== 'ALL'));
+
+    const totalSantriEsantri = isFiltered ? details.length : batch.totalSantriEsantri;
+    const totalTerdaftarEmis = isFiltered ? details.filter((d: any) => d.statusEmis === 'TERDAFTAR').length : batch.totalTerdaftarEmis;
+    const totalBelumEmis = isFiltered ? details.filter((d: any) => d.statusEmis === 'BELUM_TERDAFTAR').length : batch.totalBelumEmis;
+    const totalVervalOk = isFiltered ? details.filter((d: any) => d.statusVerval === 'VERVAL_OK').length : batch.totalVervalOk;
+    const totalResiduVerval = isFiltered ? details.filter((d: any) => d.statusVerval === 'RESIDU_VERVAL').length : batch.totalResiduVerval;
+    const totalBelumVerval = isFiltered ? details.filter((d: any) => d.statusVerval === 'BELUM_TERDAFTAR').length : batch.totalBelumVerval;
+    const totalDiskrepansi = isFiltered ? details.filter((d: any) => d.discrepancies && d.discrepancies.length > 0).length : batch.totalDiskrepansi;
+    const totalButuhTindakan = isFiltered ? details.filter((d: any) => d.butuhTindakan).length : batch.totalButuhTindakan;
+
     return {
       batchId: batch.id,
       executedAt: batch.executedAt,
-      totalSantriEsantri: batch.totalSantriEsantri,
-      totalTerdaftarEmis: batch.totalTerdaftarEmis,
-      totalBelumEmis: batch.totalBelumEmis,
-      totalVervalOk: batch.totalVervalOk,
-      totalResiduVerval: batch.totalResiduVerval,
-      totalBelumVerval: batch.totalBelumVerval,
-      totalDiskrepansi: batch.totalDiskrepansi,
-      totalButuhTindakan: batch.totalButuhTindakan,
+      totalSantriEsantri,
+      totalTerdaftarEmis,
+      totalBelumEmis,
+      totalVervalOk,
+      totalResiduVerval,
+      totalBelumVerval,
+      totalDiskrepansi,
+      totalButuhTindakan,
       cabangBreakdown: (batch.cabangBreakdown as any) || [],
       students: mappedStudents,
       unmatchedExternal: { emisOnly: [], vervalOnly: [] },
