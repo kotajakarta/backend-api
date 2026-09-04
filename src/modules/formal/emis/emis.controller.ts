@@ -17,7 +17,7 @@ import { RequireScope } from '../../../common/decorators/access-control.decorato
 import { EmisService } from './emis.service.js';
 import { VervalService } from './verval.service.js';
 
-import { IsString, IsNotEmpty, IsArray, IsOptional, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsArray, IsOptional, IsNumber, IsBoolean } from 'class-validator';
 
 class FetchEmisListDto {
   @IsString()
@@ -64,6 +64,14 @@ class ReconcileDto {
   @IsOptional()
   @IsString()
   wilayahId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  resetEmis?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  resetVerval?: boolean;
 }
 
 /**
@@ -158,6 +166,8 @@ export class EmisController {
       vervalStudents: dto.vervalStudents || [],
       cabangId: dto.cabangId,
       wilayahId: dto.wilayahId,
+      resetEmis: dto.resetEmis,
+      resetVerval: dto.resetVerval,
       executedById: req?.user?.id,
     });
     return {

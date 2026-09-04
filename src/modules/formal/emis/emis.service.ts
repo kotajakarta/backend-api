@@ -37,6 +37,7 @@ export interface ReconciledStudentItem {
   emisId?: string;
   nisnEmis?: string;
   rombelEmis?: string;
+  sourceLembagaEmis?: string;
 
   // Status Verval
   statusVerval: 'VERVAL_OK' | 'RESIDU_VERVAL' | 'BELUM_TERDAFTAR';
@@ -382,9 +383,97 @@ export class EmisService {
   }
 
   /**
+   * Mengambil snapshot santri EMIS yang terdaftar dari batch komparasi terakhir.
+   * Memastikan data EMIS kemarin tidak hilang ketika pengguna melakukan komparasi VervalPD secara terpisah.
+   */
+  async getFallbackEmisStudents(): Promise<any[]> {
+    try {
+      const lastEmisBatch = await this.prisma.komparasiEmisBatch.findFirst({
+        where: { totalTerdaftarEmis: { gt: 0 } },
+        orderBy: { executedAt: 'desc' },
+        select: { id: true, executedAt: true },
+      });
+
+      if (!lastEmisBatch) return [];
+
+      const prevRecords = await this.prisma.komparasiEmis.findMany({
+        where: {
+          batchId: lastEmisBatch.id,
+          statusEmis: { in: ['TERDAFTAR', 'DISKREPANSI'] },
+        },
+      });
+
+      return prevRecords.map((r: any) => ({
+        id: r.emisId || r.id,
+        _emis_id: r.emisId,
+        nik: r.nikEsantri,
+        nisn: r.nisnEmis && r.nisnEmis !== '-' ? r.nisnEmis : r.nisnEsantri,
+        full_name: r.nama,
+        birth_place: r.tempatLahirEsantri,
+        birth_date: r.tanggalLahirEsantri,
+        tingkat: r.tingkat,
+        rombel: r.rombelEmis,
+        la_study_group_name: r.rombelEmis,
+        _parsed_rombel: r.rombelEmis,
+        _source_lembaga: r.sourceLembagaEmis || 'Snapshot EMIS Tersimpan',
+        _is_snapshot_fallback: true,
+      }));
+    } catch (err: any) {
+      this.logger.error(`Gagal mengambil fallback snapshot EMIS: ${err.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Mengambil snapshot siswa VervalPD dari batch komparasi terakhir.
+   * Memastikan data Verval tidak hilang ketika pengguna melakukan komparasi EMIS secara terpisah.
+   */
+  async getFallbackVervalStudents(): Promise<VervalStudentItem[]> {
+    try {
+      const lastVervalBatch = await this.prisma.komparasiEmisBatch.findFirst({
+        where: {
+          OR: [
+            { totalVervalOk: { gt: 0 } },
+            { totalResiduVerval: { gt: 0 } },
+          ],
+        },
+        orderBy: { executedAt: 'desc' },
+        select: { id: true, executedAt: true },
+      });
+
+      if (!lastVervalBatch) return [];
+
+      const prevRecords = await this.prisma.komparasiEmis.findMany({
+        where: {
+          batchId: lastVervalBatch.id,
+          statusVerval: { in: ['VERVAL_OK', 'RESIDU_VERVAL'] },
+        },
+      });
+
+      return prevRecords.map((r: any) => ({
+        pesertaDidikId: r.vervalPdId || r.id,
+        nik: r.nikEsantri,
+        nisn: r.nisnVerval && r.nisnVerval !== '-' ? r.nisnVerval : r.nisnEsantri,
+        nama: r.nama,
+        tempatLahir: r.tempatLahirEsantri,
+        tanggalLahir: r.tanggalLahirEsantri,
+        namaIbuKandung: '',
+        jenisKelamin: r.jenisKelaminEsantri,
+        isResidu: r.statusVerval === 'RESIDU_VERVAL',
+        residuDetail: r.residuDetail as any,
+        _source_lembaga: 'Snapshot Verval Tersimpan',
+      }));
+    } catch (err: any) {
+      this.logger.error(`Gagal mengambil fallback snapshot Verval: ${err.message}`);
+      return [];
+    }
+  }
+
+  /**
    * INTI ALGORITMA REKONSILIASI & VALIDASI:
    * Membandingkan data riil database eSantri dengan data hasil fetch EMIS & Verval.
    * Tidak ada data di database yang diubah (Murni Read-Only Audit).
+   * Mendukung Smart Snapshot Merge (jika salah satu sumber tidak dikirim, otomatis mewarisi snapshot terakhir).
    */
   async reconcileWithDatabase(options: {
     emisStudents?: any[];
@@ -393,8 +482,33 @@ export class EmisService {
     wilayahId?: string;
     executedById?: string;
     catatan?: string;
+    resetEmis?: boolean;
+    resetVerval?: boolean;
   }): Promise<ReconciliationSummary> {
-    const { emisStudents = [], vervalStudents = [], cabangId, wilayahId } = options;
+    const { cabangId, wilayahId } = options;
+    let emisStudents = options.emisStudents || [];
+    let vervalStudents = options.vervalStudents || [];
+    const autoNotes: string[] = [];
+
+    // Auto-Inherit EMIS: Jika data live EMIS tidak dikirim (misal komparasi VervalPD saja), pertahankan dari batch terakhir
+    if (emisStudents.length === 0 && !options.resetEmis) {
+      const fallbackEmis = await this.getFallbackEmisStudents();
+      if (fallbackEmis.length > 0) {
+        emisStudents = fallbackEmis;
+        autoNotes.push(`Data EMIS dipertahankan dari sesi sebelumnya (${fallbackEmis.length} santri)`);
+        this.logger.log(`[Smart-Merge] Otomatis mempertahankan ${fallbackEmis.length} data EMIS dari batch sebelumnya`);
+      }
+    }
+
+    // Auto-Inherit VervalPD: Jika data live Verval tidak dikirim (misal komparasi EMIS saja), pertahankan dari batch terakhir
+    if (vervalStudents.length === 0 && !options.resetVerval) {
+      const fallbackVerval = await this.getFallbackVervalStudents();
+      if (fallbackVerval.length > 0) {
+        vervalStudents = fallbackVerval;
+        autoNotes.push(`Data VervalPD dipertahankan dari sesi sebelumnya (${fallbackVerval.length} siswa)`);
+        this.logger.log(`[Smart-Merge] Otomatis mempertahankan ${fallbackVerval.length} data VervalPD dari batch sebelumnya`);
+      }
+    }
 
     // 1. Ambil data seluruh santri aktif dari PostgreSQL
     const whereClause: any = {
@@ -700,6 +814,7 @@ export class EmisService {
         emisId: matchedEmis?._emis_id || matchedEmis?.id,
         nisnEmis: matchedEmis?.nisn || matchedEmis?.list_nisn || '-',
         rombelEmis: matchedEmis?._parsed_rombel || matchedEmis?.la_study_group_name || matchedEmis?.study_group_name || '-',
+        sourceLembagaEmis: matchedEmis?._source_lembaga || matchedEmis?.sourceLembagaEmis || undefined,
 
         statusVerval,
         vervalPdId: matchedVerval?.pesertaDidikId,
@@ -747,7 +862,7 @@ export class EmisService {
           totalDiskrepansi,
           totalButuhTindakan,
           cabangBreakdown: Array.from(cabangStatMap.values()) as any,
-          catatan: options.catatan || null,
+          catatan: [options.catatan, ...autoNotes].filter(Boolean).join(' | ') || null,
         },
       });
       savedBatchId = batch.id;
@@ -773,6 +888,7 @@ export class EmisService {
         emisId: item.emisId ? String(item.emisId) : null,
         nisnEmis: item.nisnEmis || null,
         rombelEmis: item.rombelEmis || null,
+        sourceLembagaEmis: item.sourceLembagaEmis || null,
         statusVerval: item.statusVerval,
         vervalPdId: item.vervalPdId ? String(item.vervalPdId) : null,
         nisnVerval: item.nisnVerval || null,
@@ -859,6 +975,7 @@ export class EmisService {
       emisId: d.emisId || undefined,
       nisnEmis: d.nisnEmis || '-',
       rombelEmis: d.rombelEmis || '-',
+      sourceLembagaEmis: d.sourceLembagaEmis || undefined,
       statusVerval: d.statusVerval as any,
       vervalPdId: d.vervalPdId || undefined,
       nisnVerval: d.nisnVerval || '-',
@@ -964,6 +1081,7 @@ export class EmisService {
       emisId: d.emisId || undefined,
       nisnEmis: d.nisnEmis || '-',
       rombelEmis: d.rombelEmis || '-',
+      sourceLembagaEmis: d.sourceLembagaEmis || undefined,
       statusVerval: d.statusVerval as any,
       vervalPdId: d.vervalPdId || undefined,
       nisnVerval: d.nisnVerval || '-',
