@@ -383,41 +383,96 @@ export class EmisService {
   }
 
   /**
-   * Mengambil snapshot santri EMIS yang terdaftar dari batch komparasi terakhir.
-   * Memastikan data EMIS kemarin tidak hilang ketika pengguna melakukan komparasi VervalPD secara terpisah.
+   * Helper kunci unik santri untuk deduplikasi dan smart-merge lintas batch & sekolah
+   */
+  getStudentDedupKey(item: {
+    id?: string | null;
+    nik?: string | null;
+    nisn?: string | null;
+    nama?: string | null;
+    birthDate?: string | null;
+    birthPlace?: string | null;
+  }): string {
+    const nik = this.normalizeNik(item.nik);
+    if (nik && nik.length >= 10) return `NIK:${nik}`;
+
+    const nisn = String(item.nisn || '').trim();
+    if (nisn && nisn !== '-' && nisn.length >= 8) return `NISN:${nisn}`;
+
+    const id = String(item.id || '').trim();
+    if (id && !id.startsWith('temp-')) return `ID:${id}`;
+
+    const nama = String(item.nama || '').trim();
+    const tgl = String(item.birthDate || '').trim();
+    const keyDob = this.createNameBirthDateKey(nama, tgl);
+    if (keyDob) return `NAME_DOB:${keyDob}`;
+
+    const tmpt = String(item.birthPlace || '').trim();
+    const keyPob = this.createMergeKey(nama, tmpt);
+    if (keyPob) return `NAME_POB:${keyPob}`;
+
+    const normName = this.normalizeText(nama);
+    return normName ? `NAME:${normName}` : '';
+  }
+
+  /**
+   * Mengambil snapshot santri EMIS yang terdaftar dari riwayat batch komparasi.
+   * Mengambil data terdaftar terbaru per santri agar data santri antar lembaga / penarikan kemarin
+   * tidak pernah hilang meskipun penarikan dilakukan satu-per-satu.
    */
   async getFallbackEmisStudents(): Promise<any[]> {
     try {
-      const lastEmisBatch = await this.prisma.komparasiEmisBatch.findFirst({
+      const batches = await this.prisma.komparasiEmisBatch.findMany({
         where: { totalTerdaftarEmis: { gt: 0 } },
         orderBy: { executedAt: 'desc' },
+        take: 10,
         select: { id: true, executedAt: true },
       });
 
-      if (!lastEmisBatch) return [];
+      if (!batches || batches.length === 0) return [];
+
+      const batchIds = batches.map(b => b.id);
 
       const prevRecords = await this.prisma.komparasiEmis.findMany({
         where: {
-          batchId: lastEmisBatch.id,
+          batchId: { in: batchIds },
           statusEmis: { in: ['TERDAFTAR', 'DISKREPANSI'] },
         },
+        orderBy: { executedAt: 'desc' },
       });
 
-      return prevRecords.map((r: any) => ({
-        id: r.emisId || r.id,
-        _emis_id: r.emisId,
-        nik: r.nikEsantri,
-        nisn: r.nisnEmis && r.nisnEmis !== '-' ? r.nisnEmis : r.nisnEsantri,
-        full_name: r.nama,
-        birth_place: r.tempatLahirEsantri,
-        birth_date: r.tanggalLahirEsantri,
-        tingkat: r.tingkat,
-        rombel: r.rombelEmis,
-        la_study_group_name: r.rombelEmis,
-        _parsed_rombel: r.rombelEmis,
-        _source_lembaga: r.sourceLembagaEmis || 'Snapshot EMIS Tersimpan',
-        _is_snapshot_fallback: true,
-      }));
+      const studentMap = new Map<string, any>();
+
+      for (const r of prevRecords) {
+        const key = this.getStudentDedupKey({
+          id: r.emisId || r.studentId || r.id,
+          nik: r.nikEsantri,
+          nisn: r.nisnEmis && r.nisnEmis !== '-' ? r.nisnEmis : r.nisnEsantri,
+          nama: r.nama,
+          birthDate: r.tanggalLahirEsantri,
+          birthPlace: r.tempatLahirEsantri,
+        });
+
+        if (key && !studentMap.has(key)) {
+          studentMap.set(key, {
+            id: r.emisId || r.id,
+            _emis_id: r.emisId,
+            nik: r.nikEsantri,
+            nisn: r.nisnEmis && r.nisnEmis !== '-' ? r.nisnEmis : r.nisnEsantri,
+            full_name: r.nama,
+            birth_place: r.tempatLahirEsantri,
+            birth_date: r.tanggalLahirEsantri,
+            tingkat: r.tingkat,
+            rombel: r.rombelEmis,
+            la_study_group_name: r.rombelEmis,
+            _parsed_rombel: r.rombelEmis,
+            _source_lembaga: r.sourceLembagaEmis || 'Snapshot EMIS Tersimpan',
+            _is_snapshot_fallback: true,
+          });
+        }
+      }
+
+      return Array.from(studentMap.values());
     } catch (err: any) {
       this.logger.error(`Gagal mengambil fallback snapshot EMIS: ${err.message}`);
       return [];
@@ -425,12 +480,13 @@ export class EmisService {
   }
 
   /**
-   * Mengambil snapshot siswa VervalPD dari batch komparasi terakhir.
-   * Memastikan data Verval tidak hilang ketika pengguna melakukan komparasi EMIS secara terpisah.
+   * Mengambil snapshot siswa VervalPD dari riwayat batch komparasi.
+   * Mengambil status Verval valid/residu terbaru per siswa agar data siswa kemarin
+   * tidak hilang ketika penarikan dilakukan satu-per-satu.
    */
   async getFallbackVervalStudents(): Promise<VervalStudentItem[]> {
     try {
-      const lastVervalBatch = await this.prisma.komparasiEmisBatch.findFirst({
+      const batches = await this.prisma.komparasiEmisBatch.findMany({
         where: {
           OR: [
             { totalVervalOk: { gt: 0 } },
@@ -438,31 +494,52 @@ export class EmisService {
           ],
         },
         orderBy: { executedAt: 'desc' },
+        take: 10,
         select: { id: true, executedAt: true },
       });
 
-      if (!lastVervalBatch) return [];
+      if (!batches || batches.length === 0) return [];
+
+      const batchIds = batches.map(b => b.id);
 
       const prevRecords = await this.prisma.komparasiEmis.findMany({
         where: {
-          batchId: lastVervalBatch.id,
+          batchId: { in: batchIds },
           statusVerval: { in: ['VERVAL_OK', 'RESIDU_VERVAL'] },
         },
+        orderBy: { executedAt: 'desc' },
       });
 
-      return prevRecords.map((r: any) => ({
-        pesertaDidikId: r.vervalPdId || r.id,
-        nik: r.nikEsantri,
-        nisn: r.nisnVerval && r.nisnVerval !== '-' ? r.nisnVerval : r.nisnEsantri,
-        nama: r.nama,
-        tempatLahir: r.tempatLahirEsantri,
-        tanggalLahir: r.tanggalLahirEsantri,
-        namaIbuKandung: '',
-        jenisKelamin: r.jenisKelaminEsantri,
-        isResidu: r.statusVerval === 'RESIDU_VERVAL',
-        residuDetail: r.residuDetail as any,
-        _source_lembaga: 'Snapshot Verval Tersimpan',
-      }));
+      const studentMap = new Map<string, VervalStudentItem>();
+
+      for (const r of prevRecords) {
+        const key = this.getStudentDedupKey({
+          id: r.vervalPdId || r.studentId || r.id,
+          nik: r.nikEsantri,
+          nisn: r.nisnVerval && r.nisnVerval !== '-' ? r.nisnVerval : r.nisnEsantri,
+          nama: r.nama,
+          birthDate: r.tanggalLahirEsantri,
+          birthPlace: r.tempatLahirEsantri,
+        });
+
+        if (key && !studentMap.has(key)) {
+          studentMap.set(key, {
+            pesertaDidikId: r.vervalPdId || r.id,
+            nik: r.nikEsantri || '',
+            nisn: r.nisnVerval && r.nisnVerval !== '-' ? r.nisnVerval : (r.nisnEsantri || ''),
+            nama: r.nama,
+            tempatLahir: r.tempatLahirEsantri || '',
+            tanggalLahir: r.tanggalLahirEsantri || '',
+            namaIbuKandung: '',
+            jenisKelamin: r.jenisKelaminEsantri || '',
+            isResidu: r.statusVerval === 'RESIDU_VERVAL',
+            residuDetail: r.residuDetail as any,
+            _source_lembaga: r.sourceLembagaEmis || 'Snapshot Verval Tersimpan',
+          });
+        }
+      }
+
+      return Array.from(studentMap.values());
     } catch (err: any) {
       this.logger.error(`Gagal mengambil fallback snapshot Verval: ${err.message}`);
       return [];
@@ -470,10 +547,99 @@ export class EmisService {
   }
 
   /**
+   * Menggabungkan daftar snapshot santri EMIS yang tersimpan dengan data live baru.
+   * Data baru akan memperbarui data lama, sementara santri yang tidak ditarik pada hari itu tetap dipertahankan.
+   */
+  mergeEmisLists(existingFallback: any[], incomingLive: any[]): any[] {
+    const map = new Map<string, any>();
+
+    // 1. Masukkan semua fallback
+    for (const item of existingFallback) {
+      const key = this.getStudentDedupKey({
+        id: item.id || item._emis_id,
+        nik: item.nik || item.list_nik || item.identity_number || item.no_identitas || item.no_kk,
+        nisn: item.nisn || item.list_nisn,
+        nama: item.full_name || item.nama || item.list_full_name,
+        birthDate: item.birth_date || item.tanggal_lahir || item.list_birth_date,
+        birthPlace: item.birth_place || item.tempat_lahir || item.list_birth_place,
+      });
+      if (key) map.set(key, item);
+    }
+
+    // 2. Timpa atau tambahkan dari incoming live
+    for (const item of incomingLive) {
+      const key = this.getStudentDedupKey({
+        id: item.id || item._emis_id,
+        nik: item.nik || item.list_nik || item.identity_number || item.no_identitas || item.no_kk,
+        nisn: item.nisn || item.list_nisn,
+        nama: item.full_name || item.nama || item.list_full_name,
+        birthDate: item.birth_date || item.tanggal_lahir || item.list_birth_date,
+        birthPlace: item.birth_place || item.tempat_lahir || item.list_birth_place,
+      });
+      if (key) {
+        const prev = map.get(key);
+        map.set(key, {
+          ...prev,
+          ...item,
+          _source_lembaga: item._source_lembaga || prev?._source_lembaga,
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }
+
+  /**
+   * Menggabungkan daftar snapshot siswa VervalPD yang tersimpan dengan data live baru.
+   * Data baru akan memperbarui data lama, sementara siswa yang tidak ditarik pada hari itu tetap dipertahankan.
+   */
+  mergeVervalLists(existingFallback: VervalStudentItem[], incomingLive: VervalStudentItem[]): VervalStudentItem[] {
+    const map = new Map<string, VervalStudentItem>();
+
+    // 1. Masukkan semua fallback
+    for (const item of existingFallback) {
+      const key = this.getStudentDedupKey({
+        id: item.pesertaDidikId,
+        nik: item.nik,
+        nisn: item.nisn,
+        nama: item.nama,
+        birthDate: item.tanggalLahir,
+        birthPlace: item.tempatLahir,
+      });
+      if (key) map.set(key, item);
+    }
+
+    // 2. Timpa atau tambahkan dari incoming live
+    for (const item of incomingLive) {
+      const key = this.getStudentDedupKey({
+        id: item.pesertaDidikId,
+        nik: item.nik,
+        nisn: item.nisn,
+        nama: item.nama,
+        birthDate: item.tanggalLahir,
+        birthPlace: item.tempatLahir,
+      });
+      if (key) {
+        const prev = map.get(key);
+        map.set(key, {
+          ...prev,
+          ...item,
+          isResidu: item.isResidu !== undefined ? item.isResidu : prev?.isResidu,
+          residuDetail: item.residuDetail ? { ...(prev?.residuDetail || {}), ...item.residuDetail } : prev?.residuDetail,
+          _source_lembaga: (item as any)._source_lembaga || (prev as any)?._source_lembaga,
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }
+
+  /**
    * INTI ALGORITMA REKONSILIASI & VALIDASI:
    * Membandingkan data riil database eSantri dengan data hasil fetch EMIS & Verval.
    * Tidak ada data di database yang diubah (Murni Read-Only Audit).
-   * Mendukung Smart Snapshot Merge (jika salah satu sumber tidak dikirim, otomatis mewarisi snapshot terakhir).
+   * Mendukung Smart Snapshot Merge (jika salah satu sumber tidak dikirim atau hanya ditarik sebagian/satu-per-satu,
+   * otomatis memadukan data live dengan riwayat snapshot santri sebelumnya agar data tidak hilang).
    */
   async reconcileWithDatabase(options: {
     emisStudents?: any[];
@@ -490,23 +656,39 @@ export class EmisService {
     let vervalStudents = options.vervalStudents || [];
     const autoNotes: string[] = [];
 
-    // Auto-Inherit EMIS: Jika data live EMIS tidak dikirim (misal komparasi VervalPD saja), pertahankan dari batch terakhir
-    if (emisStudents.length === 0 && !options.resetEmis) {
+    // Smart Merge EMIS:
+    // Jika tidak direset secara eksplisit, selalu padukan data live dengan snapshot tersimpan sebelumnya.
+    if (!options.resetEmis) {
       const fallbackEmis = await this.getFallbackEmisStudents();
       if (fallbackEmis.length > 0) {
-        emisStudents = fallbackEmis;
-        autoNotes.push(`Data EMIS dipertahankan dari sesi sebelumnya (${fallbackEmis.length} santri)`);
-        this.logger.log(`[Smart-Merge] Otomatis mempertahankan ${fallbackEmis.length} data EMIS dari batch sebelumnya`);
+        if (emisStudents.length === 0) {
+          emisStudents = fallbackEmis;
+          autoNotes.push(`Data EMIS dipertahankan dari sesi sebelumnya (${fallbackEmis.length} santri)`);
+          this.logger.log(`[Smart-Merge] Otomatis mewarisi ${fallbackEmis.length} data EMIS dari batch sebelumnya`);
+        } else {
+          const mergedEmis = this.mergeEmisLists(fallbackEmis, emisStudents);
+          autoNotes.push(`Data EMIS digabungkan: total ${mergedEmis.length} santri (${emisStudents.length} baru + data kemarin dipertahankan)`);
+          this.logger.log(`[Smart-Merge] Menggabungkan ${emisStudents.length} data baru EMIS dengan ${fallbackEmis.length} data sebelumnya -> Total: ${mergedEmis.length}`);
+          emisStudents = mergedEmis;
+        }
       }
     }
 
-    // Auto-Inherit VervalPD: Jika data live Verval tidak dikirim (misal komparasi EMIS saja), pertahankan dari batch terakhir
-    if (vervalStudents.length === 0 && !options.resetVerval) {
+    // Smart Merge VervalPD:
+    // Jika tidak direset secara eksplisit, selalu padukan data live dengan snapshot tersimpan sebelumnya.
+    if (!options.resetVerval) {
       const fallbackVerval = await this.getFallbackVervalStudents();
       if (fallbackVerval.length > 0) {
-        vervalStudents = fallbackVerval;
-        autoNotes.push(`Data VervalPD dipertahankan dari sesi sebelumnya (${fallbackVerval.length} siswa)`);
-        this.logger.log(`[Smart-Merge] Otomatis mempertahankan ${fallbackVerval.length} data VervalPD dari batch sebelumnya`);
+        if (vervalStudents.length === 0) {
+          vervalStudents = fallbackVerval;
+          autoNotes.push(`Data VervalPD dipertahankan dari sesi sebelumnya (${fallbackVerval.length} siswa)`);
+          this.logger.log(`[Smart-Merge] Otomatis mewarisi ${fallbackVerval.length} data VervalPD dari batch sebelumnya`);
+        } else {
+          const mergedVerval = this.mergeVervalLists(fallbackVerval, vervalStudents);
+          autoNotes.push(`Data VervalPD digabungkan: total ${mergedVerval.length} siswa (${vervalStudents.length} baru + data kemarin dipertahankan)`);
+          this.logger.log(`[Smart-Merge] Menggabungkan ${vervalStudents.length} data baru Verval dengan ${fallbackVerval.length} data sebelumnya -> Total: ${mergedVerval.length}`);
+          vervalStudents = mergedVerval;
+        }
       }
     }
 

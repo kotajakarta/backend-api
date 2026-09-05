@@ -12,6 +12,7 @@ export interface VervalStudentItem {
   tingkatPendidikan?: string;
   isResidu?: boolean;
   residuDetail?: Record<string, string>;
+  _source_lembaga?: string;
 }
 
 @Injectable()
