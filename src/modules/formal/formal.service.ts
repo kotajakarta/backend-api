@@ -1,12 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException, Inject, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../audit-log/audit-log.service.js';
+import { MasterDataService } from '../core/master/master-data.service.js';
 
 @Injectable()
 export class FormalService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(AuditLogService) private readonly auditLogService: AuditLogService
+    @Inject(AuditLogService) private readonly auditLogService: AuditLogService,
+    @Inject(MasterDataService) private readonly masterDataService: MasterDataService
   ) {}
 
   async getKelas(user: any) {
@@ -1104,6 +1106,77 @@ export class FormalService {
         { staff: { name: 'asc' } }
       ]
     });
+  }
+
+  // Bundles the 6 separate GET requests the Penugasan Guru page used to make
+  // (guru-mapel-kelas, guru, wilayah, cabang, kelas, mapel) into one round
+  // trip, and returns assignment rows with just a cabangId reference instead
+  // of a full nested kelas->cabang->wilayah object repeated on every one of
+  // up to ~1,300 rows (the caller already gets the full cabang/wilayah lists
+  // separately and can look names up from there).
+  async getGuruMapelKelasBundle(user: any) {
+    let whereClause: any = {};
+    if (user.scope === 'GLOBAL' || user.scope === 'AUDITOR') {
+      whereClause = {};
+    } else if (user.scope === 'WILAYAH' && user.wilayahId) {
+      whereClause = { kelas: { cabang: { wilayahId: user.wilayahId } } };
+    } else if (user.scope === 'CABANG' && user.cabangId) {
+      whereClause = { kelas: { cabangId: user.cabangId } };
+    } else if (user.scope === 'WALI_KELAS') {
+      whereClause = {
+        kelas: { cabangId: user.cabangId || '__UNAUTHORIZED__' },
+        ...(user.staffId ? {
+          OR: [
+            { kelas: { waliKelasId: user.staffId } },
+            { staffId: user.staffId }
+          ]
+        } : {})
+      };
+    } else if (user.scope === 'GURU') {
+      whereClause = {
+        kelas: { cabangId: user.cabangId || '__UNAUTHORIZED__' },
+        ...(user.staffId ? { staffId: user.staffId } : {})
+      };
+    } else {
+      throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses penugasan mapel');
+    }
+
+    const [rawAssignments, guruList, wilayahs, cabangList, kelasList, mapelList] = await Promise.all([
+      this.prisma.guruMapelKelas.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          staffId: true,
+          mataPelajaranId: true,
+          kelasId: true,
+          staff: { select: { id: true, name: true, position: true } },
+          mataPelajaran: { select: { id: true, kodeMapel: true, name: true } },
+          kelas: { select: { id: true, name: true, cabangId: true } }
+        },
+        orderBy: [
+          { kelas: { name: 'asc' } },
+          { staff: { name: 'asc' } }
+        ]
+      }),
+      this.masterDataService.getGuru(user),
+      this.masterDataService.getWilayah(),
+      this.masterDataService.getCabang(user),
+      this.getKelas(user),
+      this.getMapel()
+    ]);
+
+    const assignments = rawAssignments.map(a => ({
+      id: a.id,
+      staffId: a.staffId,
+      staff: a.staff,
+      mataPelajaranId: a.mataPelajaranId,
+      mataPelajaran: a.mataPelajaran,
+      kelasId: a.kelasId,
+      kelasName: a.kelas?.name,
+      cabangId: a.kelas?.cabangId
+    }));
+
+    return { assignments, guruList, wilayahs, cabangList, kelasList, mapelList };
   }
 
   async createGuruMapelKelas(user: any, data: any) {

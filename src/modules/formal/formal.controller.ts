@@ -243,6 +243,15 @@ export class FormalController {
     return this.formalService.getGuruMapelKelas(req.user);
   }
 
+  // Bundles assignments + guru + wilayah + cabang + kelas + mapel in one
+  // response for the Penugasan Guru page, which previously fired all 6 as
+  // separate requests.
+  @Get('guru-mapel-kelas/bundle')
+  @UseGuards(AccessControlGuard)
+  getGuruMapelKelasBundle(@Request() req: any) {
+    return this.formalService.getGuruMapelKelasBundle(req.user);
+  }
+
   @Post('guru-mapel-kelas')
   @UseGuards(AccessControlGuard)
   createGuruMapelKelas(@Request() req: any, @Body() data: { staffId: string, mataPelajaranId: string, kelasId: string }) {
