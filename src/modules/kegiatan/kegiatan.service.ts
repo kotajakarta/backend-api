@@ -389,6 +389,43 @@ export class KegiatanService {
       orderBy: { name: 'asc' }
     });
 
+    // Query all Lembaga Muadalah and active classes with lembagaMuadalahId
+    const allLembaga = await this.prisma.lembagaMuadalah.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        jenjang: true
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    const activeKelasLembaga = await this.prisma.kelas.findMany({
+      where: {
+        isActive: true,
+        lembagaMuadalahId: { not: null },
+        cabangId: { not: null }
+      },
+      select: {
+        cabangId: true,
+        lembagaMuadalahId: true
+      }
+    });
+
+    const cabangToLembagaMap = new Map<string, Set<string>>();
+    const lembagaToCabangMap = new Map<string, Set<string>>();
+
+    activeKelasLembaga.forEach(k => {
+      if (k.cabangId && k.lembagaMuadalahId) {
+        if (!cabangToLembagaMap.has(k.cabangId)) cabangToLembagaMap.set(k.cabangId, new Set());
+        cabangToLembagaMap.get(k.cabangId)!.add(k.lembagaMuadalahId);
+
+        if (!lembagaToCabangMap.has(k.lembagaMuadalahId)) lembagaToCabangMap.set(k.lembagaMuadalahId, new Set());
+        lembagaToCabangMap.get(k.lembagaMuadalahId)!.add(k.cabangId);
+      }
+    });
+
     // 1. Cabang progress breakdown
     const byCabangProgress = allCabang.map(c => {
       const submitted = c.kegiatan.length;
@@ -410,11 +447,17 @@ export class KegiatanService {
       if (rate >= 100) status = 'SELESAI';
       else if (submitted > 0) status = 'SEBAGIAN';
 
+      const lembagaIds = cabangToLembagaMap.get(c.id) || new Set<string>();
+      const lembagaList = allLembaga
+        .filter(l => lembagaIds.has(l.id))
+        .map(l => ({ id: l.id, name: l.name, code: l.code, jenjang: l.jenjang }));
+
       return {
         cabangId: c.id,
         cabangName: c.name,
         wilayahId: c.wilayahId || 'tanpa-wilayah',
         wilayahName: c.wilayah?.name || 'Tanpa Wilayah',
+        lembagaList,
         totalBapSubmitted: submitted,
         totalBapConfirmed: confirmed,
         totalSantri: santri,
@@ -465,6 +508,49 @@ export class KegiatanService {
       };
     });
 
+    // 3. Lembaga Muadalah progress breakdown (1 cabang bisa terafiliasi & dihitung di lebih dari 1 lembaga)
+    const byLembaga = allLembaga.map(l => {
+      const cabangIdsInLembaga = lembagaToCabangMap.get(l.id) || new Set<string>();
+      const cabangInLembaga = byCabangProgress.filter(c => cabangIdsInLembaga.has(c.cabangId));
+      const totalCabangInLembaga = cabangInLembaga.length;
+
+      let submittedBap = 0;
+      let confirmedBap = 0;
+      let santri = 0;
+      let guru = 0;
+      let totalPeserta = 0;
+      let activeCabangCount = 0;
+
+      cabangInLembaga.forEach(c => {
+        if (c.totalBapSubmitted > 0) activeCabangCount += 1;
+        submittedBap += c.totalBapSubmitted;
+        confirmedBap += c.totalBapConfirmed;
+        santri += c.totalSantri;
+        guru += c.totalGuru;
+        totalPeserta += c.totalPeserta;
+      });
+
+      const expectedLembagaBaps = totalTemplates * Math.max(totalCabangInLembaga, 1);
+      const rate = expectedLembagaBaps > 0
+        ? Math.min(100, Math.round((submittedBap / expectedLembagaBaps) * 100))
+        : 0;
+
+      return {
+        lembagaId: l.id,
+        lembagaName: l.name,
+        code: l.code,
+        jenjang: l.jenjang,
+        totalCabang: totalCabangInLembaga,
+        activeCabangCount,
+        totalBapSubmitted: submittedBap,
+        totalBapConfirmed: confirmedBap,
+        totalSantri: santri,
+        totalGuru: guru,
+        totalPeserta: totalPeserta,
+        completionRate: rate
+      };
+    });
+
     return {
       summary: {
         totalTemplates,
@@ -486,6 +572,7 @@ export class KegiatanService {
         topCabang,
         byTemplate: Object.values(templateMap),
         byWilayah,
+        byLembaga,
         byCabangProgress,
         byStatus: {
           confirmed: totalBapConfirmed,
