@@ -1562,6 +1562,14 @@ export class PembelajaranService {
       .map(k => ({ id: k.id, name: k.name }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
+    const validUnitsForKehadiran = unitBreakdown.filter(
+      u => !u.name.toUpperCase().includes('TES-WILAYAH') && !u.name.toUpperCase().startsWith('TES-')
+    );
+    const sumPersenKehadiran = validUnitsForKehadiran.reduce((acc, u) => acc + (u.persenKehadiran || 0), 0);
+    const finalPersenKehadiran = validUnitsForKehadiran.length > 0
+      ? Math.round(sumPersenKehadiran / validUnitsForKehadiran.length)
+      : (totalAbsensi > 0 ? Math.round((hadir / totalAbsensi) * 100) : 0);
+
     return {
       tahunAjaran,
       semester,
@@ -1574,7 +1582,7 @@ export class PembelajaranService {
       persenSilabus: totalSilabusTarget > 0 ? Math.round((totalSilabusCompleted / totalSilabusTarget) * 100) : 0,
       hadir,
       totalAbsensi,
-      persenKehadiran,
+      persenKehadiran: finalPersenKehadiran,
       kehadiranDelta: 0,
       persenPelajaranTerlaksana,
       belumMulai: 0,
