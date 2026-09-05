@@ -775,11 +775,12 @@ export class PembelajaranService {
     mode: string,
     params: { weekStart?: string; month?: string; tahunAjaran?: string; semester?: string }
   ): { gte: Date; lte: Date } {
-    if (mode === 'weekly' && params.weekStart) {
-      const inputDate = new Date(params.weekStart);
-      const day = inputDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-      const start = new Date(inputDate);
-      start.setDate(inputDate.getDate() - day);
+    const now = new Date();
+    if (mode === 'weekly') {
+      const baseDate = params.weekStart ? new Date(params.weekStart) : now;
+      const day = baseDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      const start = new Date(baseDate);
+      start.setDate(baseDate.getDate() - day);
       start.setHours(0, 0, 0, 0);
 
       const end = new Date(start);
@@ -787,20 +788,24 @@ export class PembelajaranService {
       end.setHours(23, 59, 59, 999);
       return { gte: start, lte: end };
     }
-    if (mode === 'monthly' && params.month) {
-      const [yearStr, monthStr] = params.month.split('-');
-      const y = parseInt(yearStr);
-      const m = parseInt(monthStr);
-      return { gte: new Date(y, m - 1, 1), lte: new Date(y, m, 0, 23, 59, 59) };
+    if (mode === 'monthly') {
+      const validMonth = params.month && /^\d{4}-\d{2}$/.test(params.month);
+      const selYear = validMonth ? parseInt(params.month!.slice(0, 4)) : now.getUTCFullYear();
+      const selMonthIdx = validMonth ? parseInt(params.month!.slice(5, 7)) - 1 : now.getUTCMonth();
+      const daysInMonth = new Date(Date.UTC(selYear, selMonthIdx + 1, 0)).getUTCDate();
+      const start = new Date(Date.UTC(selYear, selMonthIdx, 1, 0, 0, 0));
+      const end = new Date(Date.UTC(selYear, selMonthIdx, daysInMonth, 23, 59, 59, 999));
+      return { gte: start, lte: end };
     }
-    if (mode === 'semester' && params.tahunAjaran && params.semester) {
-      const [startYearStr, endYearStr] = params.tahunAjaran.split('/');
-      const startYear = parseInt(startYearStr);
-      const endYear = parseInt(endYearStr || startYearStr) || startYear + 1;
-      if (params.semester.toUpperCase() === 'GANJIL') {
-        return { gte: new Date(`${startYear}-07-01`), lte: new Date(`${startYear}-12-31T23:59:59`) };
+    if (mode === 'semester') {
+      const [startYearStr, endYearStr] = (params.tahunAjaran || '').split('/');
+      const startYear = parseInt(startYearStr) || now.getFullYear();
+      const endYear = parseInt(endYearStr || '') || startYear + 1;
+      const sem = (params.semester || 'GANJIL').toUpperCase();
+      if (sem === 'GANJIL') {
+        return { gte: new Date(Date.UTC(startYear, 6, 1, 0, 0, 0)), lte: new Date(Date.UTC(startYear, 11, 31, 23, 59, 59, 999)) };
       }
-      return { gte: new Date(`${endYear}-01-01`), lte: new Date(`${endYear}-06-30T23:59:59`) };
+      return { gte: new Date(Date.UTC(endYear, 0, 1, 0, 0, 0)), lte: new Date(Date.UTC(endYear, 5, 30, 23, 59, 59, 999)) };
     }
     throw new BadRequestException('Parameter periode tidak lengkap untuk mode laporan ini.');
   }
@@ -828,6 +833,31 @@ export class PembelajaranService {
 
     const dateRange = this.resolveDateRange(filters.mode, filters);
 
+    // Calculate Saturday count & target denominator (same formula as getRingkasan)
+    const totalSabtu = this.countSaturdays(dateRange.gte, dateRange.lte);
+    const baseTargetPerSaturday = filters.mataPelajaranId ? 1 : 5;
+    let targetDenominator = 5;
+    if (filters.mode === 'weekly') {
+      targetDenominator = baseTargetPerSaturday;
+    } else if (filters.mode === 'monthly') {
+      targetDenominator = totalSabtu * baseTargetPerSaturday;
+    } else if (filters.mode === 'semester') {
+      targetDenominator = totalSabtu * (filters.mataPelajaranId ? 1 : 6);
+    }
+
+    const cabangWhere: any = {};
+    if (effectiveCabangId) {
+      cabangWhere.id = effectiveCabangId;
+    } else if (effectiveWilayahId) {
+      cabangWhere.wilayahId = effectiveWilayahId;
+    }
+
+    const allCabangList = await this.prisma.cabang.findMany({
+      where: cabangWhere,
+      include: { wilayah: true },
+      orderBy: { name: 'asc' }
+    });
+
     const kelasWhere: any = {};
     if (effectiveCabangId) {
       kelasWhere.cabangId = effectiveCabangId;
@@ -835,71 +865,45 @@ export class PembelajaranService {
       kelasWhere.cabang = { wilayahId: effectiveWilayahId };
     }
 
-    const kelasList = await this.prisma.kelas.findMany({
+    const rawKelasList = await this.prisma.kelas.findMany({
       where: {
         ...kelasWhere,
         isActive: true
       },
       include: {
         cabang: { include: { wilayah: true } },
-        _count: { select: { siswaFormal: true } }
-      }
+        ruang: true,
+        lembagaMuadalah: true,
+        siswaFormal: {
+          where: { student: { isActive: true } }
+        }
+      },
+      orderBy: { name: 'asc' }
     });
+    const kelasList = rawKelasList.filter(k => k.isActive === true);
     const kelasIds = kelasList.map(k => k.id);
-    const tingkatSet = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
+    const kelasById = new Map(kelasList.map(k => [k.id, k]));
 
-    // Silabus untuk PROGRES SILABUS (seluruh bab/section aktif di tingkat terkait)
-    const silabusList = await this.prisma.silabusMapel.findMany({
-      where: {
-        tingkat: { in: tingkatSet },
-        isActive: true,
-        mataPelajaran: { aktifPembelajaran: true },
-        ...(filters.mode === 'semester' && filters.tahunAjaran && filters.semester
-          ? { tahunAjaran: filters.tahunAjaran, semester: filters.semester }
-          : {}),
-        ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
-      }
-    });
-
-    const silabusIds = silabusList.map(s => s.id);
-
-    // Record pelaksanaan silabus untuk progres silabus
-    const pelaksanaanSilabusList = kelasIds.length > 0 ? await this.prisma.pelaksanaanSilabus.findMany({
-      where: {
-        kelasId: { in: kelasIds },
-        ...(silabusIds.length > 0 ? { silabusId: { in: silabusIds } } : {})
-      }
-    }) : [];
-    const pelaksanaanSilabusMap = new Map(pelaksanaanSilabusList.map(p => [`${p.silabusId}__${p.kelasId}`, p]));
-
-    // Record pelaksanaan silabus dalam dateRange (untuk PELAKSANAAN PEMBELAJARAN)
+    // Record pelaksanaan silabus dalam dateRange
     const pelaksanaanPeriodeList = kelasIds.length > 0 ? await this.prisma.pelaksanaanSilabus.findMany({
       where: {
         kelasId: { in: kelasIds },
-        tanggalDiajar: dateRange,
+        tanggalDiajar: { gte: dateRange.gte, lte: dateRange.lte },
+        status: 'COMPLETED',
         mataPelajaran: { aktifPembelajaran: true },
         ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
       }
     }) : [];
 
-    const mepelListAktif = await this.prisma.mataPelajaran.findMany({
-      where: {
-        aktifPembelajaran: true,
-        ...(filters.mataPelajaranId ? { id: filters.mataPelajaranId } : {})
-      }
-    });
-
-    // Record Absensi Mapel
+    // Record Absensi Mapel dalam dateRange
     const absensiList = kelasIds.length > 0 ? await this.prisma.absensiMapel.findMany({
       where: {
         kelasId: { in: kelasIds },
+        tanggal: { gte: dateRange.gte, lte: dateRange.lte },
         mataPelajaran: { aktifPembelajaran: true },
-        ...(filters.mode === 'semester' ? {} : { tanggal: dateRange }),
         ...(filters.mataPelajaranId ? { mataPelajaranId: filters.mataPelajaranId } : {})
       }
     }) : [];
-
-    const kelasById = new Map(kelasList.map(k => [k.id, k]));
 
     type CabangAgg = {
       cabangId: string;
@@ -915,13 +919,30 @@ export class PembelajaranService {
       pelaksanaanTotal: number;
     };
     const cabangMap = new Map<string, CabangAgg>();
+
+    allCabangList.forEach(c => {
+      cabangMap.set(c.id, {
+        cabangId: c.id,
+        cabangName: c.name,
+        wilayahName: c.wilayah?.name || 'Tanpa Wilayah',
+        jumlahRombel: 0,
+        jumlahSiswa: 0,
+        silabusCompleted: 0,
+        silabusTotal: 0,
+        hadir: 0,
+        totalAbsensi: 0,
+        pelaksanaanCompleted: 0,
+        pelaksanaanTotal: 0
+      });
+    });
+
     const ensureCabang = (kelas: (typeof kelasList)[number]) => {
       const id = kelas.cabangId || 'unknown';
       if (!cabangMap.has(id)) {
         cabangMap.set(id, {
           cabangId: id,
           cabangName: kelas.cabang?.name || 'Tanpa Cabang',
-          wilayahName: kelas.cabang?.wilayah?.name || '-',
+          wilayahName: kelas.cabang?.wilayah?.name || 'Tanpa Wilayah',
           jumlahRombel: 0,
           jumlahSiswa: 0,
           silabusCompleted: 0,
@@ -935,109 +956,49 @@ export class PembelajaranService {
       return cabangMap.get(id)!;
     };
 
-    const isKelasAktifBersiswa = (k: (typeof kelasList)[number]) =>
-      k.isActive !== false && (k._count?.siswaFormal || 0) > 0;
-
-    // Count jumlahRombel aktif dan jumlahSiswa per Cabang
     kelasList.forEach(kelas => {
       const entry = ensureCabang(kelas);
-      if (isKelasAktifBersiswa(kelas)) {
-        entry.jumlahRombel++;
-        entry.jumlahSiswa += (kelas._count?.siswaFormal || 0);
-      }
+      entry.jumlahRombel++;
+      entry.jumlahSiswa += (kelas.siswaFormal ? kelas.siswaFormal.length : 0);
+
+      const completedCount = pelaksanaanPeriodeList.filter(p => p.kelasId === kelas.id).length;
+      entry.pelaksanaanCompleted += completedCount;
+      entry.silabusCompleted += completedCount;
     });
 
-    // A. Progres Silabus calculation per Cabang
-    kelasList.forEach(kelas => {
-      if (!kelas.tingkat) return;
-      silabusList
-        .filter(s => s.tingkat === kelas.tingkat)
-        .forEach(s => {
-          const p = pelaksanaanSilabusMap.get(`${s.id}__${kelas.id}`);
-          const status = p?.status || 'PENDING';
-          if (status === 'LIBUR') return;
-          const entry = ensureCabang(kelas);
-          entry.silabusTotal++;
-          if (status === 'COMPLETED') entry.silabusCompleted++;
-        });
+    cabangMap.forEach(entry => {
+      const totalTarget = entry.jumlahRombel * targetDenominator;
+      entry.pelaksanaanTotal = totalTarget;
+      entry.silabusTotal = totalTarget;
     });
 
-    // B. Pelaksanaan Pembelajaran calculation per Cabang in dateRange
-    let periodMultiplier = 1;
-    if (filters.mode === 'monthly') {
-      const daysInMonth = new Date(dateRange.lte.getFullYear(), dateRange.lte.getMonth() + 1, 0).getDate();
-      periodMultiplier = Math.max(1, Math.ceil(daysInMonth / 7));
-    } else if (filters.mode === 'semester') {
-      periodMultiplier = 18;
-    }
-
-    const pelaksanaanPeriodeMap = new Map<string, typeof pelaksanaanPeriodeList>();
-    pelaksanaanPeriodeList.forEach(p => {
-      const key = `${p.kelasId}__${p.mataPelajaranId}`;
-      if (!pelaksanaanPeriodeMap.has(key)) pelaksanaanPeriodeMap.set(key, []);
-      pelaksanaanPeriodeMap.get(key)!.push(p);
-    });
-
-    kelasList.forEach(kelas => {
-      if (!isKelasAktifBersiswa(kelas)) return;
-      const entry = ensureCabang(kelas);
-
-      mepelListAktif.forEach(m => {
-        const key = `${kelas.id}__${m.id}`;
-        const records = pelaksanaanPeriodeMap.get(key) || [];
-
-        // Group records by distinct date (tanggalDiajar)
-        const dateMap = new Map<string, typeof records>();
-        records.forEach(p => {
-          const tglKey = p.tanggalDiajar ? p.tanggalDiajar.toISOString().slice(0, 10) : 'no_date';
-          if (!dateMap.has(tglKey)) dateMap.set(tglKey, []);
-          dateMap.get(tglKey)!.push(p);
-        });
-
-        let liburDatesCount = 0;
-        let completedDatesCount = 0;
-
-        dateMap.forEach((dateRecords) => {
-          if (dateRecords.some(p => p.status === 'LIBUR')) {
-            liburDatesCount++;
-          } else if (dateRecords.some(p => p.status === 'COMPLETED')) {
-            completedDatesCount++;
-          }
-        });
-
-        let expectedTarget = Math.max(0, periodMultiplier - liburDatesCount);
-        let completedCount = Math.min(expectedTarget, completedDatesCount);
-
-        entry.pelaksanaanTotal += expectedTarget;
-        entry.pelaksanaanCompleted += completedCount;
-      });
-    });
-
-    // C. Absensi Mapel calculation per Cabang
     absensiList.forEach(a => {
       const kelas = kelasById.get(a.kelasId);
-      if (!kelas) return;
-      const entry = ensureCabang(kelas);
+      if (!kelas || !kelas.cabangId) return;
+      const entry = cabangMap.get(kelas.cabangId);
+      if (!entry) return;
       entry.totalAbsensi++;
       if (a.status === 'HADIR') entry.hadir++;
     });
 
-    const rekap = Array.from(cabangMap.values()).map(e => ({
-      cabangId: e.cabangId,
-      cabangName: e.cabangName,
-      wilayahName: e.wilayahName,
-      jumlahRombel: e.jumlahRombel,
-      jumlahSiswa: e.jumlahSiswa,
-      persenSilabus: e.silabusTotal > 0 ? Math.round((e.silabusCompleted / e.silabusTotal) * 100) : 0,
-      silabusCompleted: e.silabusCompleted,
-      silabusTotal: e.silabusTotal,
-      persenKehadiran: e.totalAbsensi > 0 ? Math.round((e.hadir / e.totalAbsensi) * 100) : 0,
-      hadir: e.hadir,
-      totalAbsensi: e.totalAbsensi,
-      persenPelaksanaan: e.pelaksanaanTotal > 0 ? Math.round((e.pelaksanaanCompleted / e.pelaksanaanTotal) * 100) : 0,
-      pelaksanaanCompleted: e.pelaksanaanCompleted,
-      pelaksanaanTotal: e.pelaksanaanTotal
-    }));
+    const rekap = Array.from(cabangMap.values())
+      .filter(e => e.jumlahRombel > 0 || effectiveCabangId === e.cabangId)
+      .map(e => ({
+        cabangId: e.cabangId,
+        cabangName: e.cabangName,
+        wilayahName: e.wilayahName,
+        jumlahRombel: e.jumlahRombel,
+        jumlahSiswa: e.jumlahSiswa,
+        persenSilabus: e.silabusTotal > 0 ? Math.round((e.silabusCompleted / e.silabusTotal) * 100) : 0,
+        silabusCompleted: e.silabusCompleted,
+        silabusTotal: e.silabusTotal,
+        persenKehadiran: e.totalAbsensi > 0 ? Math.round((e.hadir / e.totalAbsensi) * 100) : 0,
+        hadir: e.hadir,
+        totalAbsensi: e.totalAbsensi,
+        persenPelaksanaan: e.pelaksanaanTotal > 0 ? Math.round((e.pelaksanaanCompleted / e.pelaksanaanTotal) * 100) : 0,
+        pelaksanaanCompleted: e.pelaksanaanCompleted,
+        pelaksanaanTotal: e.pelaksanaanTotal
+      }));
 
     return {
       periode: { gte: dateRange.gte, lte: dateRange.lte },
