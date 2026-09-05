@@ -61,6 +61,7 @@ model PelaksanaanSilabus {
   guru          Staff?         @relation(fields: [guruId], references: [id])
 
   @@unique([kelasId, mataPelajaranId, tanggalDiajar])
+  @@index([kelasId, tanggalDiajar])
   @@map("pelaksanaan_silabus")
   @@schema("formal")
 }
@@ -85,6 +86,7 @@ model AbsensiMapel {
   student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@unique([mataPelajaranId, kelasId, studentId, tanggal])
+  @@index([kelasId, tanggal])
   @@map("absensi_mapel")
   @@schema("formal")
 }

@@ -346,6 +346,24 @@ export class PembelajaranRekapService {
     });
 
     // 5. Compute weekly breakdown array & upsert into RekapPembelajaran
+    //
+    // Group once by kelasId so each unit's weekly breakdown only scans the
+    // handful of rows belonging to its own classes, instead of re-filtering
+    // the entire pelaksanaanList/absensiList (which can be 90k+ rows for a
+    // semester) for every week x every one of the ~680 units. That O(weeks x
+    // units x totalRows) blowup was the actual bottleneck: it blocked the
+    // Node event loop for the whole server on a single cache-miss request.
+    const pelaksanaanByKelas = new Map<string, typeof pelaksanaanList>();
+    for (const p of pelaksanaanList) {
+      const arr = pelaksanaanByKelas.get(p.kelasId);
+      if (arr) arr.push(p); else pelaksanaanByKelas.set(p.kelasId, [p]);
+    }
+    const absensiByKelas = new Map<string, typeof absensiList>();
+    for (const a of absensiList) {
+      const arr = absensiByKelas.get(a.kelasId);
+      if (arr) arr.push(a); else absensiByKelas.set(a.kelasId, [a]);
+    }
+
     const upsertPromises = Array.from(accumulators.values()).map(acc => {
       const jumlahCabang = acc.cabangSet.size;
       const jumlahKelas = acc.kelasSet.size;
@@ -369,6 +387,18 @@ export class PembelajaranRekapService {
         };
       }).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
 
+      // Rows belonging to this unit's own classes only (gathered once, not
+      // once per week) — for CABANG/KELAS units (the vast majority) this is
+      // a tiny slice of the full pelaksanaanList/absensiList.
+      const unitPel: typeof pelaksanaanList = [];
+      const unitAbs: typeof absensiList = [];
+      acc.kelasSet.forEach(kId => {
+        const p = pelaksanaanByKelas.get(kId);
+        if (p) unitPel.push(...p);
+        const a = absensiByKelas.get(kId);
+        if (a) unitAbs.push(...a);
+      });
+
       // Build weekly structure
       const weeks = weeksInfo.map((wInfo, wIdx) => {
         const wStartDate = new Date(wInfo.startDateIso);
@@ -377,25 +407,15 @@ export class PembelajaranRekapService {
         wEndDate.setHours(23, 59, 59, 999);
         const isFuture = wStartDate.getTime() > now.getTime();
 
-        const isClassInUnit = (kId: string) => {
-          if (acc.unitLevel === 'GLOBAL') return true;
-          if (acc.unitLevel === 'KELAS') return kId === acc.unitId;
-          const k = kelasById.get(kId);
-          if (!k) return false;
-          if (acc.unitLevel === 'CABANG') return k.cabangId === acc.unitId;
-          if (acc.unitLevel === 'WILAYAH') return k.cabang?.wilayahId === acc.unitId;
-          return false;
-        };
-
-        const wPel = pelaksanaanList.filter(
-          p => isClassInUnit(p.kelasId) && p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'COMPLETED'
+        const wPel = unitPel.filter(
+          p => p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'COMPLETED'
         );
         const wMapelCompleted = wPel.length;
         const wMapelTarget = jumlahKelas * 5;
         const wPersenMapel = isFuture || wMapelTarget === 0 ? 0 : Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
 
-        const wAbsAll = absensiList.filter(
-          a => isClassInUnit(a.kelasId) && a.tanggal >= wStartDate && a.tanggal <= wEndDate
+        const wAbsAll = unitAbs.filter(
+          a => a.tanggal >= wStartDate && a.tanggal <= wEndDate
         );
         const wHadir = wAbsAll.filter(a => a.status === 'HADIR').length;
         const wTotalAbs = wAbsAll.length;
@@ -739,9 +759,13 @@ export class PembelajaranRekapService {
       const now = new Date();
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-      // Sync monthly and weekly
+      // Sync monthly, weekly, semester (active) and yearly (current year) so
+      // that "Per Semester"/"Per Tahun" reads also hit the fast rekap path
+      // instead of triggering a synchronous recompute on first request.
       await this.syncPeriod(tahunAjaran, semesterAktif, 'monthly', currentMonth);
       await this.syncPeriod(tahunAjaran, semesterAktif, 'weekly');
+      await this.syncPeriod(tahunAjaran, semesterAktif, 'semester');
+      await this.syncPeriod(tahunAjaran, semesterAktif, 'yearly');
       this.logger.log('Nightly Pembelajaran Rekap sync completed.');
     } catch (err: any) {
       this.logger.error('Failed nightly Pembelajaran Rekap sync', err?.message || err);
