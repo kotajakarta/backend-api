@@ -478,3 +478,21 @@ model TargetKuotaCabang {
   @@map("target_kuota_cabang")
   @@schema("core")
 }
+
+model RekapDashboardUtama {
+  id                    String   @id @default(uuid())
+  scopeKey              String   @unique @map("scope_key") // 'GLOBAL' | 'WILAYAH_{id}' | 'CABANG_{id}'
+  totalSantri           Int      @default(0) @map("total_santri")
+  totalSantriFormal     Int      @default(0) @map("total_santri_formal")
+  totalNonMuadalah      Int      @default(0) @map("total_non_muadalah")
+  totalKelas            Int      @default(0) @map("total_kelas")
+  chartGrupDaimi        Json     @map("chart_grup_daimi")
+  chartStatistikTingkat Json     @map("chart_statistik_tingkat")
+  ketersediaanGuru      Json     @map("ketersediaan_guru")
+  kelengkapanSantri     Json?    @map("kelengkapan_santri")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("rekap_dashboard_utama")
+  @@schema("core")
+}
+

@@ -30,9 +30,14 @@ export interface SilabusExportItem {
   tanggalTarget: Date | null;
 }
 
+import { PembelajaranRekapService } from './pembelajaran-rekap.service.js';
+
 @Injectable()
 export class PembelajaranService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(PembelajaranRekapService) private readonly pembelajaranRekapService: PembelajaranRekapService
+  ) {}
 
   // Silabus hanya boleh diisi untuk tanggal hari ini atau sebelumnya.
   private isFutureDate(dateStr: string): boolean {
@@ -1026,6 +1031,26 @@ export class PembelajaranService {
 
   async getRingkasan(
     user: any,
+    queryParams?: any,
+    kelasIdLegacy?: string,
+    wilayahIdLegacy?: string,
+    cabangIdLegacy?: string
+  ) {
+    try {
+      return await this.pembelajaranRekapService.getRingkasanFromRekap(
+        user,
+        queryParams,
+        kelasIdLegacy,
+        wilayahIdLegacy,
+        cabangIdLegacy
+      );
+    } catch (err) {
+      return this.getRingkasanLegacy(user, queryParams, kelasIdLegacy, wilayahIdLegacy, cabangIdLegacy);
+    }
+  }
+
+  async getRingkasanLegacy(
+    user: any,
     queryParams?: {
       mode?: 'weekly' | 'monthly' | 'semester' | 'yearly';
       weekStart?: string;
@@ -1596,4 +1621,13 @@ export class PembelajaranService {
       weeksInfo
     };
   }
+
+  async syncRekap(tahunAjaran?: string, semester?: string, mode?: any, periodeKey?: string) {
+    const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
+    const ta = tahunAjaran || pengaturan?.tahunAjaran || '2026/2027';
+    const sem = semester || pengaturan?.semesterAktif || '1';
+    const m = mode || 'monthly';
+    return this.pembelajaranRekapService.syncPeriod(ta, sem, m, periodeKey);
+  }
 }
+

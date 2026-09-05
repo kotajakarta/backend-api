@@ -1,6 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { MinioService } from '../../common/minio/minio.service.js';
+import { KegiatanRekapService } from './kegiatan-rekap.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -8,7 +9,8 @@ import * as path from 'path';
 export class KegiatanService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(MinioService) private readonly minioService: MinioService
+    @Inject(MinioService) private readonly minioService: MinioService,
+    @Inject(KegiatanRekapService) private readonly kegiatanRekapService: KegiatanRekapService
   ) {}
 
   private async uploadFileToMinio(file: any, folder: string = 'kegiatan'): Promise<string> {
@@ -218,6 +220,14 @@ export class KegiatanService {
   }
 
   async getDashboardStats(user: any, templateId?: string) {
+    try {
+      return await this.kegiatanRekapService.getDashboardStatsFromRekap(user, templateId);
+    } catch (err) {
+      return this.getDashboardStatsLegacy(user, templateId);
+    }
+  }
+
+  async getDashboardStatsLegacy(user: any, templateId?: string) {
     const templatesList = await this.prisma.templateKegiatan.findMany({
       select: {
         id: true,
@@ -978,4 +988,9 @@ export class KegiatanService {
       }
     });
   }
+
+  async syncRekap(templateId?: string) {
+    return this.kegiatanRekapService.syncKegiatanRekap(templateId);
+  }
 }
+

@@ -1,6 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 
+import { DashboardRekapService } from './dashboard-rekap.service.js';
+
 const matchSubject = (subjectName: string | undefined | null, subKey: string) => {
   if (!subjectName) return false;
   const nameLower = subjectName.toLowerCase().trim();
@@ -12,9 +14,28 @@ const matchSubject = (subjectName: string | undefined | null, subKey: string) =>
 
 @Injectable()
 export class DashboardService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(DashboardRekapService) private readonly rekapService: DashboardRekapService
+  ) {}
+
+  async syncRekap() {
+    return this.rekapService.syncAllRekap();
+  }
 
   async getStats(user: any, query: any = {}) {
+    try {
+      const aggregated = await this.rekapService.getStatsFromRekap(user, query);
+      if (aggregated) {
+        return aggregated;
+      }
+    } catch (err) {
+      console.error('[DashboardService] getStatsFromRekap failed, falling back to legacy:', err);
+    }
+    return this.getStatsLegacy(user, query);
+  }
+
+  async getStatsLegacy(user: any, query: any = {}) {
     let whereClause: any = {};
     const { wilayahId, cabangId, jenisKelamin, lembagaMuadalahId } = query;
 

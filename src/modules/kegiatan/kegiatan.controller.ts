@@ -3,7 +3,7 @@ import { FilesInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express'
 import { KegiatanService } from './kegiatan.service.js';
 import { MinioService } from '../../common/minio/minio.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
-import { AllowCookieAuth } from '../../common/decorators/access-control.decorator.js';
+import { AllowCookieAuth, RequireScope } from '../../common/decorators/access-control.decorator.js';
 import { Response } from 'express';
 import multer from 'multer';
 import * as path from 'path';
@@ -183,6 +183,13 @@ export class KegiatanController {
   @UseGuards(AccessControlGuard)
   async getStats(@Query('templateId') templateId: string, @Request() req: any) {
     return this.kegiatanService.getDashboardStats(req.user, templateId);
+  }
+
+  @Post('stats/sync')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  async syncStats(@Query('templateId') templateId?: string) {
+    return this.kegiatanService.syncRekap(templateId);
   }
 
   @Get(':id')

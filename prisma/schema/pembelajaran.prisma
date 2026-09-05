@@ -88,3 +88,43 @@ model AbsensiMapel {
   @@map("absensi_mapel")
   @@schema("formal")
 }
+
+model RekapPembelajaran {
+  id              String   @id @default(uuid())
+  tahunAjaran     String   @map("tahun_ajaran")
+  semester        String
+  periodeTipe     String   @map("periode_tipe") // 'MONTHLY' | 'WEEKLY' | 'SEMESTER'
+  periodeKey      String   @map("periode_key")  // '2026-08' | '2026-W35' | '2026/2027-1'
+  
+  // Hirarki Unit
+  unitLevel       String   @map("unit_level")   // 'GLOBAL' | 'WILAYAH' | 'CABANG' | 'KELAS'
+  unitId          String   @map("unit_id")      // ID Wilayah, Cabang, Kelas, atau 'GLOBAL'
+  unitName        String   @map("unit_name")
+  parentName      String?  @map("parent_name")  // Nama Wilayah jika unitLevel Cabang
+  
+  // Filter Opsional
+  mataPelajaranId String   @default("ALL") @map("mata_pelajaran_id") // 'ALL' jika agregat semua mapel
+  
+  // Metrik Agregat
+  jumlahCabang    Int      @default(0) @map("jumlah_cabang")
+  jumlahKelas     Int      @default(0) @map("jumlah_kelas")
+  jumlahSiswa     Int      @default(0) @map("jumlah_siswa")
+  mapelTerlaksana Int      @default(0) @map("mapel_terlaksana")
+  mapelTarget     Int      @default(0) @map("mapel_target")
+  persenMapel     Float    @default(0) @map("persen_mapel")
+  totalHadir      Int      @default(0) @map("total_hadir")
+  totalAbsensi    Int      @default(0) @map("total_absensi")
+  persenKehadiran Float    @default(0) @map("persen_kehadiran")
+  
+  // Rincian Mingguan (JSON cache untuk kolom Sabtu 1..N)
+  weeksJson       Json?    @map("weeks_json")
+  
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([tahunAjaran, semester, periodeTipe, periodeKey, unitLevel, unitId, mataPelajaranId])
+  @@index([tahunAjaran, semester, periodeTipe, periodeKey])
+  @@index([unitLevel, unitId])
+  @@map("rekap_pembelajaran")
+  @@schema("formal")
+}
+

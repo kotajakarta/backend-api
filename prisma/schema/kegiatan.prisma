@@ -116,3 +116,38 @@ model DokumenKegiatan {
   @@map("dokumen_kegiatan")
   @@schema("core")
 }
+
+model RekapKegiatan {
+  id                String   @id @default(uuid())
+  templateId        String   @default("ALL") @map("template_id") // 'ALL' jika agregat seluruh template
+  
+  // Hirarki Agregat
+  groupType         String   @map("group_type")  // 'CABANG' | 'WILAYAH' | 'LEMBAGA' | 'GLOBAL'
+  groupId           String   @map("group_id")    // cabangId, wilayahId, lembagaId, atau 'GLOBAL'
+  groupName         String   @map("group_name")
+  parentGroupId     String?  @map("parent_group_id") // misal wilayahId untuk cabang
+  
+  // Metrik Agregat
+  totalCabang       Int      @default(0) @map("total_cabang")
+  activeCabangCount Int      @default(0) @map("active_cabang_count")
+  totalBapSubmitted Int      @default(0) @map("total_bap_submitted")
+  totalBapConfirmed Int      @default(0) @map("total_bap_confirmed")
+  totalBapPending   Int      @default(0) @map("total_bap_pending")
+  totalSantri       Int      @default(0) @map("total_santri")
+  totalGuru         Int      @default(0) @map("total_guru")
+  totalPeserta      Int      @default(0) @map("total_peserta")
+  completionRate    Float    @default(0) @map("completion_rate")
+  status            String   @default("BELUM_ADA") // 'SELESAI' | 'SEBAGIAN' | 'BELUM_ADA'
+  
+  // Metadata tambahan jika perlu (misal daftar lembaga cabang)
+  extraData         Json?    @map("extra_data")
+  
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([templateId, groupType, groupId])
+  @@index([groupType, groupId])
+  @@index([templateId])
+  @@map("rekap_kegiatan")
+  @@schema("core")
+}
+
