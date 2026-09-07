@@ -215,7 +215,7 @@ export class DashboardService {
     // Subject coverage logic
     const requiredSubjects = ['matematika', 'bahasa indonesia', 'bahasa inggris', 'ipa', 'pkn'];
     
-    const cabangWhere: any = {};
+    const cabangWhere: any = { isActive: true };
     if (cabangId) {
       cabangWhere.id = cabangId;
     } else if (wilayahId) {
@@ -419,7 +419,7 @@ export class DashboardService {
     };
 
     if (user.scope === 'GLOBAL') {
-      const wilayahs = await this.prisma.wilayah.findMany({ orderBy: { name: 'asc' } });
+      const wilayahs = await this.prisma.wilayah.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } });
       for (const w of wilayahs) {
         const total = await this.prisma.student.count({
           where: { ...studentWhere, wilayahId: w.id }
@@ -443,7 +443,7 @@ export class DashboardService {
       }
     } else if (user.scope === 'WILAYAH') {
       const cabangs = await this.prisma.cabang.findMany({
-        where: { wilayahId: user.wilayahId },
+        where: { wilayahId: user.wilayahId, isActive: true },
         select: { id: true, name: true },
         orderBy: { name: 'asc' }
       });
@@ -583,9 +583,9 @@ export class DashboardService {
 
     const cabangs = await this.prisma.cabang.findMany({
       where: user.scope === 'GLOBAL'
-        ? {}
+        ? { isActive: true }
         : user.scope === 'WILAYAH'
-          ? { wilayahId: user.wilayahId }
+          ? { wilayahId: user.wilayahId, isActive: true }
           : { id: user.cabangId },
       include: {
         wilayah: { select: { id: true, name: true } },

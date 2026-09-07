@@ -40,6 +40,7 @@ export class KegiatanRekapService {
     if (templateId) whereKegiatan.templateId = templateId;
 
     const allCabang = await this.prisma.cabang.findMany({
+      where: { isActive: true },
       include: {
         wilayah: { select: { id: true, name: true } },
         kegiatan: {
@@ -58,6 +59,7 @@ export class KegiatanRekapService {
     });
 
     const allWilayah = await this.prisma.wilayah.findMany({
+      where: { isActive: true },
       select: { id: true, name: true },
       orderBy: { name: 'asc' }
     });

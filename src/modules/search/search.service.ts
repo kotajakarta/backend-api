@@ -36,6 +36,7 @@ export class SearchService {
       // Search cabang (only if GLOBAL or WILAYAH and matching scope)
       (user.scope === 'GLOBAL' || user.scope === 'WILAYAH') ? this.prisma.cabang.findMany({
         where: {
+          isActive: true,
           ...(user.scope === 'WILAYAH' ? { wilayahId: user.wilayahId } : {}),
           OR: [
             { name: { contains: q, mode: 'insensitive' } },

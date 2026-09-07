@@ -242,7 +242,7 @@ export class KegiatanService {
     const totalTemplates = templateId ? 1 : templatesList.length;
 
     // Scoping filters based on user.scope
-    const whereCabangFilter: any = {};
+    const whereCabangFilter: any = { isActive: true };
     const whereKegiatan: any = {};
     if (templateId) whereKegiatan.templateId = templateId;
 
@@ -359,7 +359,7 @@ export class KegiatanService {
       : 0;
 
     // Aggregation by Wilayah
-    const whereWilayahFilter: any = {};
+    const whereWilayahFilter: any = { isActive: true };
     if (user.scope === 'WILAYAH' && user.wilayahId) {
       whereWilayahFilter.id = user.wilayahId;
     } else if (user.scope === 'CABANG' && user.cabangId) {
@@ -371,6 +371,7 @@ export class KegiatanService {
       where: whereWilayahFilter,
       include: {
         cabangs: {
+          where: { isActive: true },
           select: {
             id: true,
             name: true,

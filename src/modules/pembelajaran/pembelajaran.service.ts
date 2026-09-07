@@ -850,7 +850,7 @@ export class PembelajaranService {
       targetDenominator = totalSabtu * (filters.mataPelajaranId ? 1 : 6);
     }
 
-    const cabangWhere: any = {};
+    const cabangWhere: any = { isActive: true };
     if (effectiveCabangId) {
       cabangWhere.id = effectiveCabangId;
     } else if (effectiveWilayahId) {
@@ -1250,14 +1250,14 @@ export class PembelajaranService {
     const filterOptions = { ...emptyFilterOptions };
     if (scopeLevel === 'GLOBAL') {
       const [allWilayah, allCabang] = await Promise.all([
-        this.prisma.wilayah.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
-        this.prisma.cabang.findMany({ select: { id: true, name: true, wilayahId: true }, orderBy: { name: 'asc' } })
+        this.prisma.wilayah.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+        this.prisma.cabang.findMany({ where: { isActive: true }, select: { id: true, name: true, wilayahId: true }, orderBy: { name: 'asc' } })
       ]);
       filterOptions.wilayahList = allWilayah;
       filterOptions.cabangList = allCabang;
     } else if (scopeLevel === 'WILAYAH') {
       const allCabang = await this.prisma.cabang.findMany({
-        where: { wilayahId: user.wilayahId },
+        where: { wilayahId: user.wilayahId, isActive: true },
         select: { id: true, name: true, wilayahId: true },
         orderBy: { name: 'asc' }
       });

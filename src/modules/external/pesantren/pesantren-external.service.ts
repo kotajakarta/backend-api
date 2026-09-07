@@ -191,6 +191,7 @@ export class PesantrenExternalService {
 
   async getCabangList() {
     const cabangs = await this.prisma.cabang.findMany({
+      where: { isActive: true },
       orderBy: [{ wilayah: { name: 'asc' } }, { name: 'asc' }],
       select: {
         id: true,

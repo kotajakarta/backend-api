@@ -34,13 +34,13 @@ export class DashboardRekapService {
     this.logger.log('Syncing GLOBAL rekap...');
     await this.computeAndSaveForScope('GLOBAL', 'GLOBAL');
 
-    const wilayahList = await this.prisma.wilayah.findMany({ select: { id: true, name: true } });
+    const wilayahList = await this.prisma.wilayah.findMany({ where: { isActive: true }, select: { id: true, name: true } });
     this.logger.log(`Syncing ${wilayahList.length} Wilayah rekaps...`);
     for (const w of wilayahList) {
       await this.computeAndSaveForScope(`WILAYAH_${w.id}`, 'WILAYAH', w.id);
     }
 
-    const cabangList = await this.prisma.cabang.findMany({ select: { id: true, name: true } });
+    const cabangList = await this.prisma.cabang.findMany({ where: { isActive: true }, select: { id: true, name: true } });
     this.logger.log(`Syncing ${cabangList.length} Cabang rekaps...`);
     for (const c of cabangList) {
       await this.computeAndSaveForScope(`CABANG_${c.id}`, 'CABANG', c.id);
@@ -59,7 +59,7 @@ export class DashboardRekapService {
     try {
       const studentWhere: any = { isActive: true };
       const kelasWhere: any = { isActive: true };
-      const cabangWhere: any = {};
+      const cabangWhere: any = { isActive: true };
       const staffWhere: any = { statusPool: 'AKTIF_CABANG' };
 
       if (scopeType === 'WILAYAH' && entityId) {
@@ -314,7 +314,7 @@ export class DashboardRekapService {
       // 8. Kelengkapan Entities
       const kelengkapanEntities: any[] = [];
       if (scopeType === 'GLOBAL') {
-        const wilayahs = await this.prisma.wilayah.findMany({ orderBy: { name: 'asc' } });
+        const wilayahs = await this.prisma.wilayah.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } });
         for (const w of wilayahs) {
           const total = await this.prisma.student.count({
             where: { ...studentWhere, wilayahId: w.id }
@@ -337,7 +337,7 @@ export class DashboardRekapService {
         }
       } else if (scopeType === 'WILAYAH' && entityId) {
         const cabangsInWil = await this.prisma.cabang.findMany({
-          where: { wilayahId: entityId },
+          where: { wilayahId: entityId, isActive: true },
           select: { id: true, name: true },
           orderBy: { name: 'asc' }
         });

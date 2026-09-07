@@ -785,7 +785,7 @@ export class BankSoalService {
   async getBranchesAndTeachers(wilayahId?: string, cabangId?: string) {
     const [branches, teachers] = await Promise.all([
       this.prisma.cabang.findMany({
-        where: wilayahId ? { wilayahId } : undefined,
+        where: wilayahId ? { wilayahId, isActive: true } : { isActive: true },
         select: { id: true, name: true, wilayahId: true },
         orderBy: { name: 'asc' },
       }),
@@ -810,6 +810,7 @@ export class BankSoalService {
     ]);
 
     const wilayahList = await this.prisma.wilayah.findMany({
+      where: { isActive: true },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     });

@@ -925,7 +925,7 @@ export class MasterDataService {
     return result;
   }
 
-  async getCabang(user: any) {
+  async getCabang(user: any, includeInactive = false) {
     let whereClause: any = {};
     if (user.scope === 'GLOBAL' || user.scope === 'AUDITOR') {
       whereClause = {};
@@ -936,6 +936,9 @@ export class MasterDataService {
     } else {
       throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses data cabang');
     }
+    if (!includeInactive) {
+      whereClause.isActive = true;
+    }
 
     const masterJenis = await this.prisma.jenisGrupDaimi.findMany({ select: { name: true } });
     const masterJenisNormList = masterJenis.map(j => ({ original: j.name, norm: normalizeDaimiKey(j.name) }));
@@ -945,6 +948,7 @@ export class MasterDataService {
       select: {
         id: true,
         name: true,
+        isActive: true,
         wilayahId: true,
         nameGlodemy: true,
         nameResmi: true,
@@ -1205,6 +1209,7 @@ export class MasterDataService {
     const result = await this.prisma.cabang.create({
       data: {
         name: data.name,
+        isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
         wilayahId: data.wilayahId || null,
         nameGlodemy: data.nameGlodemy || null,
         nameResmi: data.nameResmi || null,
@@ -1244,6 +1249,7 @@ export class MasterDataService {
       where: { id },
       data: {
         name: data.name,
+        isActive: typeof data.isActive === 'boolean' ? data.isActive : undefined,
         wilayahId: data.wilayahId || null,
         nameGlodemy: data.nameGlodemy || null,
         nameResmi: data.nameResmi || null,
@@ -1311,8 +1317,32 @@ export class MasterDataService {
     });
   }
 
-  async getWilayah() {
-    return this.prisma.wilayah.findMany();
+  async getWilayah(includeInactive = false) {
+    return this.prisma.wilayah.findMany({
+      where: includeInactive ? {} : { isActive: true }
+    });
+  }
+
+  async toggleCabangActive(id: string, isActive: boolean, user?: any) {
+    if (user && user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin global yang dapat mengubah status aktif cabang.');
+    }
+    const result = await this.prisma.cabang.update({ where: { id }, data: { isActive } });
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'CABANG', result.id, result.name, user, `Mengubah status cabang "${result.name}" menjadi ${isActive ? 'Aktif' : 'Nonaktif'}`);
+    }
+    return result;
+  }
+
+  async toggleWilayahActive(id: string, isActive: boolean, user?: any) {
+    if (user && user.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya admin global yang dapat mengubah status aktif wilayah.');
+    }
+    const result = await this.prisma.wilayah.update({ where: { id }, data: { isActive } });
+    if (user) {
+      await this.auditLogService.log('UPDATE', 'WILAYAH', result.id, result.name, user, `Mengubah status wilayah "${result.name}" menjadi ${isActive ? 'Aktif' : 'Nonaktif'}`);
+    }
+    return result;
   }
 
   async createWilayah(data: { name: string }, user?: any) {

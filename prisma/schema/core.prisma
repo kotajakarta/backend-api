@@ -1,6 +1,7 @@
 model Wilayah {
   id                 String             @id @default(uuid())
   name               String
+  isActive           Boolean            @default(true) @map("is_active")
   ketuaMuadalahId    String?            @map("ketua_muadalah_id")
   ketuaMuadalahName  String?            @map("ketua_muadalah_name")
   ketuaMuadalahPhone String?            @map("ketua_muadalah_phone")
@@ -20,6 +21,7 @@ model Wilayah {
 model Cabang {
   id                        String                @id @default(uuid())
   name                      String
+  isActive                  Boolean               @default(true) @map("is_active")
   wilayahId                 String?               @map("wilayah_id")
   kapasitasSantri           Int?                  @default(0) @map("kapasitas_santri")
   nameGlodemy               String?               @map("name_glodemy")

@@ -133,7 +133,14 @@ export class MasterDataController {
   @Get('cabang')
   @UseGuards(AccessControlGuard)
   getCabang(@Request() req: any) {
-    return this.masterDataService.getCabang(req.user);
+    return this.masterDataService.getCabang(req.user, req.query.includeInactive === 'true');
+  }
+
+  @Put('cabang/:id/active')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  toggleCabangActive(@Request() req: any, @Param('id') id: string, @Body() body: { isActive: boolean }) {
+    return this.masterDataService.toggleCabangActive(id, body.isActive, req.user);
   }
 
   @Post('cabang')
@@ -191,8 +198,15 @@ export class MasterDataController {
 
   @Get('wilayah')
   @UseGuards(AccessControlGuard)
-  getWilayah() {
-    return this.masterDataService.getWilayah();
+  getWilayah(@Request() req: any) {
+    return this.masterDataService.getWilayah(req.query.includeInactive === 'true');
+  }
+
+  @Put('wilayah/:id/active')
+  @UseGuards(AccessControlGuard)
+  @RequireScope('GLOBAL')
+  toggleWilayahActive(@Request() req: any, @Param('id') id: string, @Body() body: { isActive: boolean }) {
+    return this.masterDataService.toggleWilayahActive(id, body.isActive, req.user);
   }
 
   @Post('wilayah')

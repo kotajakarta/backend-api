@@ -1127,7 +1127,7 @@ export class EmisService {
       whereDetail.cabangId = cabangId;
     } else if (wilayahId && wilayahId !== 'ALL') {
       const cabangsInWilayah = await this.prisma.cabang.findMany({
-        where: { wilayahId },
+        where: { wilayahId, isActive: true },
         select: { id: true },
       });
       const cabangIds = cabangsInWilayah.map((c: any) => c.id);
@@ -1233,7 +1233,7 @@ export class EmisService {
       whereDetail.cabangId = cabangId;
     } else if (wilayahId && wilayahId !== 'ALL') {
       const cabangsInWilayah = await this.prisma.cabang.findMany({
-        where: { wilayahId },
+        where: { wilayahId, isActive: true },
         select: { id: true },
       });
       const cabangIds = cabangsInWilayah.map((c: any) => c.id);
