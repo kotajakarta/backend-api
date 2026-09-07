@@ -128,8 +128,25 @@ export class PembelajaranRekapService {
     else if (mode === 'yearly') targetDenominator = 12;
 
     // 2. Fetch all active Classes, Pelaksanaan, and Absensi for this date window
+    // Kelas hanya diikutkan jika cabang & wilayah induknya masih aktif -- jika tidak, kelas ini
+    // tetap punya isActive=true sendiri tapi induknya sudah dinonaktifkan (mis. wilayah tes),
+    // dan seharusnya tidak lagi muncul di rekap manapun.
     const rawKelasList = await this.prisma.kelas.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        OR: [
+          { cabangId: null },
+          {
+            cabang: {
+              isActive: true,
+              OR: [
+                { wilayahId: null },
+                { wilayah: { isActive: true } }
+              ]
+            }
+          }
+        ]
+      },
       include: {
         cabang: { include: { wilayah: true } },
         ruang: true,
@@ -629,8 +646,18 @@ export class PembelajaranRekapService {
       filterOptions.cabangList = allCabang;
     }
 
-    // Apply scoping filters on unitBreakdown
+    // Buang baris cache rekapPembelajaran yang sudah usang untuk wilayah/cabang yang sekarang
+    // dinonaktifkan -- syncPeriod melakukan upsert per unit, jadi baris lama untuk unit yang
+    // sudah tidak aktif tidak otomatis terhapus, harus disaring ulang di sini saat dibaca.
     let filteredRekap = rekapRecords;
+    if (breakdownLevel === 'WILAYAH' && scopeLevel === 'GLOBAL') {
+      const validWilayahIds = new Set(filterOptions.wilayahList.map(w => w.id));
+      filteredRekap = filteredRekap.filter(r => validWilayahIds.has(r.unitId));
+    } else if (breakdownLevel === 'CABANG') {
+      const validCabangIds = new Set(filterOptions.cabangList.map(c => c.id));
+      filteredRekap = filteredRekap.filter(r => validCabangIds.has(r.unitId));
+    }
+
     if (breakdownLevel === 'CABANG') {
       const effectiveWilayahId = user?.scope === 'WILAYAH' ? user.wilayahId : wilayahId;
       if (effectiveWilayahId) {
