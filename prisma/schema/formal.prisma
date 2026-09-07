@@ -49,6 +49,8 @@ model LembagaMuadalah {
   code                    String   @unique
   npsn                    String?
   nspp                    String?
+  wilayahId               String?  @map("wilayah_id")
+  wilayah                 Wilayah? @relation(fields: [wilayahId], references: [id])
   pesantrenInduk          String?  @map("pesantren_induk")
   tahunBerdiri            String?  @map("tahun_berdiri")
   namaKetua               String?  @map("nama_ketua")

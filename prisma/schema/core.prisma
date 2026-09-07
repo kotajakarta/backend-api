@@ -13,6 +13,7 @@ model Wilayah {
   permohonanCabang   PermohonanCabang[]
   permohonanKelas    PermohonanKelas[]
   bankSoalAssignments BankSoalAssignment[]
+  lembagaMuadalah    LembagaMuadalah[]
 
   @@map("wilayah")
   @@schema("core")

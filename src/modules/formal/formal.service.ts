@@ -1255,7 +1255,7 @@ export class FormalService {
     });
   }
 
-  async getLembagaMuadalah(user?: any) {
+  async getLembagaMuadalah(user?: any, wilayahId?: string) {
     const where: any = {};
     if (user?.scope === 'CABANG') {
       where.kelas = {
@@ -1264,11 +1264,17 @@ export class FormalService {
         }
       };
     }
+    if (wilayahId) {
+      where.wilayahId = wilayahId;
+    }
 
     const list = await this.prisma.lembagaMuadalah.findMany({
       where,
       orderBy: { name: 'asc' },
       include: {
+        wilayah: {
+          select: { id: true, name: true }
+        },
         kelas: {
           where: user?.scope === 'CABANG' ? { cabangId: user.cabangId } : undefined,
           select: {
@@ -1360,11 +1366,12 @@ export class FormalService {
     });
   }
 
-  async createLembagaMuadalah(data: { 
-    name: string; 
-    code: string; 
-    npsn?: string; 
-    nspp?: string; 
+  async createLembagaMuadalah(data: {
+    name: string;
+    code: string;
+    npsn?: string;
+    nspp?: string;
+    wilayahId?: string;
     pesantrenInduk?: string;
     tahunBerdiri?: string;
     namaKetua?: string; 
@@ -1399,6 +1406,7 @@ export class FormalService {
         code: data.code,
         npsn: data.npsn || null,
         nspp: data.nspp || null,
+        wilayahId: data.wilayahId || null,
         pesantrenInduk: data.pesantrenInduk || null,
         tahunBerdiri: data.tahunBerdiri || null,
         namaKetua: data.namaKetua || null,
@@ -1428,11 +1436,12 @@ export class FormalService {
     return result;
   }
 
-  async updateLembagaMuadalah(id: string, data: { 
-    name: string; 
-    code: string; 
-    npsn?: string; 
-    nspp?: string; 
+  async updateLembagaMuadalah(id: string, data: {
+    name: string;
+    code: string;
+    npsn?: string;
+    nspp?: string;
+    wilayahId?: string;
     pesantrenInduk?: string;
     tahunBerdiri?: string;
     namaKetua?: string; 
@@ -1471,6 +1480,7 @@ export class FormalService {
         code: data.code,
         npsn: data.npsn || null,
         nspp: data.nspp || null,
+        wilayahId: data.wilayahId || null,
         pesantrenInduk: data.pesantrenInduk || null,
         tahunBerdiri: data.tahunBerdiri || null,
         namaKetua: data.namaKetua || null,
