@@ -161,6 +161,12 @@ export class KegiatanController {
     return this.kegiatanService.findAll(req.user);
   }
 
+  @Post('tidak-bisa-bap')
+  @UseGuards(AccessControlGuard)
+  async markTidakBisaBap(@Request() req: any, @Body() body: { templateId: string; alasan: string; cabangId?: string }) {
+    return this.kegiatanService.markTidakBisaBap(body, req.user);
+  }
+
   @Post(':id/confirm')
   @UseGuards(AccessControlGuard)
   async confirmKegiatan(@Param('id') id: string, @Request() req: any) {

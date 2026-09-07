@@ -460,21 +460,9 @@ export class KegiatanRekapService {
       orderBy: { deadline: 'desc' }
     });
 
-    // Global summary
+    // Global summary (dipakai sebagai fallback & sumber totalTemplates)
     const globalRec = rekapRecords.find(r => r.groupType === 'GLOBAL' && r.groupId === 'GLOBAL');
     const globalExtra = (globalRec?.extraData as any) || {};
-
-    const summary = {
-      totalTemplates: globalExtra.totalTemplates || (templateId ? 1 : templatesOptions.length),
-      totalCabang: globalRec?.totalCabang || 0,
-      totalBapSubmitted: globalRec?.totalBapSubmitted || 0,
-      totalBapConfirmed: globalRec?.totalBapConfirmed || 0,
-      totalBapPending: globalRec?.totalBapPending || 0,
-      totalSantriTerjangkau: globalRec?.totalSantri || 0,
-      totalGuruTerjangkau: globalRec?.totalGuru || 0,
-      totalPesertaTerjangkau: globalRec?.totalPeserta || 0,
-      completionRate: globalRec?.completionRate || 0
-    };
 
     // Scoping for Wilayah or Cabang user
     let wilayahRecords = rekapRecords.filter(r => r.groupType === 'WILAYAH');
@@ -484,9 +472,36 @@ export class KegiatanRekapService {
     if (user?.scope === 'WILAYAH' && user.wilayahId) {
       wilayahRecords = wilayahRecords.filter(r => r.groupId === user.wilayahId);
       cabangRecords = cabangRecords.filter(r => r.parentGroupId === user.wilayahId);
+      // Rekap LEMBAGA tidak menyimpan wilayahId/cabangId induk (satu lembaga bisa lintas
+      // cabang), jadi belum bisa disaring per-wilayah secara akurat -- sembunyikan saja
+      // untuk role non-GLOBAL daripada menampilkan data lembaga lintas wilayah lain.
+      lembagaRecords = [];
     } else if (user?.scope === 'CABANG' && user.cabangId) {
       cabangRecords = cabangRecords.filter(r => r.groupId === user.cabangId);
+      lembagaRecords = [];
     }
+
+    // Kartu ringkasan harus mengikuti scope pengguna -- WILAYAH hanya lihat wilayahnya sendiri,
+    // CABANG hanya lihat cabangnya sendiri. Sebelumnya kartu ini selalu memakai globalRec
+    // (data seluruh Pusat) untuk semua role, sehingga tidak terisolasi.
+    let summaryRec = globalRec;
+    if (user?.scope === 'WILAYAH' && user.wilayahId) {
+      summaryRec = wilayahRecords[0];
+    } else if (user?.scope === 'CABANG' && user.cabangId) {
+      summaryRec = cabangRecords[0];
+    }
+
+    const summary = {
+      totalTemplates: globalExtra.totalTemplates || (templateId ? 1 : templatesOptions.length),
+      totalCabang: summaryRec?.totalCabang || 0,
+      totalBapSubmitted: summaryRec?.totalBapSubmitted || 0,
+      totalBapConfirmed: summaryRec?.totalBapConfirmed || 0,
+      totalBapPending: summaryRec?.totalBapPending || 0,
+      totalSantriTerjangkau: summaryRec?.totalSantri || 0,
+      totalGuruTerjangkau: summaryRec?.totalGuru || 0,
+      totalPesertaTerjangkau: summaryRec?.totalPeserta || 0,
+      completionRate: summaryRec?.completionRate || 0
+    };
 
     const byWilayah = wilayahRecords.map(w => ({
       wilayahId: w.groupId,
@@ -519,8 +534,22 @@ export class KegiatanRekapService {
       };
     });
 
+    // "Tidak Bisa BAP" adalah fakta per (cabang x template), sedangkan status rekap di atas
+    // (SELESAI/SEBAGIAN/BELUM_ADA) adalah rollup jumlah submit -- jadi baru bermakna dipetakan
+    // ke status per-baris saat admin sedang melihat SATU template spesifik (bukan agregat semua).
+    let tidakBisaMap = new Map<string, { alasan: string; at: Date | null }>();
+    if (templateId && cabangRecords.length > 0) {
+      const tidakBisaWhere: any = { templateId, tidakBisaBap: true, cabangId: { in: cabangRecords.map(c => c.groupId) } };
+      const tidakBisaRows = await this.prisma.kegiatan.findMany({
+        where: tidakBisaWhere,
+        select: { cabangId: true, alasanTidakBisaBap: true, tidakBisaBapAt: true }
+      });
+      tidakBisaRows.forEach(r => tidakBisaMap.set(r.cabangId, { alasan: r.alasanTidakBisaBap || '', at: r.tidakBisaBapAt }));
+    }
+
     const byCabangProgress = cabangRecords.map(c => {
       const extra = (c.extraData as any) || {};
+      const tidakBisa = tidakBisaMap.get(c.groupId);
       return {
         cabangId: c.groupId,
         cabangName: c.groupName,
@@ -533,7 +562,9 @@ export class KegiatanRekapService {
         totalGuru: c.totalGuru,
         totalPeserta: c.totalPeserta,
         completionRate: c.completionRate,
-        status: c.status
+        status: tidakBisa ? 'TIDAK_BISA' : c.status,
+        alasanTidakBisaBap: tidakBisa?.alasan || null,
+        tidakBisaBapAt: tidakBisa?.at || null
       };
     });
 
@@ -558,8 +589,11 @@ export class KegiatanRekapService {
       userCabangName: user?.cabangName || null,
       templatesOptions,
       charts: {
-        byJenis: globalExtra.byJenis || [],
-        topCabang: globalExtra.topCabang || [],
+        // byJenis/topCabang hanya dihitung sebagai agregat nasional (extraData milik record
+        // GLOBAL) -- belum ada versi per-wilayah/per-cabang, jadi sembunyikan untuk role
+        // non-GLOBAL agar tidak membocorkan data cabang/wilayah lain.
+        byJenis: (user?.scope === 'GLOBAL' || user?.scope === 'AUDITOR') ? (globalExtra.byJenis || []) : [],
+        topCabang: (user?.scope === 'GLOBAL' || user?.scope === 'AUDITOR') ? (globalExtra.topCabang || []) : [],
         byTemplate,
         byWilayah,
         byLembaga,
@@ -567,7 +601,7 @@ export class KegiatanRekapService {
         byStatus: {
           confirmed: summary.totalBapConfirmed,
           pending: summary.totalBapPending,
-          expectedMissing: Math.max(0, summary.totalCabang - globalRec?.activeCabangCount! || 0)
+          expectedMissing: Math.max(0, summary.totalCabang - (summaryRec?.activeCabangCount || 0))
         }
       }
     };

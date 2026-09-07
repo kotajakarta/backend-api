@@ -628,28 +628,40 @@ export class KegiatanService {
     const totalGuru = data.totalGuru !== undefined ? Number(data.totalGuru) : null;
     const jumlahPeserta = data.jumlahPeserta !== undefined ? Number(data.jumlahPeserta) : (totalSantri || 0) + (totalGuru || 0);
 
+    // Cabang sebelumnya bisa saja sudah menandai kegiatan ini "Tidak Bisa BAP" -- jika keadaan
+    // berubah dan cabang akhirnya bisa melapor, ubah baris deklarasi itu menjadi laporan BAP
+    // sungguhan, bukan membuat baris duplikat baru untuk template+cabang yang sama.
+    const existingTidakBisa = await this.prisma.kegiatan.findFirst({
+      where: { templateId: data.templateId, cabangId, tidakBisaBap: true }
+    });
+
+    const kegiatanData = {
+      templateId: data.templateId,
+      cabangId: cabangId,
+      asramaId: data.asramaId || null,
+      deskripsi: data.deskripsi || template.bentukKegiatan || template.judul,
+      tanggalKegiatan: data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null,
+      waktuKegiatan: data.waktuKegiatan || null,
+      tempatKegiatan: data.tempatKegiatan || null,
+      totalSantri: totalSantri,
+      totalGuru: totalGuru,
+      jumlahPeserta: jumlahPeserta,
+      bentukKegiatan: data.bentukKegiatan || null,
+      rangkaianKegiatan: data.rangkaianKegiatan || null,
+      hasilPelaksanaan: data.hasilPelaksanaan || null,
+      evaluasiBaik: data.evaluasiBaik || null,
+      evaluasiPerbaikan: data.evaluasiPerbaikan || null,
+      ringkasanKegiatan: data.ringkasanKegiatan || null,
+      kesimpulan: data.kesimpulan || null,
+      tidakBisaBap: false,
+      alasanTidakBisaBap: null,
+      tidakBisaBapAt: null,
+    };
+
     return this.prisma.$transaction(async (tx) => {
-      const kegiatan = await tx.kegiatan.create({
-        data: {
-          templateId: data.templateId,
-          cabangId: cabangId,
-          asramaId: data.asramaId || null,
-          deskripsi: data.deskripsi || template.bentukKegiatan || template.judul,
-          tanggalKegiatan: data.tanggalKegiatan ? new Date(data.tanggalKegiatan) : null,
-          waktuKegiatan: data.waktuKegiatan || null,
-          tempatKegiatan: data.tempatKegiatan || null,
-          totalSantri: totalSantri,
-          totalGuru: totalGuru,
-          jumlahPeserta: jumlahPeserta,
-          bentukKegiatan: data.bentukKegiatan || null,
-          rangkaianKegiatan: data.rangkaianKegiatan || null,
-          hasilPelaksanaan: data.hasilPelaksanaan || null,
-          evaluasiBaik: data.evaluasiBaik || null,
-          evaluasiPerbaikan: data.evaluasiPerbaikan || null,
-          ringkasanKegiatan: data.ringkasanKegiatan || null,
-          kesimpulan: data.kesimpulan || null,
-        }
-      });
+      const kegiatan = existingTidakBisa
+        ? await tx.kegiatan.update({ where: { id: existingTidakBisa.id }, data: kegiatanData })
+        : await tx.kegiatan.create({ data: kegiatanData });
 
       if (data.ketuaPanitiaId) {
         await tx.panitia.create({
@@ -710,6 +722,42 @@ export class KegiatanService {
         }
       });
     });
+  }
+
+  async markTidakBisaBap(data: { templateId: string; alasan: string; cabangId?: string }, user: any) {
+    let cabangId = user.cabangId;
+    if (user.scope === 'GLOBAL' && data.cabangId) {
+      cabangId = data.cabangId;
+    }
+    if (!cabangId) {
+      throw new ForbiddenException('Cabang tidak valid untuk menandai kegiatan tidak bisa BAP.');
+    }
+    if (!data.alasan || !data.alasan.trim()) {
+      throw new BadRequestException('Alasan tidak bisa BAP wajib diisi.');
+    }
+
+    const template = await this.prisma.templateKegiatan.findUnique({ where: { id: data.templateId } });
+    if (!template) throw new NotFoundException('Template kegiatan tidak ditemukan');
+
+    const existing = await this.prisma.kegiatan.findFirst({
+      where: { templateId: data.templateId, cabangId }
+    });
+
+    if (existing && !existing.tidakBisaBap) {
+      throw new BadRequestException('Kegiatan ini sudah memiliki laporan BAP dan tidak dapat ditandai sebagai tidak bisa BAP.');
+    }
+
+    const payload = {
+      templateId: data.templateId,
+      cabangId,
+      tidakBisaBap: true,
+      alasanTidakBisaBap: data.alasan.trim(),
+      tidakBisaBapAt: new Date(),
+    };
+
+    return existing
+      ? this.prisma.kegiatan.update({ where: { id: existing.id }, data: payload })
+      : this.prisma.kegiatan.create({ data: payload });
   }
 
   async findAll(user: any) {

@@ -74,6 +74,11 @@ model Kegiatan {
   confirmedAt       DateTime?         @map("confirmed_at")
   confirmedByUserId String?           @map("confirmed_by_user_id")
 
+  // Cabang tidak dapat melaksanakan kegiatan (BAP tidak bisa dibuat)
+  tidakBisaBap        Boolean  @default(false) @map("tidak_bisa_bap")
+  alasanTidakBisaBap  String?  @map("alasan_tidak_bisa_bap")
+  tidakBisaBapAt      DateTime? @map("tidak_bisa_bap_at")
+
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
 
