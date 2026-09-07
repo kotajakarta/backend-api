@@ -464,10 +464,18 @@ export class KegiatanRekapService {
     const globalRec = rekapRecords.find(r => r.groupType === 'GLOBAL' && r.groupId === 'GLOBAL');
     const globalExtra = (globalRec?.extraData as any) || {};
 
+    // rekap_kegiatan di-upsert per wilayah/cabang aktif saat sync -- baris lama untuk unit yang
+    // sejak itu dinonaktifkan (mis. wilayah tes) tidak otomatis terhapus, jadi harus disaring
+    // ulang terhadap daftar wilayah/cabang yang aktif SEKARANG sebelum ditampilkan.
+    const [activeWilayahIds, activeCabangIds] = await Promise.all([
+      this.prisma.wilayah.findMany({ where: { isActive: true }, select: { id: true } }).then(rows => new Set(rows.map(r => r.id))),
+      this.prisma.cabang.findMany({ where: { isActive: true }, select: { id: true } }).then(rows => new Set(rows.map(r => r.id)))
+    ]);
+
     // Scoping for Wilayah or Cabang user
-    let wilayahRecords = rekapRecords.filter(r => r.groupType === 'WILAYAH');
+    let wilayahRecords = rekapRecords.filter(r => r.groupType === 'WILAYAH' && activeWilayahIds.has(r.groupId));
     let lembagaRecords = rekapRecords.filter(r => r.groupType === 'LEMBAGA');
-    let cabangRecords = rekapRecords.filter(r => r.groupType === 'CABANG');
+    let cabangRecords = rekapRecords.filter(r => r.groupType === 'CABANG' && activeCabangIds.has(r.groupId));
 
     if (user?.scope === 'WILAYAH' && user.wilayahId) {
       wilayahRecords = wilayahRecords.filter(r => r.groupId === user.wilayahId);
