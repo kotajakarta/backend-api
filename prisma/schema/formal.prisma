@@ -248,6 +248,7 @@ model KomparasiEmisBatch {
   executedAt         DateTime        @default(now()) @map("executed_at")
   executedById       String?         @map("executed_by_id")
   totalSantriEsantri Int             @default(0) @map("total_santri_esantri")
+  totalSantriMuadalah Int            @default(0) @map("total_santri_muadalah")
   totalTerdaftarEmis Int             @default(0) @map("total_terdaftar_emis")
   totalBelumEmis     Int             @default(0) @map("total_belum_emis")
   totalVervalOk      Int             @default(0) @map("total_verval_ok")

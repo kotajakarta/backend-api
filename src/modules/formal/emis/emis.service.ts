@@ -55,6 +55,7 @@ export interface ReconciliationSummary {
   batchId?: string;
   executedAt?: Date;
   totalSantriEsantri: number;
+  totalSantriMuadalah: number;
   totalTerdaftarEmis: number;
   totalBelumEmis: number;
   totalVervalOk: number;
@@ -802,9 +803,20 @@ export class EmisService {
     let totalDiskrepansi = 0;
     let totalButuhTindakan = 0;
 
+    let totalSantriMuadalah = 0;
+
     for (const s of dbStudents) {
       const bio = s.biodata || ({} as any);
       const sf = s.siswaFormal;
+
+      // EMIS & VervalPD hanya mencakup santri muadalah (terdaftar di rombel Kelas formal,
+      // tingkat 7-12). Santri non-muadalah (daimi-only, tanpa Kelas) tidak pernah didaftarkan
+      // ke sistem-sistem tersebut, jadi jangan ikut dikomparasi -- kalau tidak, mereka akan
+      // salah ditandai "Belum Masuk EMIS" / "Butuh Tindakan" padahal memang bukan populasinya.
+      const isMuadalah = Boolean(sf?.kelasId && sf?.kelas);
+      if (!isMuadalah) continue;
+      totalSantriMuadalah++;
+
       const cabangIdStr = s.cabangId || 'TANPA_CABANG';
       const cabangNameStr = s.cabang?.name || 'Cabang Belum Ditentukan';
       const wilayahNameStr = s.wilayah?.name || s.cabang?.alamatProvName || '-';
@@ -1036,6 +1048,7 @@ export class EmisService {
         data: {
           executedById: options.executedById || null,
           totalSantriEsantri: dbStudents.length,
+          totalSantriMuadalah,
           totalTerdaftarEmis,
           totalBelumEmis,
           totalVervalOk,
@@ -1096,6 +1109,7 @@ export class EmisService {
       batchId: savedBatchId,
       executedAt: savedExecutedAt,
       totalSantriEsantri: dbStudents.length,
+      totalSantriMuadalah,
       totalTerdaftarEmis,
       totalBelumEmis,
       totalVervalOk,
@@ -1169,7 +1183,12 @@ export class EmisService {
 
     const isFiltered = Boolean((cabangId && cabangId !== 'ALL') || (wilayahId && wilayahId !== 'ALL'));
 
-    const totalSantriEsantri = isFiltered ? details.length : latestBatch.totalSantriEsantri;
+    // `details` (baris komparasi_emis tersimpan) hanya berisi santri muadalah -- EMIS/VervalPD
+    // tidak pernah mencakup santri non-muadalah, jadi jangan dikomparasi terhadap mereka.
+    const totalSantriMuadalah = isFiltered ? details.length : latestBatch.totalSantriMuadalah;
+    const totalSantriEsantri = isFiltered
+      ? await this.prisma.student.count({ where: { isActive: true, ...whereDetail.cabangId ? { cabangId: whereDetail.cabangId } : {} } })
+      : latestBatch.totalSantriEsantri;
     const totalTerdaftarEmis = isFiltered ? details.filter((d: any) => d.statusEmis === 'TERDAFTAR').length : latestBatch.totalTerdaftarEmis;
     const totalBelumEmis = isFiltered ? details.filter((d: any) => d.statusEmis === 'BELUM_TERDAFTAR').length : latestBatch.totalBelumEmis;
     const totalVervalOk = isFiltered ? details.filter((d: any) => d.statusVerval === 'VERVAL_OK').length : latestBatch.totalVervalOk;
@@ -1182,6 +1201,7 @@ export class EmisService {
       batchId: latestBatch.id,
       executedAt: latestBatch.executedAt,
       totalSantriEsantri,
+      totalSantriMuadalah,
       totalTerdaftarEmis,
       totalBelumEmis,
       totalVervalOk,
@@ -1275,7 +1295,12 @@ export class EmisService {
 
     const isFiltered = Boolean((cabangId && cabangId !== 'ALL') || (wilayahId && wilayahId !== 'ALL'));
 
-    const totalSantriEsantri = isFiltered ? details.length : batch.totalSantriEsantri;
+    // `details` (baris komparasi_emis tersimpan) hanya berisi santri muadalah -- EMIS/VervalPD
+    // tidak pernah mencakup santri non-muadalah, jadi jangan dikomparasi terhadap mereka.
+    const totalSantriMuadalah = isFiltered ? details.length : batch.totalSantriMuadalah;
+    const totalSantriEsantri = isFiltered
+      ? await this.prisma.student.count({ where: { isActive: true, ...whereDetail.cabangId ? { cabangId: whereDetail.cabangId } : {} } })
+      : batch.totalSantriEsantri;
     const totalTerdaftarEmis = isFiltered ? details.filter((d: any) => d.statusEmis === 'TERDAFTAR').length : batch.totalTerdaftarEmis;
     const totalBelumEmis = isFiltered ? details.filter((d: any) => d.statusEmis === 'BELUM_TERDAFTAR').length : batch.totalBelumEmis;
     const totalVervalOk = isFiltered ? details.filter((d: any) => d.statusVerval === 'VERVAL_OK').length : batch.totalVervalOk;
@@ -1288,6 +1313,7 @@ export class EmisService {
       batchId: batch.id,
       executedAt: batch.executedAt,
       totalSantriEsantri,
+      totalSantriMuadalah,
       totalTerdaftarEmis,
       totalBelumEmis,
       totalVervalOk,
