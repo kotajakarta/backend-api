@@ -815,6 +815,85 @@ export class PembelajaranService {
     throw new BadRequestException('Parameter periode tidak lengkap untuk mode laporan ini.');
   }
 
+  // Jalur cache untuk getLaporan: baca dari rekap_pembelajaran (unitLevel CABANG) alih-alih
+  // menghitung live dari pelaksanaan_silabus/absensi_mapel. Periode yang belum pernah
+  // disinkronkan akan dihitung & disimpan sekali (sama seperti getRingkasanFromRekap), sehingga
+  // pemuatan berikutnya untuk periode yang sama sudah cepat.
+  private async getLaporanFromRekap(
+    filters: { mode: 'weekly' | 'monthly' | 'semester'; weekStart?: string; month?: string; tahunAjaran?: string; semester?: string },
+    effectiveWilayahId?: string,
+    effectiveCabangId?: string
+  ): Promise<{ periode: { gte: Date; lte: Date }; rekap: any[] } | null> {
+    const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
+    const tahunAjaran = filters.tahunAjaran || pengaturan?.tahunAjaran || '';
+    const semester = filters.semester || pengaturan?.semesterAktif || '';
+    if (!tahunAjaran || !semester) return null;
+
+    const { startDate, endDate, periodeKey } = this.pembelajaranRekapService.resolvePeriodDates(filters.mode, {
+      weekStart: filters.mode === 'weekly' ? filters.weekStart : undefined,
+      month: filters.mode === 'monthly' ? filters.month : undefined,
+      tahunAjaran,
+      semester
+    });
+
+    const cabangWhere: any = { isActive: true };
+    if (effectiveCabangId) {
+      cabangWhere.id = effectiveCabangId;
+    } else if (effectiveWilayahId) {
+      cabangWhere.wilayahId = effectiveWilayahId;
+    }
+    const allCabangList = await this.prisma.cabang.findMany({
+      where: cabangWhere,
+      include: { wilayah: true },
+      orderBy: { name: 'asc' }
+    });
+    if (allCabangList.length === 0) {
+      return { periode: { gte: startDate, lte: endDate }, rekap: [] };
+    }
+
+    const periodeTipe = filters.mode.toUpperCase();
+    const rekapWhere = { tahunAjaran, semester, periodeTipe, periodeKey, unitLevel: 'CABANG', mataPelajaranId: 'ALL' };
+    let rekapRows = await this.prisma.rekapPembelajaran.findMany({ where: rekapWhere });
+
+    if (rekapRows.length === 0) {
+      await this.pembelajaranRekapService.syncPeriod(tahunAjaran, semester, filters.mode, periodeKey);
+      rekapRows = await this.prisma.rekapPembelajaran.findMany({ where: rekapWhere });
+    }
+
+    const rekapByCabangId = new Map(rekapRows.map(r => [r.unitId, r]));
+
+    const rekap = allCabangList.map(c => {
+      const r = rekapByCabangId.get(c.id);
+      const jumlahRombel = r?.jumlahKelas ?? 0;
+      const jumlahSiswa = r?.jumlahSiswa ?? 0;
+      const pelaksanaanCompleted = r?.mapelTerlaksana ?? 0;
+      const pelaksanaanTotal = r?.mapelTarget ?? 0;
+      const hadir = r?.totalHadir ?? 0;
+      const totalAbsensi = r?.totalAbsensi ?? 0;
+      return {
+        cabangId: c.id,
+        cabangName: c.name,
+        wilayahName: c.wilayah?.name || 'Tanpa Wilayah',
+        jumlahRombel,
+        jumlahSiswa,
+        persenSilabus: pelaksanaanTotal > 0 ? Math.round((pelaksanaanCompleted / pelaksanaanTotal) * 100) : 0,
+        silabusCompleted: pelaksanaanCompleted,
+        silabusTotal: pelaksanaanTotal,
+        persenKehadiran: r?.persenKehadiran ?? 0,
+        hadir,
+        totalAbsensi,
+        persenPelaksanaan: r?.persenMapel ?? 0,
+        pelaksanaanCompleted,
+        pelaksanaanTotal
+      };
+    });
+
+    return {
+      periode: { gte: startDate, lte: endDate },
+      rekap: rekap.sort((a, b) => a.cabangName.localeCompare(b.cabangName))
+    };
+  }
+
   async getLaporan(
     filters: {
       wilayahId?: string;
@@ -834,6 +913,14 @@ export class PembelajaranService {
       effectiveWilayahId = user.wilayahId;
     } else if (user?.scope === 'CABANG') {
       effectiveCabangId = user.cabangId;
+    }
+
+    // Jalur cache (rekap_pembelajaran): dipakai hanya untuk tampilan semua-mapel, karena rekap
+    // belum menyimpan breakdown per mata pelajaran. Filter mapel spesifik tetap dihitung live
+    // di bawah supaya drill-down per mapel selalu akurat.
+    if (!filters.mataPelajaranId) {
+      const fromCache = await this.getLaporanFromRekap(filters, effectiveWilayahId, effectiveCabangId);
+      if (fromCache) return fromCache;
     }
 
     const dateRange = this.resolveDateRange(filters.mode, filters);
