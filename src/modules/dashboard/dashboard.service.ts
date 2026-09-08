@@ -598,6 +598,10 @@ export class DashboardService {
                 mataPelajaran: { select: { id: true, name: true } },
                 staff: { select: { id: true, name: true } }
               }
+            },
+            siswaFormal: {
+              where: { student: { isActive: true } },
+              select: { id: true }
             }
           }
         }
@@ -630,6 +634,7 @@ export class DashboardService {
           tingkat: kelas.tingkat || null,
           subjectCoverage,
           missingCount,
+          jumlahSiswa: kelas.siswaFormal.length,
           status: missingCount === 0 ? 'lengkap' : missingCount === requiredSubjects.length ? 'kosong' : 'sebagian'
         });
       }
