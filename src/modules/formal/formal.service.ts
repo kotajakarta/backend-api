@@ -1257,14 +1257,18 @@ export class FormalService {
 
   async getLembagaMuadalah(user?: any, wilayahId?: string) {
     const where: any = {};
-    if (user?.scope === 'CABANG') {
+    if (user?.scope === 'CABANG' && user.cabangId) {
       where.kelas = {
         some: {
           cabangId: user.cabangId
         }
       };
-    }
-    if (wilayahId) {
+    } else if (user?.scope === 'WILAYAH' && user.wilayahId) {
+      where.OR = [
+        { wilayahId: user.wilayahId },
+        { kelas: { some: { cabang: { wilayahId: user.wilayahId } } } }
+      ];
+    } else if (wilayahId) {
       where.wilayahId = wilayahId;
     }
 
@@ -1276,7 +1280,11 @@ export class FormalService {
           select: { id: true, name: true }
         },
         kelas: {
-          where: user?.scope === 'CABANG' ? { cabangId: user.cabangId } : undefined,
+          where: user?.scope === 'CABANG' && user.cabangId
+            ? { cabangId: user.cabangId }
+            : (user?.scope === 'WILAYAH' && user.wilayahId)
+              ? { cabang: { wilayahId: user.wilayahId } }
+              : undefined,
           select: {
             id: true,
             name: true,
