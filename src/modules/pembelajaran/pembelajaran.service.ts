@@ -45,6 +45,27 @@ export class PembelajaranService {
     return dateStr.slice(0, 10) > todayStr;
   }
 
+  // Trigger background sync for the affected month(s) & semester so Ringkasan is automatically refreshed
+  private triggerRekapSync(dates: string[]) {
+    try {
+      const validDates = dates.filter(Boolean);
+      if (validDates.length === 0) return;
+      const months = Array.from(new Set(validDates.map(d => d.slice(0, 7))));
+      this.prisma.pengaturanAkademik.findFirst().then(pengaturan => {
+        const ta = pengaturan?.tahunAjaran || '2026/2027';
+        const sem = pengaturan?.semesterAktif || '1';
+        for (const m of months) {
+          this.pembelajaranRekapService.syncPeriod(ta, sem, 'monthly', m).catch(err => {
+            console.error(`[PembelajaranService] Background monthly sync error (${m}):`, err?.message);
+          });
+        }
+        this.pembelajaranRekapService.syncPeriod(ta, sem, 'semester').catch(err => {
+          console.error('[PembelajaranService] Background semester sync error:', err?.message);
+        });
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
   // ===== A. Kelola Silabus (Admin Pusat) =====
 
   async getSilabus(params: { mataPelajaranId: string; tingkat: string; tahunAjaran: string; semester: string }) {
@@ -321,7 +342,7 @@ export class PembelajaranService {
     logs: Array<{ silabusId?: string | null; mataPelajaranId: string; status: StatusSilabus; tanggalDiajar: string; catatan?: string; guruId?: string | null }>,
     userId?: string
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const txResults = await this.prisma.$transaction(async (tx) => {
       const results = [];
       for (const log of logs) {
         if (!log.tanggalDiajar || !log.mataPelajaranId) continue;
@@ -359,6 +380,8 @@ export class PembelajaranService {
       }
       return results;
     });
+    this.triggerRekapSync(logs.map(l => l.tanggalDiajar));
+    return txResults;
   }
 
   // ===== Daily Batch Kontrol Silabus (Per Tanggal Pelaksanaan untuk Seluruh Rombel Cabang) =====
@@ -562,7 +585,7 @@ export class PembelajaranService {
 
     const date = new Date(`${tanggal.slice(0, 10)}T00:00:00.000Z`);
 
-    return this.prisma.$transaction(async (tx) => {
+    const txResults = await this.prisma.$transaction(async (tx) => {
       const results = [];
 
       // Pre-fetch kelas tingkat map for quick fallback silabus lookup
@@ -635,6 +658,8 @@ export class PembelajaranService {
       }
       return results;
     });
+    this.triggerRekapSync([tanggal]);
+    return txResults;
   }
 
   // ===== C. Absensi Siswa per Mapel (User Cabang) — direkam per baris silabus/materi =====
@@ -691,7 +716,7 @@ export class PembelajaranService {
 
     const date = new Date(`${tanggal.slice(0, 10)}T00:00:00.000Z`);
 
-    return this.prisma.$transaction(async (tx) => {
+    const txResults = await this.prisma.$transaction(async (tx) => {
       for (const log of logs) {
         await tx.absensiMapel.upsert({
           where: {
@@ -739,6 +764,8 @@ export class PembelajaranService {
 
       return { success: true, count: logs.length };
     });
+    this.triggerRekapSync([tanggal]);
+    return txResults;
   }
 
   async deleteAbsensiMapel(
@@ -761,7 +788,7 @@ export class PembelajaranService {
 
     const date = new Date(`${tanggal.slice(0, 10)}T00:00:00.000Z`);
 
-    return this.prisma.$transaction(async (tx) => {
+    const txResults = await this.prisma.$transaction(async (tx) => {
       const deleted = await tx.absensiMapel.deleteMany({
         where: {
           kelasId,
@@ -772,6 +799,8 @@ export class PembelajaranService {
 
       return { success: true, count: deleted.count };
     });
+    this.triggerRekapSync([tanggal]);
+    return txResults;
   }
 
   // ===== D. Laporan (Admin Pusat / Wilayah) =====

@@ -19,7 +19,10 @@ export class DashboardService {
     @Inject(DashboardRekapService) private readonly rekapService: DashboardRekapService
   ) {}
 
-  async syncRekap() {
+  async syncRekap(user?: any) {
+    if (user && user.scope !== 'GLOBAL') {
+      return this.rekapService.syncScopedRekap(user);
+    }
     return this.rekapService.syncAllRekap();
   }
 

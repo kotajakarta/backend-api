@@ -805,7 +805,8 @@ export class StudentService {
     const { scope, wilayahId, cabangId } = user;
     
     let whereClause: any = {
-      statusPool: { not: 'TERSEDIA' }
+      statusPool: StatusPool.AKTIF_CABANG,
+      isActive: true
     };
 
     if (scope === 'GLOBAL' || scope === 'AUDITOR') {
@@ -1054,7 +1055,8 @@ export class StudentService {
     const { scope, wilayahId, cabangId } = user;
     
     let whereClause: any = {
-      statusPool: { not: 'TERSEDIA' }
+      statusPool: StatusPool.AKTIF_CABANG,
+      isActive: true
     };
 
     if (scope === 'WILAYAH' && wilayahId) {
@@ -1099,6 +1101,7 @@ export class StudentService {
         { statusPool: StatusPool.DROP_OUT },
         { statusPool: StatusPool.LULUS },
         { cabangId: null },
+        { isActive: false },
         ...(scope === 'CABANG' && cabangId ? [{
           statusPool: StatusPool.AKTIF_CABANG,
           cabangId: { not: cabangId }
@@ -1235,6 +1238,7 @@ export class StudentService {
             statusPool: StatusPool.AKTIF_CABANG,
             cabangId: cabangId,
             wilayahId: targetCabang.wilayahId || student.wilayahId,
+            isActive: true,
           },
         });
 
@@ -1400,7 +1404,8 @@ export class StudentService {
         data: {
           cabangId: request.requestingCabangId,
           wilayahId: targetCabang.wilayahId,
-          statusPool: StatusPool.AKTIF_CABANG
+          statusPool: StatusPool.AKTIF_CABANG,
+          isActive: true
         }
       });
       
@@ -1477,6 +1482,7 @@ export class StudentService {
             statusPool: StatusPool.AKTIF_CABANG,
             cabangId: cabangId,
             wilayahId: targetCabang.wilayahId,
+            isActive: true,
           },
         });
 
@@ -1591,29 +1597,25 @@ export class StudentService {
         isActive = false;
       }
 
-      const isTersedia = dto.statusAkhir === StatusPool.TERSEDIA;
-
-      if (isTersedia) {
-        if (student.siswaFormal) {
-          await tx.siswaFormal.update({
-            where: { studentId: student.id },
-            data: { kelasId: null }
-          });
-        }
-        if (student.dataDaimi) {
-          await tx.dataDaimi.update({
-            where: { studentId: student.id },
-            data: { grupId: null, kelasId: null }
-          });
-        }
+      if (student.siswaFormal) {
+        await tx.siswaFormal.update({
+          where: { studentId: student.id },
+          data: { kelasId: null }
+        });
+      }
+      if (student.dataDaimi) {
+        await tx.dataDaimi.update({
+          where: { studentId: student.id },
+          data: { grupId: null, kelasId: null }
+        });
       }
 
       const updatedStudent = await tx.student.update({
         where: { id: studentId },
         data: {
           statusPool: dto.statusAkhir,
-          cabangId: isTersedia ? null : student.cabangId,
-          wilayahId: isTersedia ? null : student.wilayahId,
+          cabangId: null,
+          wilayahId: null,
           isActive,
         },
       });
@@ -1684,29 +1686,25 @@ export class StudentService {
           isActive = false;
         }
 
-        const isTersedia = dto.statusAkhir === StatusPool.TERSEDIA;
-
-        if (isTersedia) {
-          if (student.siswaFormal) {
-            await tx.siswaFormal.update({
-              where: { studentId: student.id },
-              data: { kelasId: null }
-            });
-          }
-          if (student.dataDaimi) {
-            await tx.dataDaimi.update({
-              where: { studentId: student.id },
-              data: { grupId: null, kelasId: null }
-            });
-          }
+        if (student.siswaFormal) {
+          await tx.siswaFormal.update({
+            where: { studentId: student.id },
+            data: { kelasId: null }
+          });
+        }
+        if (student.dataDaimi) {
+          await tx.dataDaimi.update({
+            where: { studentId: student.id },
+            data: { grupId: null, kelasId: null }
+          });
         }
 
         await tx.student.update({
           where: { id: student.id },
           data: {
             statusPool: dto.statusAkhir,
-            cabangId: isTersedia ? null : student.cabangId,
-            wilayahId: isTersedia ? null : student.wilayahId,
+            cabangId: null,
+            wilayahId: null,
             isActive,
           },
         });
@@ -2011,7 +2009,10 @@ export class StudentService {
     }
   }
   async getResiduStudents(user: any) {
-    let whereClause: any = {};
+    let whereClause: any = {
+      statusPool: StatusPool.AKTIF_CABANG,
+      isActive: true
+    };
     if (user.scope === 'CABANG') {
       whereClause.cabangId = user.cabangId;
     } else if (user.scope === 'WILAYAH') {

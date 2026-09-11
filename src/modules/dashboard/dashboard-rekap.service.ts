@@ -54,6 +54,35 @@ export class DashboardRekapService {
     };
   }
 
+  // Sync rekap scoped to current user scope (Cabang or Wilayah)
+  async syncScopedRekap(user: any) {
+    if (['CABANG', 'WALI_KELAS', 'GURU'].includes(user?.scope) && user?.cabangId) {
+      this.logger.log(`Syncing rekap for CABANG_${user.cabangId}...`);
+      await this.computeAndSaveForScope(`CABANG_${user.cabangId}`, 'CABANG', user.cabangId);
+      return {
+        syncedCabang: 1,
+        timestamp: new Date().toISOString()
+      };
+    } else if (user?.scope === 'WILAYAH' && user?.wilayahId) {
+      this.logger.log(`Syncing rekap for WILAYAH_${user.wilayahId} and its cabangs...`);
+      await this.computeAndSaveForScope(`WILAYAH_${user.wilayahId}`, 'WILAYAH', user.wilayahId);
+      const cabangList = await this.prisma.cabang.findMany({
+        where: { wilayahId: user.wilayahId, isActive: true },
+        select: { id: true, name: true }
+      });
+      for (const c of cabangList) {
+        await this.computeAndSaveForScope(`CABANG_${c.id}`, 'CABANG', c.id);
+      }
+      return {
+        syncedWilayah: 1,
+        syncedCabang: cabangList.length,
+        timestamp: new Date().toISOString()
+      };
+    } else {
+      return this.syncAllRekap();
+    }
+  }
+
   // Compute aggregation for a specific scope and save into rekap_dashboard_utama
   async computeAndSaveForScope(scopeKey: string, scopeType: 'GLOBAL' | 'WILAYAH' | 'CABANG', entityId?: string) {
     try {

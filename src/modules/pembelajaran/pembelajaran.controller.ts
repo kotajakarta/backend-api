@@ -200,7 +200,7 @@ export class PembelajaranController {
 
   @Post('rekap/sync')
   @UseGuards(AccessControlGuard)
-  @RequireScope('GLOBAL')
+  @RequireScope('CABANG')
   syncRekap(@Body() body: { tahunAjaran?: string; semester?: string; mode?: any; periodeKey?: string }) {
     return this.pembelajaranService.syncRekap(body?.tahunAjaran, body?.semester, body?.mode, body?.periodeKey);
   }

@@ -15,9 +15,9 @@ export class DashboardController {
 
   @Post('stats/sync')
   @UseGuards(AccessControlGuard)
-  @RequireScope('GLOBAL')
-  syncStats() {
-    return this.dashboardService.syncRekap();
+  @RequireScope('CABANG')
+  syncStats(@Request() req: any) {
+    return this.dashboardService.syncRekap(req.user);
   }
 
   @Get('ketersediaan-guru')
