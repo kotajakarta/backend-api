@@ -382,6 +382,7 @@ enum UserDivisi {
   FORMAL
   PESANTREN
   ALL
+  PENGAWAS
 
   @@schema("core")
 }

@@ -92,17 +92,23 @@ export class AccessControlGuard implements CanActivate {
         context.getClass(),
       ]);
 
+      // Extract HTTP method early (used by both divisi check and read-only enforcement)
+      const httpMethod = req.method?.toUpperCase();
+
       if (requiredDivisi && payload.scope !== 'WALI') {
-        if (payload.divisi !== requiredDivisi && payload.divisi !== 'ALL') {
+        // PENGAWAS can bypass @RequireDivisi for read-only (GET) requests
+        const isPengawasRead = payload.divisi === 'PENGAWAS' && httpMethod === 'GET';
+        if (payload.divisi !== requiredDivisi && payload.divisi !== 'ALL' && !isPengawasRead) {
           throw new ForbiddenException('Insufficient Divisi access');
         }
       }
 
-      // AUDITOR enforcement: AUDITOR is strictly read-only for write operations (POST, PUT, PATCH, DELETE)
-      const httpMethod = req.method?.toUpperCase();
-      if (payload.scope === 'AUDITOR' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(httpMethod)) {
+      // AUDITOR & PENGAWAS enforcement: strictly read-only for write operations (POST, PUT, PATCH, DELETE)
+      const isReadOnlyAccount = payload.scope === 'AUDITOR' || payload.divisi === 'PENGAWAS';
+      if (isReadOnlyAccount && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(httpMethod)) {
         if (!req.url.includes('/auth/logout')) {
-          throw new ForbiddenException('Role AUDITOR hanya memiliki akses Baca (Read-Only). Anda tidak diizinkan membuat, mengubah, atau menghapus data.');
+          const label = payload.divisi === 'PENGAWAS' ? 'Akun Pengawas' : 'Role AUDITOR';
+          throw new ForbiddenException(`${label} bersifat Read-Only. Anda tidak diizinkan membuat, mengubah, atau menghapus data.`);
         }
       }
 
@@ -136,18 +142,20 @@ export class AccessControlGuard implements CanActivate {
       }
 
       if (requiredScope) {
+        // PENGAWAS inherits same scope access as AUDITOR for read operations
+        const effectiveScope = payload.divisi === 'PENGAWAS' ? 'AUDITOR' : payload.scope;
         if (requiredScope === 'WALI') {
           if (payload.scope !== 'WALI') throw new ForbiddenException('Endpoint khusus portal wali santri');
         } else if (requiredScope === 'GLOBAL') {
-          if (payload.scope !== 'GLOBAL' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires GLOBAL scope');
+          if (effectiveScope !== 'GLOBAL' && effectiveScope !== 'AUDITOR') throw new ForbiddenException('Requires GLOBAL scope');
         } else if (requiredScope === 'WILAYAH') {
-          if (payload.scope !== 'GLOBAL' && payload.scope !== 'WILAYAH' && payload.scope !== 'AUDITOR') throw new ForbiddenException('Requires WILAYAH scope');
+          if (effectiveScope !== 'GLOBAL' && effectiveScope !== 'WILAYAH' && effectiveScope !== 'AUDITOR') throw new ForbiddenException('Requires WILAYAH scope');
         } else if (requiredScope === 'CABANG') {
-          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'AUDITOR'].includes(payload.scope)) throw new ForbiddenException('Requires CABANG scope');
+          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'AUDITOR'].includes(effectiveScope)) throw new ForbiddenException('Requires CABANG scope');
         } else if (requiredScope === 'WALI_KELAS') {
-          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'WALI_KELAS', 'AUDITOR'].includes(payload.scope)) throw new ForbiddenException('Requires WALI_KELAS scope');
+          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'WALI_KELAS', 'AUDITOR'].includes(effectiveScope)) throw new ForbiddenException('Requires WALI_KELAS scope');
         } else if (requiredScope === 'GURU') {
-          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'WALI_KELAS', 'GURU', 'AUDITOR'].includes(payload.scope)) throw new ForbiddenException('Requires GURU scope');
+          if (!['GLOBAL', 'WILAYAH', 'CABANG', 'WALI_KELAS', 'GURU', 'AUDITOR'].includes(effectiveScope)) throw new ForbiddenException('Requires GURU scope');
         }
       }
 

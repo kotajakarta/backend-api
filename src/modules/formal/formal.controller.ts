@@ -320,19 +320,30 @@ export class FormalController {
       if (stat) {
         const stream = await this.minioService.getObjectStream(key);
         const mimeType = this.minioService.getMimeType(safeFilename);
+        res.removeHeader('X-Frame-Options');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
         res.setHeader('Content-Type', mimeType);
         res.setHeader('Content-Length', stat.size);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
         res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
         return stream.pipe(res);
       }
     }
 
     const uploadDir = path.join(process.cwd(), 'uploads');
-    const filePath = path.join(uploadDir, safeFilename);
+    const localPathsToCheck = [
+      path.join(uploadDir, 'muadalah', safeFilename),
+      path.join(uploadDir, safeFilename),
+    ];
 
-    if (fs.existsSync(filePath)) {
-      return res.sendFile(filePath);
+    for (const localPath of localPathsToCheck) {
+      if (fs.existsSync(localPath) && fs.statSync(localPath).isFile()) {
+        res.removeHeader('X-Frame-Options');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        return res.sendFile(localPath);
+      }
     }
+
     return res.status(404).send('File not found');
   }
 
