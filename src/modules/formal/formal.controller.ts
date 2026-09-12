@@ -117,8 +117,9 @@ export class FormalController {
 
   @Post('kelas/:id/students')
   @UseGuards(AccessControlGuard)
-  addStudentToKelas(@Request() req: any, @Param('id') id: string, @Body() body: { studentId: string }) {
-    return this.formalService.addStudentToKelas(id, body.studentId, req.user);
+  addStudentToKelas(@Request() req: any, @Param('id') id: string, @Body() body: { studentId?: string; studentIds?: string[] }) {
+    const studentIds = body.studentIds ?? (body.studentId ? [body.studentId] : []);
+    return this.formalService.addStudentsToKelas(id, studentIds, req.user);
   }
 
   @Delete('kelas/:id/students/:studentId')

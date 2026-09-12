@@ -1566,6 +1566,33 @@ export class FormalService {
     return kelas;
   }
 
+  async addStudentsToKelas(kelasId: string, studentIds: string[], user?: any) {
+    if (!studentIds || studentIds.length === 0) {
+      throw new BadRequestException('Tidak ada santri yang dipilih.');
+    }
+
+    const failures: { studentId: string; message: string }[] = [];
+    let lastRecord;
+    for (const studentId of studentIds) {
+      try {
+        lastRecord = await this.addStudentToKelas(kelasId, studentId, user);
+      } catch (error: any) {
+        failures.push({ studentId, message: error?.message || 'Gagal menambahkan santri' });
+      }
+    }
+
+    if (failures.length > 0 && failures.length === studentIds.length) {
+      throw new BadRequestException(failures[0].message);
+    }
+    if (failures.length > 0) {
+      throw new BadRequestException(
+        `${studentIds.length - failures.length} santri berhasil ditambahkan, ${failures.length} gagal: ${failures.map((f) => f.message).join('; ')}`
+      );
+    }
+
+    return lastRecord;
+  }
+
   async addStudentToKelas(kelasId: string, studentId: string, user?: any) {
     const kelas = await this.prisma.kelas.findUnique({ where: { id: kelasId }, include: { cabang: true } });
     if (!kelas) throw new NotFoundException('Kelas tidak ditemukan');
