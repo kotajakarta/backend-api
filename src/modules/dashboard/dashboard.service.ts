@@ -74,38 +74,57 @@ export class DashboardService {
       where: studentWhere
     });
 
-    // 1. Chart Distribusi Grup Daimi (Sinkron dengan Jenis Grup Daimi & DataDaimi)
-    const masterJenisList = await this.prisma.jenisGrupDaimi.findMany({
+    // 1. Chart Distribusi Grup Daimi (Murni berdasarkan Jenis Grup Daimi dari Master / Pesantren)
+    const masterJenisRecords = await this.prisma.jenisGrupDaimi.findMany({
       orderBy: { createdAt: 'asc' }
     });
 
-    const activeGrupDaimiList = await this.prisma.grupDaimi.findMany({
+    let masterCategories: string[] = [];
+    if (masterJenisRecords.length > 0) {
+      masterCategories = masterJenisRecords
+        .map(j => j.name?.trim())
+        .filter((name): name is string => !!name);
+    } else {
+      masterCategories = ['HAZIRLIK', 'HAFIZLIK', 'IBTIDAI', 'IHZARI'];
+    }
+
+    const allGrupDaimi = await this.prisma.grupDaimi.findMany({
       select: { id: true, name: true, jenis: true }
     });
 
-    const categoryNamesSet = new Set<string>();
-    
-    if (masterJenisList.length > 0) {
-      masterJenisList.forEach(j => {
-        if (j.name && j.name.trim()) {
-          categoryNamesSet.add(j.name.trim().toUpperCase());
-        }
-      });
-    } else {
-      ['HAZIRLIK', 'HAFIZLIK', 'IBTIDAI', 'IHZARI'].forEach(c => categoryNamesSet.add(c));
-    }
+    const grupIdToJenis = new Map<string, string>();
+    const grupNameToJenis = new Map<string, string>();
 
-    activeGrupDaimiList.forEach(g => {
+    allGrupDaimi.forEach(g => {
       if (g.jenis && g.jenis.trim()) {
-        categoryNamesSet.add(g.jenis.trim().toUpperCase());
+        const trimmedJenis = g.jenis.trim();
+        grupIdToJenis.set(g.id, trimmedJenis);
+        grupNameToJenis.set(g.name.trim().toLowerCase(), trimmedJenis);
       }
     });
 
-    const categoryList = Array.from(categoryNamesSet);
+    const resolveMasterJenis = (candidate?: string | null): string | null => {
+      if (!candidate) return null;
+      const clean = candidate.trim();
+      if (!clean || clean === '-' || clean.toLowerCase().includes('tanpa') || clean.toLowerCase().startsWith('no.')) {
+        return null;
+      }
+      const lower = clean.toLowerCase();
+      // 1. Exact match
+      const exact = masterCategories.find(mc => mc.toLowerCase() === lower);
+      if (exact) return exact;
+
+      // 2. Prefix / containment match
+      const matched = masterCategories.find(mc => {
+        const mcLower = mc.toLowerCase();
+        return lower === mcLower || lower.startsWith(mcLower) || lower.includes(mcLower);
+      });
+      return matched || null;
+    };
 
     const countsMap = new Map<string, number>();
-    categoryList.forEach(cat => countsMap.set(cat, 0));
-    countsMap.set('NO_GRUP', 0);
+    masterCategories.forEach(cat => countsMap.set(cat, 0));
+    countsMap.set('No. Grup', 0);
 
     const studentsWithDaimi = await this.prisma.student.findMany({
       where: studentWhere,
@@ -114,8 +133,10 @@ export class DashboardService {
         grupDaimi: true,
         dataDaimi: {
           select: {
+            grupId: true,
             grup: {
               select: {
+                id: true,
                 name: true,
                 jenis: true
               }
@@ -126,35 +147,43 @@ export class DashboardService {
     });
 
     studentsWithDaimi.forEach(s => {
-      const rawCat = s.dataDaimi?.grup?.jenis || s.dataDaimi?.grup?.name || s.grupDaimi;
-      if (!rawCat || !rawCat.trim() || rawCat === '-' || rawCat.toLowerCase().includes('tanpa') || rawCat.toLowerCase().includes('no.')) {
-        countsMap.set('NO_GRUP', (countsMap.get('NO_GRUP') || 0) + 1);
-      } else {
-        const upperRaw = rawCat.trim().toUpperCase();
-        let matchedCategory = categoryList.find(c => upperRaw === c);
-        if (!matchedCategory) {
-          matchedCategory = categoryList.find(c => upperRaw.includes(c) || c.includes(upperRaw));
-        }
+      let jenisVal = s.dataDaimi?.grup?.jenis;
 
-        if (matchedCategory) {
-          countsMap.set(matchedCategory, (countsMap.get(matchedCategory) || 0) + 1);
-        } else {
-          if (!countsMap.has(upperRaw)) {
-            countsMap.set(upperRaw, 0);
-          }
-          countsMap.set(upperRaw, (countsMap.get(upperRaw) || 0) + 1);
-        }
+      if (!jenisVal && s.dataDaimi?.grupId) {
+        jenisVal = grupIdToJenis.get(s.dataDaimi.grupId);
+      }
+
+      if (!jenisVal && s.dataDaimi?.grup?.name) {
+        jenisVal = grupNameToJenis.get(s.dataDaimi.grup.name.trim().toLowerCase()) || s.dataDaimi.grup.name;
+      }
+
+      if (!jenisVal && s.grupDaimi) {
+        jenisVal = grupNameToJenis.get(s.grupDaimi.trim().toLowerCase()) || s.grupDaimi;
+      }
+
+      const resolved = resolveMasterJenis(jenisVal);
+      if (resolved) {
+        countsMap.set(resolved, (countsMap.get(resolved) || 0) + 1);
+      } else {
+        countsMap.set('No. Grup', (countsMap.get('No. Grup') || 0) + 1);
       }
     });
 
     const chartGrupDaimi: { name: string; value: number }[] = [];
-    countsMap.forEach((val, key) => {
-      const displayName = key === 'NO_GRUP' ? 'No. Grup' : key;
+    masterCategories.forEach(cat => {
       chartGrupDaimi.push({
-        name: displayName,
-        value: val
+        name: cat,
+        value: countsMap.get(cat) || 0
       });
     });
+
+    const noGrupCount = countsMap.get('No. Grup') || 0;
+    if (noGrupCount > 0) {
+      chartGrupDaimi.push({
+        name: 'No. Grup',
+        value: noGrupCount
+      });
+    }
 
     const siswaFormalList = await this.prisma.siswaFormal.findMany({
       where: { student: studentWhere },
