@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Param,
   Query,
   Req,
@@ -11,6 +12,7 @@ import {
   HttpStatus,
   ValidationPipe,
   Inject,
+  BadRequestException,
 } from '@nestjs/common';
 import { AccessControlGuard } from '../../../common/guards/access-control.guard.js';
 import { RequireScope } from '../../../common/decorators/access-control.decorator.js';
@@ -249,4 +251,32 @@ export class EmisController {
       data: result,
     };
   }
+
+  /**
+   * Mengosongkan hasil komparasi dan snapshot audit EMIS/Verval dari database.
+   * Wajib konfirmasi teks "Reyhan Ganteng".
+   */
+  @Delete('clear')
+  @RequireScope('GLOBAL')
+  @HttpCode(HttpStatus.OK)
+  async clearReconcileData(@Body() body: any, @Query('confirmationText') queryText?: string) {
+    const text = (body?.confirmationText || queryText || '').trim();
+    if (text !== 'Reyhan Ganteng') {
+      throw new BadRequestException('Teks konfirmasi salah. Harap masukkan "Reyhan Ganteng" untuk mengonfirmasi penghapusan data.');
+    }
+    const result = await this.emisService.clearAllReconcileData();
+    return {
+      success: true,
+      message: 'Hasil komparasi dan data tarik berhasil dikosongkan.',
+      data: result,
+    };
+  }
+
+  @Post('clear')
+  @RequireScope('GLOBAL')
+  @HttpCode(HttpStatus.OK)
+  async clearReconcileDataPost(@Body() body: any, @Query('confirmationText') queryText?: string) {
+    return this.clearReconcileData(body, queryText);
+  }
 }
+

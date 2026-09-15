@@ -1326,4 +1326,17 @@ export class EmisService {
       unmatchedExternal: { emisOnly: [], vervalOnly: [] },
     };
   }
+
+  /**
+   * Mengosongkan seluruh data komparasi dan snapshot audit EMIS & Verval dari database
+   */
+  async clearAllReconcileData() {
+    const deletedDetails = await this.prisma.komparasiEmis.deleteMany({});
+    const deletedBatches = await this.prisma.komparasiEmisBatch.deleteMany({});
+    return {
+      deletedDetails: deletedDetails.count,
+      deletedBatches: deletedBatches.count,
+    };
+  }
 }
+
