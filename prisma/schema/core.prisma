@@ -27,6 +27,7 @@ model Cabang {
   kapasitasSantri           Int?                  @default(0) @map("kapasitas_santri")
   nameGlodemy               String?               @map("name_glodemy")
   nameResmi                 String?               @map("name_resmi")
+  nomorWaCabang             String?               @map("nomor_wa_cabang")
   totalSantriManual         Int?                  @default(0) @map("total_santri_manual")
   alamatJalan               String?               @map("alamat_jalan")
   alamatKabId               String?               @map("alamat_kab_id")
