@@ -22,8 +22,11 @@ import { UpdateQuestionBankDto } from './dto/update-question-bank.dto.js';
 import { CreateQuestionItemDto } from './dto/create-question-item.dto.js';
 import { UpdateQuestionItemDto } from './dto/update-question-item.dto.js';
 import { ReorderQuestionsDto } from './dto/reorder-questions.dto.js';
-import { CreateProjectDto } from './dto/create-project.dto.js';
+import { CreateProjectDto, CreateAssignmentItemDto } from './dto/create-project.dto.js';
+import { UpdateProjectDto } from './dto/update-project.dto.js';
+import { UpdateAssignmentDto, ReviewAssignmentDto } from './dto/update-assignment.dto.js';
 import { DelegateAssignmentDto } from './dto/delegate-assignment.dto.js';
+import { BatchCreateQuestionsDto } from './dto/batch-create-questions.dto.js';
 import { AssignmentStatus } from '@prisma/client';
 
 @Controller('bank-soal')
@@ -71,6 +74,24 @@ export class BankSoalController {
     return this.bankService.createProject(dto, req.user);
   }
 
+  @Put('projects/:id')
+  async updateProject(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateProjectDto,
+  ) {
+    return this.bankService.updateProject(id, dto, req.user);
+  }
+
+  @Post('projects/:id/assignments')
+  async addAssignmentToProject(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: CreateAssignmentItemDto,
+  ) {
+    return this.bankService.addAssignmentToProject(id, dto, req.user);
+  }
+
   @Delete('projects/:id')
   async deleteProject(@Req() req: any, @Param('id') id: string) {
     return this.bankService.deleteProject(id, req.user);
@@ -97,6 +118,29 @@ export class BankSoalController {
     @Body() dto: DelegateAssignmentDto,
   ) {
     return this.bankService.delegateAssignment(id, dto, req.user);
+  }
+
+  @Put('assignments/:id')
+  async updateAssignment(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateAssignmentDto,
+  ) {
+    return this.bankService.updateAssignment(id, dto, req.user);
+  }
+
+  @Delete('assignments/:id')
+  async deleteAssignment(@Req() req: any, @Param('id') id: string) {
+    return this.bankService.deleteAssignment(id, req.user);
+  }
+
+  @Post('assignments/:id/review')
+  async reviewAssignment(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: ReviewAssignmentDto,
+  ) {
+    return this.bankService.reviewAssignment(id, dto.action, dto.notes, req.user);
   }
 
   // ================= BANK SOAL (ROOT ROUTES) =================
@@ -177,6 +221,15 @@ export class BankSoalController {
     @Body() dto: CreateQuestionItemDto,
   ) {
     return this.bankService.createQuestionItem(bankId, dto, req.user);
+  }
+
+  @Post(':id/questions/batch')
+  async createBatchQuestions(
+    @Req() req: any,
+    @Param('id') bankId: string,
+    @Body() dto: BatchCreateQuestionsDto,
+  ) {
+    return this.bankService.createBatchQuestions(bankId, dto, req.user);
   }
 
   @Put(':id/questions/:qId')
