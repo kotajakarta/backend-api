@@ -197,16 +197,17 @@ export class LjkOmrService {
     const cabRowSpacing = 0.01423;
 
     for (let col = 0; col < 4; col++) {
-      let maxRatio = -1;
+      let bestScore = -Infinity;
       let bestDigit = col === 0 ? '1' : '0';
 
       for (let digit = 0; digit <= 9; digit++) {
         const u = cabStartU + col * cabColSpacing;
         const v = cabStartV + digit * cabRowSpacing;
-        const { fillRatio } = sampleBubble(u, v, 0.006);
+        const { fillRatio, meanIntensity } = sampleBubble(u, v, 0.007);
+        const darkScore = fillRatio * 2.5 + (avgPaperBrightness - meanIntensity) / 100;
 
-        if (fillRatio > maxRatio) {
-          maxRatio = fillRatio;
+        if (darkScore > bestScore) {
+          bestScore = darkScore;
           bestDigit = digit.toString();
         }
       }
@@ -225,16 +226,17 @@ export class LjkOmrService {
     const nisnRowSpacing = 0.01476;
 
     for (let col = 0; col < 10; col++) {
-      let maxRatio = -1;
+      let bestScore = -Infinity;
       let bestDigit = (col % 10).toString();
 
       for (let digit = 0; digit <= 9; digit++) {
         const u = nisnStartU + col * nisnColSpacing;
         const v = nisnStartV + digit * nisnRowSpacing;
-        const { fillRatio } = sampleBubble(u, v, 0.006);
+        const { fillRatio, meanIntensity } = sampleBubble(u, v, 0.007);
+        const darkScore = fillRatio * 2.5 + (avgPaperBrightness - meanIntensity) / 100;
 
-        if (fillRatio > maxRatio) {
-          maxRatio = fillRatio;
+        if (darkScore > bestScore) {
+          bestScore = darkScore;
           bestDigit = digit.toString();
         }
       }
@@ -246,23 +248,26 @@ export class LjkOmrService {
     const kelasUOptions = [0.734, 0.760, 0.786, 0.812, 0.838, 0.864];
     const kelasV = 0.244;
     let extractedKelas = hints?.kelas || '12';
-    let maxKelasRatio = -1;
+    let maxKelasScore = -Infinity;
 
     for (let i = 0; i < kelasOptions.length; i++) {
-      const { fillRatio } = sampleBubble(kelasUOptions[i], kelasV, 0.006);
-      if (fillRatio > maxKelasRatio && fillRatio > 0.15) {
-        maxKelasRatio = fillRatio;
+      const { fillRatio, meanIntensity } = sampleBubble(kelasUOptions[i], kelasV, 0.007);
+      const score = fillRatio * 2.5 + (avgPaperBrightness - meanIntensity) / 100;
+      if (score > maxKelasScore && (fillRatio > 0.15 || score > 0.5)) {
+        maxKelasScore = score;
         extractedKelas = kelasOptions[i];
       }
     }
 
     // ─── 8. Ekstraksi Semester (Ganjil / Genap) ──────────────────────────────
     let extractedSemester = hints?.semester || 'GANJIL';
-    const semesterGanjil = sampleBubble(0.940, 0.244, 0.006);
-    const semesterGenap = sampleBubble(0.985, 0.244, 0.006);
-    if (semesterGenap.fillRatio > semesterGanjil.fillRatio && semesterGenap.fillRatio > 0.15) {
+    const semGanjil = sampleBubble(0.940, 0.244, 0.007);
+    const semGenap = sampleBubble(0.985, 0.244, 0.007);
+    const scoreGanjil = semGanjil.fillRatio * 2.5 + (avgPaperBrightness - semGanjil.meanIntensity) / 100;
+    const scoreGenap = semGenap.fillRatio * 2.5 + (avgPaperBrightness - semGenap.meanIntensity) / 100;
+    if (scoreGenap > scoreGanjil && (semGenap.fillRatio > 0.15 || scoreGenap > 0.5)) {
       extractedSemester = 'GENAP';
-    } else if (semesterGanjil.fillRatio > 0.15) {
+    } else if (semGanjil.fillRatio > 0.15 || scoreGanjil > 0.5) {
       extractedSemester = 'GANJIL';
     }
 
@@ -287,7 +292,7 @@ export class LjkOmrService {
     const qRow_spacing = 0.02403;
 
     // Adaptive threshold untuk arsiran bulatan
-    const FILL_THRESHOLD = 0.18;
+    const FILL_THRESHOLD = 0.16;
 
     for (let q = 1; q <= 25; q++) {
       const isLeftCol = q <= 13;
@@ -296,36 +301,37 @@ export class LjkOmrService {
       const optSp = isLeftCol ? leftOpt_spacing : rightOpt_spacing;
       const v = qStartY + rowIdx * qRow_spacing;
 
-      const scoredOptions: { opt: string; ratio: number; intensity: number }[] = [];
+      const scoredOptions: { opt: string; ratio: number; intensity: number; darkScore: number }[] = [];
 
       for (let oIdx = 0; oIdx < options.length; oIdx++) {
         const u = startU + oIdx * optSp;
         const r1 = sampleBubble(u, v, 0.007);
         const r2 = sampleBubble(u, v, 0.009);
         const { fillRatio, meanIntensity } = r1.fillRatio >= r2.fillRatio ? r1 : r2;
+        const darkScore = fillRatio * 2.5 + (avgPaperBrightness - meanIntensity) / 100;
 
-        scoredOptions.push({ opt: options[oIdx], ratio: fillRatio, intensity: meanIntensity });
+        scoredOptions.push({ opt: options[oIdx], ratio: fillRatio, intensity: meanIntensity, darkScore });
       }
 
-      // Urutkan dari arsiran tertinggi
-      scoredOptions.sort((a, b) => b.ratio - a.ratio);
+      // Urutkan dari skor kegelapan tertinggi
+      scoredOptions.sort((a, b) => b.darkScore - a.darkScore);
 
       const top = scoredOptions[0];
       const runnerUp = scoredOptions[1];
 
-      if (top.ratio >= FILL_THRESHOLD) {
+      if (top.ratio >= FILL_THRESHOLD || top.darkScore >= 0.55) {
         jawaban[q.toString()] = top.opt;
-        const margin = top.ratio - runnerUp.ratio;
+        const margin = top.darkScore - runnerUp.darkScore;
 
-        if (margin < 0.08 && runnerUp.ratio >= 0.12) {
+        if (margin < 0.25 && runnerUp.ratio >= 0.20) {
           ambiguities.push(q);
-          totalConfidenceSum += 0.5;
+          totalConfidenceSum += 0.7;
         } else {
-          totalConfidenceSum += Math.min(1.0, 0.6 + margin * 2);
+          totalConfidenceSum += Math.min(1.0, 0.85 + Math.min(0.15, margin * 0.3));
         }
       } else {
         jawaban[q.toString()] = '';
-        totalConfidenceSum += 0.8;
+        totalConfidenceSum += 0.9;
       }
     }
 
