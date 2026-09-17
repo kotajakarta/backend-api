@@ -263,7 +263,8 @@ export class LjkService {
         jumlahBenar = benar;
         jumlahSalah = salah;
         jumlahKosong = kosong;
-        skor = Number(((benar / 25) * 100).toFixed(1));
+        // Formula: benar × 4 (25 soal × 4 = 100 poin maks)
+        skor = benar * 4;
       }
     }
 

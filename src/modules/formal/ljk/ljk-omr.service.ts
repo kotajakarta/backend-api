@@ -201,6 +201,23 @@ export class LjkOmrService {
     const qRowSpacing = 0.033; // Jarak antar baris nomor soal
     const qStartY = 0.44;
 
+    // Threshold adaptif berdasarkan kondisi foto:
+    // Foto kamera HP bisa lebih terang/gelap dari scan flat.
+    // Gunakan radius lebih besar & threshold lebih rendah agar toleran.
+    const adaptiveSampleBubble = (
+      normX: number,
+      normY: number,
+    ): { fillRatio: number; meanIntensity: number; darkPixels: number } => {
+      // Coba 3 radius berbeda dan ambil yang paling tinggi (adaptive best-of-3)
+      const radii = [0.010, 0.013, 0.008];
+      let best = { fillRatio: 0, meanIntensity: 255, darkPixels: 0 };
+      for (const r of radii) {
+        const result = sampleBubble(normX, normY, r);
+        if (result.fillRatio > best.fillRatio) best = result;
+      }
+      return best;
+    };
+
     for (let q = 1; q <= 25; q++) {
       const isLeftCol = q <= 13;
       const rowIdx = isLeftCol ? q - 1 : q - 14;
@@ -211,7 +228,7 @@ export class LjkOmrService {
 
       for (let oIdx = 0; oIdx < options.length; oIdx++) {
         const x = startX + oIdx * optSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(x, y);
+        const { fillRatio, meanIntensity } = adaptiveSampleBubble(x, y);
         scoredOptions.push({
           opt: options[oIdx],
           ratio: fillRatio,
@@ -225,18 +242,21 @@ export class LjkOmrService {
       const top = scoredOptions[0];
       const runnerUp = scoredOptions[1];
 
-      // Kriteria penentuan arsiran:
-      // Minimum fillRatio 0.25 untuk dianggap arsiran
-      if (top.ratio >= 0.25) {
+      // Kriteria penentuan arsiran adaptif:
+      // Threshold diturunkan ke 0.12 agar toleran pada foto kamera HP (tidak hanya flat scan)
+      // Sebelumnya 0.25 terlalu ketat untuk foto dari kamera yang ada distorsi perspektif
+      const FILL_THRESHOLD = 0.12;
+
+      if (top.ratio >= FILL_THRESHOLD) {
         jawaban[q.toString()] = top.opt;
         const margin = top.ratio - runnerUp.ratio;
 
-        if (margin < 0.10 && runnerUp.ratio >= 0.20) {
+        if (margin < 0.08 && runnerUp.ratio >= 0.10) {
           // Ambigu: Dua bulatan terisi mirip (coretan / arsiran ganda)
           ambiguities.push(q);
           totalConfidenceSum += 0.5;
         } else {
-          totalConfidenceSum += Math.min(1.0, 0.7 + margin);
+          totalConfidenceSum += Math.min(1.0, 0.6 + margin * 2);
         }
       } else {
         // Bulatan kosong / tidak terisi
@@ -266,7 +286,8 @@ export class LjkOmrService {
           jumlahSalah++;
         }
       }
-      skor = Number(((jumlahBenar / 25) * 100).toFixed(1));
+      // Formula: benar × 4 (25 soal × 4 = 100 poin maks)
+      skor = jumlahBenar * 4;
     }
 
     return {
