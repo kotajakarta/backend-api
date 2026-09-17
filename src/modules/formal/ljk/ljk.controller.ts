@@ -23,6 +23,7 @@ import { MinioService } from '../../../common/minio/minio.service.js';
 import { LjkService } from './ljk.service.js';
 import { ScanLjkDto } from './dto/scan-ljk.dto.js';
 import { ConfirmLjkDto } from './dto/confirm-ljk.dto.js';
+import { ConfirmBulkLjkDto } from './dto/confirm-bulk-ljk.dto.js';
 import { UpdateLjkDto } from './dto/update-ljk.dto.js';
 import path from 'path';
 
@@ -61,6 +62,14 @@ export class LjkController {
   @Post('confirm')
   async confirmLjk(@Body() dto: ConfirmLjkDto, @Req() req: any) {
     return this.ljkService.confirmLjkResult(dto, req.user);
+  }
+
+  /**
+   * Endpoint simpan hasil verifikasi LJK secara masal (Bulk Confirm)
+   */
+  @Post('confirm-bulk')
+  async confirmBulkLjk(@Body() dto: ConfirmBulkLjkDto, @Req() req: any) {
+    return this.ljkService.confirmBulkLjkResults(dto.items, req.user);
   }
 
   /**

@@ -389,6 +389,48 @@ export class LjkService {
   }
 
   /**
+   * Menyimpan hasil koreksi LJK masal dari upload PDF multi-page
+   */
+  async confirmBulkLjkResults(items: ConfirmLjkDto[], user: any) {
+    if (!items || items.length === 0) {
+      throw new BadRequestException('Daftar lembar LJK masal tidak boleh kosong.');
+    }
+
+    const results: any[] = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const item of items) {
+      try {
+        const res = await this.confirmLjkResult(item, user);
+        results.push({
+          nisn: item.nisn,
+          success: true,
+          data: res.data,
+          syncedToRapor: res.syncedToRapor,
+        });
+        successCount++;
+      } catch (err: any) {
+        results.push({
+          nisn: item.nisn,
+          success: false,
+          error: err.message || 'Gagal menyimpan lembar LJK',
+        });
+        failedCount++;
+      }
+    }
+
+    return {
+      success: failedCount === 0,
+      message: `Berhasil memproses ${successCount} dari ${items.length} lembar LJK masal.${failedCount > 0 ? ` (${failedCount} gagal)` : ''}`,
+      totalProcessed: items.length,
+      successCount,
+      failedCount,
+      results,
+    };
+  }
+
+  /**
    * Mengambil riwayat hasil koreksi LJK dengan filter & pagination
    */
   async getLjkResults(
