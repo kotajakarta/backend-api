@@ -3,6 +3,29 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../audit-log/audit-log.service.js';
 import { MasterDataService } from '../core/master/master-data.service.js';
 
+export function normalizeTurkishKey(str?: string | null): string {
+  if (!str) return '';
+  return str
+    .trim()
+    .toUpperCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/İ/g, 'I')
+    .replace(/I/g, 'I')
+    .replace(/ı/g, 'I')
+    .replace(/i/g, 'I')
+    .replace(/Ü/g, 'U')
+    .replace(/ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/ö/g, 'O')
+    .replace(/Ş/g, 'S')
+    .replace(/ş/g, 'S')
+    .replace(/Ç/g, 'C')
+    .replace(/ç/g, 'C')
+    .replace(/Ğ/g, 'G')
+    .replace(/ğ/g, 'G');
+}
+
 @Injectable()
 export class FormalService {
   constructor(
@@ -598,9 +621,14 @@ export class FormalService {
 
   async toggleKeaktifanMapelGrup(data: { mataPelajaranId: string, grupDaimiId?: string, jenisGrupName?: string, isActive: boolean }, user?: any) {
     if (data.jenisGrupName) {
+      const targetKey = normalizeTurkishKey(data.jenisGrupName);
       const allGrups = await this.prisma.grupDaimi.findMany({ select: { id: true, name: true, jenis: true } });
       let targetGrupIds = allGrups
-        .filter(g => (g.jenis && g.jenis.toLowerCase() === data.jenisGrupName!.toLowerCase()) || (g.name && g.name.toLowerCase() === data.jenisGrupName!.toLowerCase()))
+        .filter(g => {
+          const gJenisKey = normalizeTurkishKey(g.jenis);
+          const gNameKey = normalizeTurkishKey(g.name);
+          return gJenisKey === targetKey || gNameKey === targetKey;
+        })
         .map(g => g.id);
 
       if (targetGrupIds.length === 0) {
@@ -1729,16 +1757,30 @@ export class FormalService {
     const nilaiMap = new Map(existingNilai.map(n => [n.studentId, n]));
 
     const keaktifanList = await this.prisma.keaktifanMapelGrup.findMany({
-      where: { mataPelajaranId }
+      where: { mataPelajaranId },
+      include: { grupDaimi: true }
     });
-    const keaktifanMap = new Map(keaktifanList.map(k => [k.grupDaimiId, k.isActive]));
+    const activeGrupIdSet = new Set(keaktifanList.filter(k => k.isActive).map(k => k.grupDaimiId));
+    const activeJenisSet = new Set(
+      keaktifanList
+        .filter(k => k.isActive)
+        .map(k => normalizeTurkishKey(k.grupDaimi?.jenis || k.grupDaimi?.name))
+        .filter(Boolean)
+    );
 
     return siswaList.map(s => {
       const saved = nilaiMap.get(s.studentId);
-      const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+      const studentGrup = s.student.dataDaimi?.grup;
+      const jenisGrupDaimi = studentGrup?.jenis || studentGrup?.name || s.student.grupDaimi || '-';
+      const studentJenisKey = normalizeTurkishKey(studentGrup?.jenis || studentGrup?.name || s.student.grupDaimi);
       const grupDaimiId = s.student.dataDaimi?.grupId ?? null;
-      const mapelAktifUntukGrup = !!grupDaimiId && keaktifanMap.get(grupDaimiId) === true;
-      const isHafizlik = s.student.dataDaimi?.grup?.jenis === 'HAFIZLIK';
+
+      const mapelAktifUntukGrup =
+        (!!grupDaimiId && activeGrupIdSet.has(grupDaimiId)) ||
+        (!!studentJenisKey && activeJenisSet.has(studentJenisKey));
+
+      const isHafizlik = studentJenisKey === 'HAFIZLIK';
+
       return {
         studentId: s.studentId,
         nisn: s.nisn || s.student.biodata?.nisn || '',
@@ -1771,16 +1813,49 @@ export class FormalService {
     const [siswaGrupList, keaktifanList] = await Promise.all([
       this.prisma.student.findMany({
         where: { id: { in: studentIds } },
-        select: { id: true, dataDaimi: { select: { grupId: true } } }
+        select: {
+          id: true,
+          grupDaimi: true,
+          dataDaimi: {
+            select: {
+              grupId: true,
+              grup: { select: { name: true, jenis: true } }
+            }
+          }
+        }
       }),
-      this.prisma.keaktifanMapelGrup.findMany({ where: { mataPelajaranId } })
+      this.prisma.keaktifanMapelGrup.findMany({
+        where: { mataPelajaranId },
+        include: { grupDaimi: true }
+      })
     ]);
+
+    const activeGrupIdSet = new Set(keaktifanList.filter(k => k.isActive).map(k => k.grupDaimiId));
+    const activeJenisSet = new Set(
+      keaktifanList
+        .filter(k => k.isActive)
+        .map(k => normalizeTurkishKey(k.grupDaimi?.jenis || k.grupDaimi?.name))
+        .filter(Boolean)
+    );
+
+    const studentInfoMap = new Map(
+      siswaGrupList.map(s => [
+        s.id,
+        {
+          grupId: s.dataDaimi?.grupId ?? null,
+          jenisKey: normalizeTurkishKey(s.dataDaimi?.grup?.jenis || s.dataDaimi?.grup?.name || s.grupDaimi)
+        }
+      ])
+    );
     const grupMap = new Map(siswaGrupList.map(s => [s.id, s.dataDaimi?.grupId ?? null]));
-    const keaktifanMap = new Map(keaktifanList.map(k => [k.grupDaimiId, k.isActive]));
 
     const isAllowed = (studentId: string) => {
-      const grupDaimiId = grupMap.get(studentId);
-      return !!grupDaimiId && keaktifanMap.get(grupDaimiId) === true;
+      const info = studentInfoMap.get(studentId);
+      if (!info) return false;
+      return (
+        (!!info.grupId && activeGrupIdSet.has(info.grupId)) ||
+        (!!info.jenisKey && activeJenisSet.has(info.jenisKey))
+      );
     };
 
     const blockedData = data.filter(item => !isAllowed(item.studentId));
@@ -1906,14 +1981,29 @@ export class FormalService {
     }
 
     const mapelIds = data.map(item => item.mataPelajaranId);
-    const keaktifanList = await this.prisma.keaktifanMapelGrup.findMany({
-      where: { mataPelajaranId: { in: mapelIds } }
+    const [keaktifanList, grupObj] = await Promise.all([
+      this.prisma.keaktifanMapelGrup.findMany({
+        where: { mataPelajaranId: { in: mapelIds } },
+        include: { grupDaimi: true }
+      }),
+      this.prisma.grupDaimi.findUnique({ where: { id: grupDaimiId } })
+    ]);
+    const grupJenisKey = normalizeTurkishKey(grupObj?.jenis || grupObj?.name);
+    const activeGrupMap = new Map(keaktifanList.map(k => [`${k.mataPelajaranId}||${k.grupDaimiId}`, k.isActive]));
+    const activeJenisMap = new Map<string, Set<string>>();
+    keaktifanList.forEach(k => {
+      if (k.isActive) {
+        if (!activeJenisMap.has(k.mataPelajaranId)) activeJenisMap.set(k.mataPelajaranId, new Set());
+        const key = normalizeTurkishKey(k.grupDaimi?.jenis || k.grupDaimi?.name);
+        if (key) activeJenisMap.get(k.mataPelajaranId)!.add(key);
+      }
     });
-    const keaktifanMap = new Map(keaktifanList.map(k => [`${k.mataPelajaranId}||${k.grupDaimiId}`, k.isActive]));
 
     const isAllowed = (mataPelajaranId: string) => {
       if (!grupDaimiId) return false;
-      return keaktifanMap.get(`${mataPelajaranId}||${grupDaimiId}`) === true;
+      const isDirectActive = activeGrupMap.get(`${mataPelajaranId}||${grupDaimiId}`) === true;
+      const isJenisActive = !!grupJenisKey && activeJenisMap.get(mataPelajaranId)?.has(grupJenisKey) === true;
+      return isDirectActive || isJenisActive;
     };
 
     const allowedData = data.filter(item => isAllowed(item.mataPelajaranId));
@@ -2021,9 +2111,17 @@ export class FormalService {
     const [pengaturan, allMapel, keaktifanList] = await Promise.all([
       this.prisma.pengaturanAkademik.findFirst(),
       this.prisma.mataPelajaran.findMany({ where: { isActive: true } }),
-      this.prisma.keaktifanMapelGrup.findMany()
+      this.prisma.keaktifanMapelGrup.findMany({ include: { grupDaimi: true } })
     ]);
     const keaktifanMap = new Map(keaktifanList.map(k => [`${k.mataPelajaranId}||${k.grupDaimiId}`, k.isActive]));
+    const activeJenisMap = new Map<string, Set<string>>();
+    keaktifanList.forEach(k => {
+      if (k.isActive) {
+        if (!activeJenisMap.has(k.mataPelajaranId)) activeJenisMap.set(k.mataPelajaranId, new Set());
+        const key = normalizeTurkishKey(k.grupDaimi?.jenis || k.grupDaimi?.name);
+        if (key) activeJenisMap.get(k.mataPelajaranId)!.add(key);
+      }
+    });
     const mapelByNormalizedName = new Map(allMapel.map(m => [normalize(m.name), m]));
 
     // Parsing awal tiap baris: ambil field tetap + NIK, supaya bisa batch-resolve referensi
@@ -2125,11 +2223,16 @@ export class FormalService {
         errorRows.push({ row: r.rowNumber, nik: r.nik, message: 'Jenis grup daimi tidak diketahui (siswa belum ada grup daimi & kolom dikosongkan)' }); continue;
       }
 
+      const grupObj = allGrupDaimi.find(g => g.id === grupDaimiId) || student.dataDaimi?.grup;
+      const gJenisKey = normalizeTurkishKey(grupObj?.jenis || grupObj?.name || r.grupDaimiName);
+
       const data: Array<{ mataPelajaranId: string; nilaiAkhir: number | null }> = [];
       for (const { mapel, rawValue } of r.mapelValues) {
         const score = Number(rawValue);
         if (isNaN(score) || score < 0 || score > 100) { skippedMapelCount++; continue; }
-        const isActive = keaktifanMap.get(`${mapel.id}||${grupDaimiId}`) === true;
+        const isActive =
+          keaktifanMap.get(`${mapel.id}||${grupDaimiId}`) === true ||
+          (!!gJenisKey && activeJenisMap.get(mapel.id)?.has(gJenisKey) === true);
         if (!isActive) { skippedMapelCount++; continue; }
         data.push({ mataPelajaranId: mapel.id, nilaiAkhir: score });
       }
@@ -2360,10 +2463,19 @@ export class FormalService {
     });
 
     const keaktifanList = await this.prisma.keaktifanMapelGrup.findMany({
-      where: { mataPelajaranId: { in: allMapel.map(m => m.id) } }
+      where: { mataPelajaranId: { in: allMapel.map(m => m.id) } },
+      include: { grupDaimi: true }
     });
     // key: `${mataPelajaranId}__${grupDaimiId}` -> isActive
     const keaktifanMap = new Map(keaktifanList.map(k => [`${k.mataPelajaranId}__${k.grupDaimiId}`, k.isActive]));
+    const activeJenisMap = new Map<string, Set<string>>();
+    keaktifanList.forEach(k => {
+      if (k.isActive) {
+        if (!activeJenisMap.has(k.mataPelajaranId)) activeJenisMap.set(k.mataPelajaranId, new Set());
+        const key = normalizeTurkishKey(k.grupDaimi?.jenis || k.grupDaimi?.name);
+        if (key) activeJenisMap.get(k.mataPelajaranId)!.add(key);
+      }
+    });
 
     const nilaiMap = new Map<string, Record<string, number | null>>();
     allNilai.forEach(n => {
@@ -2376,7 +2488,9 @@ export class FormalService {
     const legerRows = siswaList.map(s => {
       const studentNilaiMap = nilaiMap.get(s.studentId) || {};
       const r = riwayatMap.get(s.studentId);
-      const jenisGrupDaimi = s.student.dataDaimi?.grup?.jenis || s.student.dataDaimi?.grup?.name || s.student.grupDaimi || '-';
+      const studentGrup = s.student.dataDaimi?.grup;
+      const jenisGrupDaimi = studentGrup?.jenis || studentGrup?.name || s.student.grupDaimi || '-';
+      const studentJenisKey = normalizeTurkishKey(studentGrup?.jenis || studentGrup?.name || s.student.grupDaimi);
       const grupDaimiId = s.student.dataDaimi?.grupId ?? null;
 
       let totalNilai = 0;
@@ -2389,7 +2503,9 @@ export class FormalService {
           totalNilai += val;
           countMapel++;
         }
-        aktifMapel[m.id] = !!grupDaimiId && keaktifanMap.get(`${m.id}__${grupDaimiId}`) === true;
+        aktifMapel[m.id] =
+          (!!grupDaimiId && keaktifanMap.get(`${m.id}__${grupDaimiId}`) === true) ||
+          (!!studentJenisKey && activeJenisMap.get(m.id)?.has(studentJenisKey) === true);
       });
 
       const rataRata = countMapel > 0 ? Math.round((totalNilai / countMapel) * 100) / 100 : 0;
@@ -2535,7 +2651,7 @@ export class FormalService {
       }),
       this.prisma.mataPelajaran.findMany({
         where: { isActive: true },
-        include: { keaktifanGrup: true }
+        include: { keaktifanGrup: { include: { grupDaimi: true } } }
       }),
       this.prisma.nilaiFormal.findMany({
         where: { studentId: { in: pageIds }, tahunAjaran, semester }
@@ -2560,12 +2676,15 @@ export class FormalService {
       const riwayatGrup = riwayatMap.get(s.studentId)?.grupDaimi;
       const grupRef = riwayatGrup || s.student.dataDaimi?.grup;
       const jenisGrupDaimi = grupRef?.jenis || grupRef?.name || s.student.grupDaimi || '-';
+      const studentJenisKey = normalizeTurkishKey(jenisGrupDaimi);
       const grupDaimiId = riwayatMap.get(s.studentId)?.grupDaimiId || s.student.dataDaimi?.grupId || null;
 
       const mapelAktifUntukSiswa = allMapelActive.filter(m => {
-        if (!grupDaimiId) return false;
-        const entry = m.keaktifanGrup.find(k => k.grupDaimiId === grupDaimiId);
-        return entry?.isActive === true;
+        const hasActiveId = !!grupDaimiId && m.keaktifanGrup.some(k => k.grupDaimiId === grupDaimiId && k.isActive);
+        const hasActiveJenis = !!studentJenisKey && m.keaktifanGrup.some(k =>
+          k.isActive && normalizeTurkishKey(k.grupDaimi?.jenis || k.grupDaimi?.name) === studentJenisKey
+        );
+        return hasActiveId || hasActiveJenis;
       });
       const filledSet = filledMap.get(s.studentId) || new Set<string>();
       const mapelBelumDiisi = mapelAktifUntukSiswa.filter(m => !filledSet.has(m.id)).map(m => m.name);
