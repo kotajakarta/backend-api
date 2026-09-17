@@ -68,4 +68,19 @@ export class ConfirmLjkDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  mataPelajaranId?: string;
+
+  @IsOptional()
+  @IsString()
+  kelasId?: string;
+
+  @IsOptional()
+  @IsString()
+  tahunAjaran?: string;
+
+  @IsOptional()
+  syncToNilaiRapor?: boolean;
 }

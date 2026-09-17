@@ -48,6 +48,7 @@ export class BankSoalService {
       page?: number;
       limit?: number;
       onlyMine?: boolean;
+      isOfficial?: boolean;
     },
   ) {
     const page = Math.max(1, Number(query.page) || 1);
@@ -71,6 +72,10 @@ export class BankSoalService {
 
     if (query.gradeLevel) {
       where.gradeLevel = query.gradeLevel;
+    }
+
+    if (query.isOfficial !== undefined) {
+      where.isOfficial = query.isOfficial;
     }
 
     // Filter RBAC / Scope:

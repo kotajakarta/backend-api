@@ -39,6 +39,24 @@ export class LjkService {
     let questionBank: any = null;
     let answerKey: Record<string, string> = {};
 
+    let mapelHint = hints.mapel;
+    if (!mapelHint && hints.mataPelajaranId) {
+      const mp = await this.prisma.mataPelajaran.findUnique({
+        where: { id: hints.mataPelajaranId },
+        select: { name: true },
+      });
+      if (mp) mapelHint = mp.name;
+    }
+
+    let kelasHint = hints.kelas;
+    if (!kelasHint && hints.kelasId) {
+      const kl = await this.prisma.kelas.findUnique({
+        where: { id: hints.kelasId },
+        select: { name: true, tingkat: true },
+      });
+      if (kl) kelasHint = kl.tingkat ? `Kelas ${kl.tingkat}` : kl.name;
+    }
+
     if (hints.questionBankId) {
       questionBank = await this.prisma.questionBank.findUnique({
         where: { id: hints.questionBankId },
@@ -49,13 +67,14 @@ export class LjkService {
           },
         },
       });
-    } else if (hints.mapel && hints.kelas) {
+    } else if (mapelHint && kelasHint) {
       // Cari soal ujian resmi (isOfficial = true)
       questionBank = await this.prisma.questionBank.findFirst({
         where: {
-          subject: { contains: hints.mapel, mode: 'insensitive' },
-          gradeLevel: { contains: hints.kelas, mode: 'insensitive' },
+          subject: { contains: mapelHint, mode: 'insensitive' },
+          gradeLevel: { contains: kelasHint, mode: 'insensitive' },
           ...(hints.semester ? { semester: hints.semester } : {}),
+          ...(hints.tahunAjaran ? { academicYear: hints.tahunAjaran } : {}),
           isOfficial: true,
         },
         include: {
@@ -82,8 +101,8 @@ export class LjkService {
 
     // 3. Ekstraksi OMR menggunakan Sharp
     const omrResult = await this.omrService.processLjkImage(file.buffer, {
-      mapel: hints.mapel || questionBank?.subject,
-      kelas: hints.kelas || questionBank?.gradeLevel,
+      mapel: mapelHint || questionBank?.subject,
+      kelas: kelasHint || questionBank?.gradeLevel,
       semester: hints.semester || questionBank?.semester,
       questionBankId: questionBank?.id,
       answerKey: Object.keys(answerKey).length > 0 ? answerKey : undefined,
@@ -138,10 +157,14 @@ export class LjkService {
             title: questionBank.title,
             subject: questionBank.subject,
             gradeLevel: questionBank.gradeLevel,
+            academicYear: questionBank.academicYear,
+            semester: questionBank.semester,
             totalQuestions: questionBank.questions?.length || 25,
             isOfficial: questionBank.isOfficial,
+            answerKey: Object.keys(answerKey).length > 0 ? answerKey : undefined,
           }
         : null,
+      answerKey: Object.keys(answerKey).length > 0 ? answerKey : undefined,
     };
   }
 
@@ -172,6 +195,32 @@ export class LjkService {
         select: { id: true },
       });
       if (s) studentId = s.id;
+    }
+
+    // Resolusi Mata Pelajaran ID & Kelas ID
+    let mataPelajaranId = dto.mataPelajaranId;
+    if (!mataPelajaranId && dto.mapel) {
+      const mp = await this.prisma.mataPelajaran.findFirst({
+        where: {
+          OR: [
+            { name: { contains: dto.mapel, mode: 'insensitive' } },
+            { kodeMapel: { contains: dto.mapel, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (mp) mataPelajaranId = mp.id;
+    }
+
+    let kelasId = dto.kelasId;
+    if (!kelasId && dto.kelas) {
+      const kl = await this.prisma.kelas.findFirst({
+        where: {
+          name: { contains: dto.kelas, mode: 'insensitive' },
+        },
+        select: { id: true },
+      });
+      if (kl) kelasId = kl.id;
     }
 
     // 3. Hitung Ulang Skor jika ada questionBankId
@@ -218,14 +267,16 @@ export class LjkService {
       }
     }
 
-    // 4. Simpan ke database
+    // 4. Simpan ke database LjkResult
     const created = await this.prisma.ljkResult.create({
       data: {
         kodeCabang: dto.kodeCabang,
         cabangId,
         mapel: dto.mapel,
+        mataPelajaranId,
         semester: dto.semester,
         kelas: dto.kelas,
+        kelasId,
         nisn: dto.nisn,
         studentId,
         jawaban: dto.jawaban as any,
@@ -251,10 +302,88 @@ export class LjkService {
       },
     });
 
+    // 5. Otomatis Sinkronisasi ke Nilai Formal e-Rapor Siswa
+    let syncedToRapor = false;
+    let syncedNilaiId: string | null = null;
+    const shouldSync = dto.syncToNilaiRapor !== false;
+
+    if (shouldSync && studentId && mataPelajaranId && kelasId && skor !== undefined && skor !== null) {
+      try {
+        const tahunAjaran = dto.tahunAjaran || '2024/2025';
+        const semesterNorm = dto.semester?.toLowerCase().includes('genap') ? 'Genap' : 'Ganjil';
+
+        let predikat = 'C+';
+        if (skor >= 90) predikat = 'A';
+        else if (skor >= 81) predikat = 'B+';
+        else if (skor >= 76) predikat = 'B';
+
+        // Pastikan RiwayatKelasFormal ada
+        let riwayat = await this.prisma.riwayatKelasFormal.findUnique({
+          where: {
+            studentId_tahunAjaran_semester: {
+              studentId,
+              tahunAjaran,
+              semester: semesterNorm,
+            },
+          },
+        });
+
+        if (!riwayat) {
+          riwayat = await this.prisma.riwayatKelasFormal.create({
+            data: {
+              studentId,
+              kelasId,
+              tahunAjaran,
+              semester: semesterNorm,
+            },
+          });
+        }
+
+        // Upsert NilaiFormal
+        const updatedNilai = await this.prisma.nilaiFormal.upsert({
+          where: {
+            studentId_mataPelajaranId_tahunAjaran_semester: {
+              studentId,
+              mataPelajaranId,
+              tahunAjaran,
+              semester: semesterNorm,
+            },
+          },
+          update: {
+            kelasId,
+            riwayatKelasId: riwayat.id,
+            nilaiAkhir: skor,
+            nilaiPas: skor,
+            predikat,
+          },
+          create: {
+            studentId,
+            mataPelajaranId,
+            kelasId,
+            riwayatKelasId: riwayat.id,
+            tahunAjaran,
+            semester: semesterNorm,
+            nilaiAkhir: skor,
+            nilaiPas: skor,
+            predikat,
+          },
+        });
+
+        syncedToRapor = true;
+        syncedNilaiId = updatedNilai.id;
+      } catch (syncErr) {
+        console.error('Gagal otomatis sinkronkan nilai LJK ke e-Rapor:', syncErr);
+      }
+    }
+
     return {
       success: true,
-      message: 'Hasil pemeriksaan LJK berhasil disimpan.',
+      message: syncedToRapor
+        ? `Hasil pemeriksaan LJK disimpan dan otomatis disinkronkan ke Nilai e-Rapor (Skor: ${skor}).`
+        : 'Hasil pemeriksaan LJK berhasil disimpan.',
       data: created,
+      syncedToRapor,
+      syncedNilaiId,
     };
   }
 

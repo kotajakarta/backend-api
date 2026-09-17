@@ -16,4 +16,16 @@ export class ScanLjkDto {
   @IsOptional()
   @IsString()
   questionBankId?: string;
+
+  @IsOptional()
+  @IsString()
+  mataPelajaranId?: string;
+
+  @IsOptional()
+  @IsString()
+  kelasId?: string;
+
+  @IsOptional()
+  @IsString()
+  tahunAjaran?: string;
 }

@@ -155,6 +155,7 @@ export class BankSoalController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('onlyMine') onlyMine?: string,
+    @Query('isOfficial') isOfficial?: string,
   ) {
     const user = req.user;
     return this.bankService.getQuestionBanks(user, {
@@ -165,6 +166,7 @@ export class BankSoalController {
       page,
       limit,
       onlyMine: onlyMine === 'true',
+      isOfficial: isOfficial !== undefined ? isOfficial === 'true' : undefined,
     });
   }
 
