@@ -131,8 +131,13 @@ export class AccessControlGuard implements CanActivate {
         if (url.includes('/syahriyah') || url.includes('/pembayaran')) {
           throw new ForbiddenException('Akses ditolak: Data keuangan dan syahriyah dilindungi dan tidak dapat diakses oleh akun Guru/Wali Kelas');
         }
-        // Block pengaturan master sistem & sync
-        if (url.includes('/pengaturan') || url.includes('/sync') || url.includes('/admin/users')) {
+        // Block pengaturan master sistem & sync (kecuali GET pengumuman, akademik, & modules publik)
+        const isAllowedPengaturanRead = httpMethod === 'GET' && (
+          url.includes('/pengaturan/pengumuman') || 
+          url.includes('/pengaturan/akademik') || 
+          url.includes('/pengaturan/modules')
+        );
+        if (!isAllowedPengaturanRead && (url.includes('/pengaturan') || url.includes('/sync') || url.includes('/admin/users'))) {
           throw new ForbiddenException('Akses ditolak: Akun Guru/Wali Kelas tidak memiliki izin ke menu konfigurasi sistem');
         }
         // Block mutasi staff kepegawaian (POST/PUT/DELETE /staff)
