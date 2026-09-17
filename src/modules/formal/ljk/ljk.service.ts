@@ -101,9 +101,9 @@ export class LjkService {
 
     // 3. Ekstraksi OMR menggunakan Sharp
     const omrResult = await this.omrService.processLjkImage(file.buffer, {
-      mapel: mapelHint || questionBank?.subject,
-      kelas: kelasHint || questionBank?.gradeLevel,
-      semester: hints.semester || questionBank?.semester,
+      mapel: questionBank?.subject || mapelHint,
+      kelas: questionBank?.gradeLevel || kelasHint,
+      semester: questionBank?.semester || hints.semester,
       questionBankId: questionBank?.id,
       answerKey: Object.keys(answerKey).length > 0 ? answerKey : undefined,
     });
