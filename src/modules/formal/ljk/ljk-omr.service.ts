@@ -78,10 +78,10 @@ export class LjkOmrService {
     // Deteksi mencari window lokal paling gelap (minimum mean intensity) di masing-masing sudut,
     // yang menjamin deteksi sukses bahkan dengan bayangan/glare lampu ruangan pada foto HP.
     const zones = {
-      TL: { x0: 0.01, x1: 0.22, y0: 0.01, y1: 0.18 },
-      TR: { x0: 0.78, x1: 0.99, y0: 0.01, y1: 0.18 },
-      BL: { x0: 0.01, x1: 0.22, y0: 0.80, y1: 0.99 },
-      BR: { x0: 0.78, x1: 0.99, y0: 0.80, y1: 0.99 },
+      TL: { x0: 0.005, x1: 0.28, y0: 0.005, y1: 0.25 },
+      TR: { x0: 0.72, x1: 0.995, y0: 0.005, y1: 0.25 },
+      BL: { x0: 0.005, x1: 0.28, y0: 0.75, y1: 0.995 },
+      BR: { x0: 0.72, x1: 0.995, y0: 0.75, y1: 0.995 },
     };
 
     const win = Math.max(8, Math.round(width * 0.013));
