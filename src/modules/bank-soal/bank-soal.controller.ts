@@ -251,6 +251,25 @@ export class BankSoalController {
     return this.bankService.deleteQuestionItem(bankId, qId, req.user);
   }
 
+  @Post(':id/set-official')
+  async setOfficialQuestionBank(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body?: { isOfficial?: boolean },
+  ) {
+    const isOfficial = body?.isOfficial !== undefined ? body.isOfficial : true;
+    return this.bankService.setOfficialQuestionBank(id, req.user, isOfficial);
+  }
+
+  @Post(':id/transfer-project')
+  async transferBankSoalToProject(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: { targetProjectId: string; targetAssignmentId?: string },
+  ) {
+    return this.bankService.transferBankSoalToProject(id, dto, req.user);
+  }
+
   @Get(':id')
   async getQuestionBankDetail(@Req() req: any, @Param('id') id: string) {
     return this.bankService.getQuestionBankDetail(id, req.user);

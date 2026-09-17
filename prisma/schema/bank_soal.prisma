@@ -48,15 +48,18 @@ model QuestionBank {
   cabangId     String?             @map("cabang_id")
   cabang       Cabang?             @relation(fields: [cabangId], references: [id], onDelete: SetNull)
   isShared     Boolean             @default(false) @map("is_shared")
+  isOfficial   Boolean             @default(false) @map("is_official")
 
   assignment   BankSoalAssignment?
   questions    QuestionItem[]
+  ljkResults   LjkResult[]
 
   createdAt    DateTime            @default(now()) @map("created_at")
   updatedAt    DateTime            @updatedAt @map("updated_at")
 
   @@index([teacherId])
   @@index([cabangId])
+  @@index([subject, gradeLevel, academicYear, semester, isOfficial])
   @@map("question_banks")
   @@schema("bank_soal")
 }

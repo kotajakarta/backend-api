@@ -21,6 +21,7 @@ model Wilayah {
 
 model Cabang {
   id                        String                @id @default(uuid())
+  kode                      String?               @unique @map("kode")
   name                      String
   isActive                  Boolean               @default(true) @map("is_active")
   wilayahId                 String?               @map("wilayah_id")
@@ -76,6 +77,7 @@ model Cabang {
   questionBanks             QuestionBank[]
   tagihanSantri             TagihanSantri[]
   bankSoalAssignments      BankSoalAssignment[]
+  ljkResults                LjkResult[]
 
   @@map("cabang")
   @@schema("core")
@@ -239,6 +241,7 @@ model Student {
   tagihan                TagihanSantri[]
   pembayaran             PembayaranSantri[]
   komparasiEmis          KomparasiEmis[]
+  ljkResults             LjkResult[]
 
   @@map("students")
   @@schema("core")

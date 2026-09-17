@@ -17,16 +17,14 @@ export class BankSoalService {
   constructor(@Inject(PrismaService) private prisma: PrismaService) {}
 
   /**
-   * Cek apakah user memiliki hak akses membaca Bank Soal
+   * Cek apakah user memiliki hak akses membaca Bank Soal.
+   * Sesuai ketentuan, semua role dapat melihat/membaca bank soal (read-only).
    */
   private checkReadAccess(bank: any, user: any) {
-    if (!user) return;
-    if (user.scope === 'GLOBAL') return;
-    if (user.scope === 'WILAYAH' && bank.cabang?.wilayahId === user.wilayahId) return;
-    if (bank.isShared) return;
-    if (bank.teacherId === user.id) return;
-    if (user.cabangId && bank.cabangId === user.cabangId) return;
-    throw new ForbiddenException('Anda tidak memiliki akses membaca Bank Soal ini.');
+    if (!user) {
+      throw new ForbiddenException('Harap login untuk melihat Bank Soal ini.');
+    }
+    return;
   }
 
   /**
@@ -75,25 +73,14 @@ export class BankSoalService {
       where.gradeLevel = query.gradeLevel;
     }
 
-    // Filter RBAC / Scope
-    if (query.onlyMine || user?.scope === 'GURU' || user?.scope === 'WALI_KELAS') {
+    // Filter RBAC / Scope:
+    // Jika onlyMine = true, filter bank soal milik pengguna / cabang terkait.
+    // Jika tidak, semua role dapat melihat seluruh koleksi bank soal (read-only).
+    if (query.onlyMine) {
       where.OR = [
-        { teacherId: user.id },
-        { createdById: user.id },
-        { isShared: true },
-        ...(user.cabangId ? [{ cabangId: user.cabangId }] : []),
-      ];
-    } else if (user?.scope === 'CABANG' && user.cabangId) {
-      where.OR = [
-        { cabangId: user.cabangId },
-        { teacherId: user.id },
-        { isShared: true },
-      ];
-    } else if (user?.scope === 'WILAYAH' && user.wilayahId) {
-      where.OR = [
-        { cabang: { wilayahId: user.wilayahId } },
-        { teacherId: user.id },
-        { isShared: true },
+        { teacherId: user?.id },
+        { createdById: user?.id },
+        ...(user?.cabangId ? [{ cabangId: user.cabangId }] : []),
       ];
     } else if (query.cabangId) {
       where.cabangId = query.cabangId;
@@ -741,8 +728,125 @@ export class BankSoalService {
     if (user?.scope !== 'GLOBAL') {
       throw new ForbiddenException('Hanya Admin Global yang dapat menghapus proyek.');
     }
+    // Lepaskan dulu hubungan assignment dengan questionBank agar Bank Soal yang sudah dibuat tidak ikut terhapus
+    await this.prisma.bankSoalAssignment.updateMany({
+      where: { projectId: id },
+      data: { questionBankId: null },
+    });
     await this.prisma.bankSoalProject.delete({ where: { id } });
-    return { success: true, message: 'Proyek berhasil dihapus.' };
+    return { success: true, message: 'Proyek berhasil dihapus. Bank Soal yang telah disusun tetap aman tersimpan.' };
+  }
+
+  async setOfficialQuestionBank(id: string, user: any, isOfficial = true) {
+    if (user?.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Global yang dapat menentukan soal ujian resmi.');
+    }
+
+    const bank = await this.prisma.questionBank.findUnique({
+      where: { id },
+    });
+    if (!bank) throw new NotFoundException('Bank Soal tidak ditemukan.');
+
+    if (isOfficial) {
+      // Cabut status resmi dari bank soal lain yang memiliki kriteria sama (mapel, kelas, ta, semester)
+      await this.prisma.questionBank.updateMany({
+        where: {
+          subject: bank.subject,
+          gradeLevel: bank.gradeLevel,
+          academicYear: bank.academicYear,
+          semester: bank.semester,
+          id: { not: id },
+          isOfficial: true,
+        },
+        data: { isOfficial: false },
+      });
+
+      const updated = await this.prisma.questionBank.update({
+        where: { id },
+        data: { isOfficial: true },
+      });
+      return {
+        success: true,
+        message: `Bank Soal "${bank.title}" berhasil dijadikan Naskah Soal Resmi Ujian.`,
+        data: updated,
+      };
+    } else {
+      const updated = await this.prisma.questionBank.update({
+        where: { id },
+        data: { isOfficial: false },
+      });
+      return {
+        success: true,
+        message: `Status naskah soal resmi ujian untuk "${bank.title}" dinonaktifkan.`,
+        data: updated,
+      };
+    }
+  }
+
+  async transferBankSoalToProject(
+    bankId: string,
+    dto: { targetProjectId: string; targetAssignmentId?: string },
+    user: any,
+  ) {
+    if (user?.scope !== 'GLOBAL') {
+      throw new ForbiddenException('Hanya Admin Global yang dapat memindahkan bank soal ke proyek lain.');
+    }
+
+    const bank = await this.prisma.questionBank.findUnique({
+      where: { id: bankId },
+      include: { assignment: true },
+    });
+    if (!bank) throw new NotFoundException('Bank Soal tidak ditemukan.');
+
+    const targetProject = await this.prisma.bankSoalProject.findUnique({
+      where: { id: dto.targetProjectId },
+      include: { assignments: true },
+    });
+    if (!targetProject) throw new NotFoundException('Proyek target tidak ditemukan.');
+
+    // Lepaskan tautan assignment lama jika ada
+    if (bank.assignment) {
+      await this.prisma.bankSoalAssignment.update({
+        where: { id: bank.assignment.id },
+        data: { questionBankId: null },
+      });
+    }
+
+    if (dto.targetAssignmentId) {
+      const targetAss = targetProject.assignments.find((a) => a.id === dto.targetAssignmentId);
+      if (!targetAss) {
+        throw new NotFoundException('Penugasan target tidak ditemukan di dalam proyek.');
+      }
+      await this.prisma.bankSoalAssignment.update({
+        where: { id: dto.targetAssignmentId },
+        data: {
+          questionBankId: bank.id,
+          status: AssignmentStatus.SELESAI,
+        },
+      });
+    } else {
+      // Buat penugasan baru di proyek target untuk menampung bank soal ini
+      await this.prisma.bankSoalAssignment.create({
+        data: {
+          projectId: dto.targetProjectId,
+          subjectName: bank.subject,
+          gradeLevel: bank.gradeLevel,
+          targetMcqCount: 0,
+          targetEssayCount: 0,
+          timeLimit: bank.timeLimit || 90,
+          instructions: bank.instructions || 'Dipindahkan dari proyek lain',
+          cabangId: bank.cabangId,
+          teacherId: bank.teacherId,
+          questionBankId: bank.id,
+          status: AssignmentStatus.SELESAI,
+        },
+      });
+    }
+
+    return {
+      success: true,
+      message: `Bank Soal "${bank.title}" berhasil dipindahkan ke proyek "${targetProject.title}".`,
+    };
   }
 
   async getAssignments(

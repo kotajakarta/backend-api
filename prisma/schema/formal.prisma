@@ -38,6 +38,7 @@ model Kelas {
   hafalanAlQuran     HafalanAlQuran[]
   pelaksanaanSilabus PelaksanaanSilabus[]
   absensiMapel       AbsensiMapel[]
+  ljkResults         LjkResult[]
 
   @@map("kelas")
   @@schema("formal")
@@ -93,6 +94,7 @@ model MataPelajaran {
   silabusMapel   SilabusMapel[]
   absensiMapel   AbsensiMapel[]
   pelaksanaanLibur PelaksanaanSilabus[]
+  ljkResults     LjkResult[]
 
   @@map("mata_pelajaran")
   @@schema("formal")
@@ -310,5 +312,51 @@ model KomparasiEmis {
   @@index([statusVerval])
   @@index([butuhTindakan])
   @@map("komparasi_emis")
+  @@schema("formal")
+}
+
+model LjkResult {
+  id              String         @id @default(uuid())
+  kodeCabang      String         @map("kode_cabang")
+  cabangId        String?        @map("cabang_id")
+  cabang          Cabang?        @relation(fields: [cabangId], references: [id], onDelete: SetNull)
+  
+  mapel           String
+  mataPelajaranId String?        @map("mata_pelajaran_id")
+  mataPelajaran   MataPelajaran? @relation(fields: [mataPelajaranId], references: [id], onDelete: SetNull)
+  
+  semester        String         // GANJIL / GENAP
+  kelas           String         // Kelas 7, 8, 9, 10, 11, 12
+  kelasId         String?        @map("kelas_id")
+  kelasRel        Kelas?         @relation(fields: [kelasId], references: [id], onDelete: SetNull)
+  
+  nisn            String
+  studentId       String?        @map("student_id")
+  student         Student?       @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  
+  // 25 Jawaban PG: { "1": "A", "2": "C", ... }
+  jawaban         Json
+  
+  totalSoal       Int            @default(25) @map("total_soal")
+  jumlahBenar     Int?           @map("jumlah_benar")
+  jumlahSalah     Int?           @map("jumlah_salah")
+  jumlahKosong    Int?           @map("jumlah_kosong")
+  skor            Float?         @map("skor") // Nilai 0 - 100
+  
+  fileUrl         String?        @map("file_url")
+  confidence      Float?         // Skor keyakinan OMR 0.0 - 1.0
+  status          String         @default("VERIFIED") // DRAFT, VERIFIED
+  
+  questionBankId  String?        @map("question_bank_id")
+  questionBank    QuestionBank?  @relation(fields: [questionBankId], references: [id], onDelete: SetNull)
+  
+  createdById     String?        @map("created_by_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@index([kodeCabang])
+  @@index([nisn])
+  @@index([mapel, kelas, semester])
+  @@map("ljk_results")
   @@schema("formal")
 }

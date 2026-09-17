@@ -1,6 +1,6 @@
 {
   "portalWalsanEnabled": false,
-  "raporMuadalahEnabled": false,
+  "raporMuadalahEnabled": true,
   "bankSoalEnabled": true,
   "cctvEnabled": false,
   "cctvProtectionEnabled": false,

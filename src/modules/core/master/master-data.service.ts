@@ -1,4 +1,4 @@
-import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import bcrypt from 'bcrypt';
 import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
@@ -70,11 +70,81 @@ function resolveDaimiGroupKey(st: any, masterJenisNormList: { original: string; 
 }
 
 @Injectable()
-export class MasterDataService {
+export class MasterDataService implements OnModuleInit {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuditLogService) private readonly auditLogService: AuditLogService
   ) {}
+
+  async onModuleInit() {
+    // Jalankan backfill kode cabang otomatis di background
+    this.backfillKodeCabang().catch((err) => {
+      console.error('Error auto-backfilling kode cabang:', err);
+    });
+  }
+
+  /**
+   * Generator otomatis Kode Cabang: format 4 digit diawali angka 1 (1001, 1002, dst.)
+   */
+  async generateNextKodeCabang(): Promise<string> {
+    const cabangsWithKode = await this.prisma.cabang.findMany({
+      where: {
+        kode: {
+          startsWith: '1',
+        },
+      },
+      select: { kode: true },
+    });
+
+    let maxNum = 1000;
+    for (const c of cabangsWithKode) {
+      if (c.kode && /^\d+$/.test(c.kode)) {
+        const num = parseInt(c.kode, 10);
+        if (num > maxNum && num < 9999) {
+          maxNum = num;
+        }
+      }
+    }
+
+    return (maxNum + 1).toString();
+  }
+
+  /**
+   * Backfill otomatis untuk mengisi seluruh cabang yang belum memiliki kode
+   */
+  async backfillKodeCabang(): Promise<void> {
+    const unassignedCabangs = await this.prisma.cabang.findMany({
+      where: {
+        OR: [
+          { kode: null },
+          { kode: '' },
+        ],
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    if (unassignedCabangs.length === 0) return;
+
+    const existingCodes = await this.prisma.cabang.findMany({
+      where: { kode: { not: null } },
+      select: { kode: true },
+    });
+    const usedCodes = new Set(existingCodes.map((c) => c.kode));
+
+    let currentNum = 1001;
+    for (const cabang of unassignedCabangs) {
+      while (usedCodes.has(currentNum.toString())) {
+        currentNum++;
+      }
+      const newKode = currentNum.toString();
+      await this.prisma.cabang.update({
+        where: { id: cabang.id },
+        data: { kode: newKode },
+      });
+      usedCodes.add(newKode);
+      currentNum++;
+    }
+  }
 
   // Guru (Staff) selalu terikat cabang/wilayah - CABANG hanya boleh akses gurunya sendiri,
   // WILAYAH hanya guru di wilayahnya.
@@ -1207,8 +1277,11 @@ export class MasterDataService {
         data.wilayahId = user.wilayahId;
       }
     }
+    const kodeCabang = data.kode || (await this.generateNextKodeCabang());
+
     const result = await this.prisma.cabang.create({
       data: {
+        kode: kodeCabang,
         name: data.name,
         isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
         wilayahId: data.wilayahId || null,
@@ -1250,6 +1323,7 @@ export class MasterDataService {
     const result = await this.prisma.cabang.update({
       where: { id },
       data: {
+        kode: data.kode !== undefined ? (data.kode || null) : undefined,
         name: data.name,
         isActive: typeof data.isActive === 'boolean' ? data.isActive : undefined,
         wilayahId: data.wilayahId || null,
@@ -1598,8 +1672,11 @@ export class MasterDataService {
 
     const finalName = body.namaCabangFinal || permohonan.namaCabangUsulan;
 
+    const kodeCabang = await this.generateNextKodeCabang();
+
     const cabangBaru = await this.prisma.cabang.create({
       data: {
+        kode: kodeCabang,
         name: finalName,
         wilayahId: permohonan.wilayahId,
         alamatJalan: permohonan.alamatJalan,
