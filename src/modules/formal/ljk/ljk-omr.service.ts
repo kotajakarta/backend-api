@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 
+export interface ErasureDetail {
+  hasErasure: boolean;          // ada bekas hapusan atau coretan
+  isDoubleMarked: boolean;      // 2 opsi diisi sekaligus
+  suspiciousOptions: string[];  // opsi yang ada noda/bekas hapus
+  noiseScore: number;           // 0–1, makin tinggi makin berantakan
+}
+
 export interface OmrExtractionResult {
   kodeCabang: string;
   kodeMapelNum: string; // '01'–'99', '' jika tidak terisi
@@ -16,6 +23,8 @@ export interface OmrExtractionResult {
   jumlahSalah?: number;
   jumlahKosong?: number;
   skor?: number;
+  // Peta coretan/hapusan per nomor soal (preview only, tidak disimpan ke DB)
+  erasureMap?: Record<string, ErasureDetail>;
   detectedMetrics?: {
     avgContrast: number;
     dimensions: { width: number; height: number };
@@ -221,6 +230,7 @@ export class LjkOmrService {
       let darkPixels = 0;
       let totalPixels = 0;
       let sumIntensity = 0;
+      const pixelValues: number[] = [];
 
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
@@ -232,6 +242,7 @@ export class LjkOmrService {
               sumIntensity += val;
               if (val < darkThreshold) darkPixels++;
               totalPixels++;
+              pixelValues.push(val);
             }
           }
         }
@@ -240,14 +251,23 @@ export class LjkOmrService {
       const fillRatio = totalPixels > 0 ? darkPixels / totalPixels : 0;
       const meanIntensity = totalPixels > 0 ? sumIntensity / totalPixels : 255;
       const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-      return { fillRatio, meanIntensity, darkScore };
+
+      // Hitung variance sebagai indikator noise/coretan
+      let variance = 0;
+      if (pixelValues.length > 1) {
+        const mean = meanIntensity;
+        variance = pixelValues.reduce((sum, v) => sum + (v - mean) ** 2, 0) / pixelValues.length;
+      }
+      const noiseScore = Math.min(1, Math.sqrt(variance) / 80); // normalize 0–1
+
+      return { fillRatio, meanIntensity, darkScore, noiseScore };
     };
 
     const sampleBubbleMm = (
       mmX: number,
       mmY: number,
       radiusMm: number = 1.6,
-    ): { fillRatio: number; meanIntensity: number; darkScore: number } => {
+    ): { fillRatio: number; meanIntensity: number; darkScore: number; noiseScore: number } => {
       const pt = getPointFromMm(mmX, mmY);
       const nominalCx = Math.round(pt.x);
       const nominalCy = Math.round(pt.y);
@@ -259,8 +279,7 @@ export class LjkOmrService {
         return nominalRes;
       }
 
-      // Adaptive centering: cari titik pusat terbaik dalam toleransi offset (+/- 7px horizontal, +/- 4px vertikal)
-      // untuk mengoreksi pergeseran pencetakan, pemotongan kertas A5, atau distorsi lensa kamera
+      // Adaptive centering
       let best = nominalRes;
       for (let dy = -4; dy <= 4; dy += 2) {
         for (let dx = -7; dx <= 7; dx += 2) {
@@ -371,6 +390,7 @@ export class LjkOmrService {
     const options = ['A', 'B', 'C', 'D'];
     const jawaban: Record<string, string> = {};
     const ambiguities: number[] = [];
+    const erasureMap: Record<string, ErasureDetail> = {};
     let totalConfidenceSum = 0;
 
     for (let q = 1; q <= TOTAL_SOAL; q++) {
@@ -379,12 +399,12 @@ export class LjkOmrService {
       const startX = colStartsMm[colIdx];
       const cy = qStartMm + rowIdx * qRowSpacingMm;
 
-      const scoredOptions: { opt: string; ratio: number; intensity: number; darkScore: number }[] = [];
+      const scoredOptions: { opt: string; ratio: number; intensity: number; darkScore: number; noiseScore: number }[] = [];
 
       for (let oIdx = 0; oIdx < options.length; oIdx++) {
         const cx = startX + oIdx * optSpacingMm;
         const res = sampleBubbleMm(cx, cy, 1.6);
-        scoredOptions.push({ opt: options[oIdx], ratio: res.fillRatio, intensity: res.meanIntensity, darkScore: res.darkScore });
+        scoredOptions.push({ opt: options[oIdx], ratio: res.fillRatio, intensity: res.meanIntensity, darkScore: res.darkScore, noiseScore: res.noiseScore });
       }
 
       scoredOptions.sort((a, b) => b.darkScore - a.darkScore);
@@ -392,13 +412,35 @@ export class LjkOmrService {
       const runnerUp = scoredOptions[1];
       const margin = top.darkScore - runnerUp.darkScore;
 
-      // Ambang batas: bubble yang dihitamkan pensil/pulpen memiliki fillRatio >= 0.55 dan darkScore >= 1.8,
-      // atau darkScore >= 2.0 dengan margin minimal 0.35 terhadap pilihan kedua
       const isFilled = (top.ratio >= 0.55 && top.darkScore >= 1.8) || (top.darkScore >= 2.0 && margin >= 0.35);
+
+      // --- Deteksi Coretan / Hapusan ---
+      // Double-mark: 2 opsi atau lebih memiliki fillRatio >= 0.35 (isi cukup pekat)
+      const filledCount = scoredOptions.filter(o => o.ratio >= 0.35 && o.darkScore >= 1.2).length;
+      const isDoubleMarked = filledCount >= 2;
+
+      // Suspicious erasure: opsi yang tidak terpilih tapi memiliki noise tinggi (bekas hapusan)
+      const suspiciousOptions = scoredOptions
+        .filter(o => o.opt !== top.opt && o.noiseScore > 0.35 && o.ratio < 0.40)
+        .map(o => o.opt);
+
+      // Noise rata-rata semua opsi per soal ini
+      const avgNoise = scoredOptions.reduce((s, o) => s + o.noiseScore, 0) / scoredOptions.length;
+      const hasErasure = isDoubleMarked || suspiciousOptions.length > 0 || (isFilled && avgNoise > 0.45);
+
+      if (hasErasure || isDoubleMarked) {
+        erasureMap[q.toString()] = {
+          hasErasure,
+          isDoubleMarked,
+          suspiciousOptions,
+          noiseScore: Math.round(avgNoise * 100) / 100,
+        };
+      }
+      // --- End Deteksi Coretan ---
 
       if (isFilled) {
         jawaban[q.toString()] = top.opt;
-        if (margin < 0.35 && runnerUp.ratio >= 0.50) {
+        if ((margin < 0.35 && runnerUp.ratio >= 0.50) || isDoubleMarked) {
           ambiguities.push(q);
           totalConfidenceSum += 0.7;
         } else {
@@ -451,6 +493,7 @@ export class LjkOmrService {
       jawaban,
       confidence: overallConfidence,
       ambiguities,
+      erasureMap: Object.keys(erasureMap).length > 0 ? erasureMap : undefined,
       totalSoal: TOTAL_SOAL,
       jumlahBenar: hints?.answerKey ? jumlahBenar : undefined,
       jumlahSalah: hints?.answerKey ? jumlahSalah : undefined,

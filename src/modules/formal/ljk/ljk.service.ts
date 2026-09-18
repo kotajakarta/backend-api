@@ -263,6 +263,8 @@ export class LjkService {
       kelasDetected: detectedKelas
         ? { id: detectedKelas.id, name: detectedKelas.name, tingkat: detectedKelas.tingkat }
         : null,
+      // erasureMap dari OMR — hanya untuk preview, tidak disimpan ke DB
+      erasureMap: omrResult.erasureMap,
       cabang: matchedCabang,
       student: matchedStudent
         ? {
@@ -720,5 +722,170 @@ export class LjkService {
 
     await this.prisma.ljkResult.delete({ where: { id } });
     return { success: true, message: 'Data LJK berhasil dihapus.' };
+  }
+
+  /**
+   * Analitik LJK: Distribusi skor & analisis per soal
+   * Mengagregasi jawaban semua siswa untuk mengetahui tingkat kesulitan tiap soal
+   */
+  async getLjkAnalytics(
+    query: {
+      questionBankId?: string;
+      mapel?: string;
+      kelas?: string;
+      semester?: string;
+      tahunAjaran?: string;
+      mataPelajaranId?: string;
+      kelasId?: string;
+    },
+    user: any,
+  ) {
+    const where: any = { status: 'VERIFIED' };
+
+    if (query.questionBankId) where.questionBankId = query.questionBankId;
+    if (query.mataPelajaranId) where.mataPelajaranId = query.mataPelajaranId;
+    if (query.kelasId) where.kelasId = query.kelasId;
+    if (query.mapel) where.mapel = { contains: query.mapel, mode: 'insensitive' };
+    if (query.kelas) where.kelas = query.kelas;
+    if (query.semester) where.semester = query.semester;
+    if (query.tahunAjaran) where.tahunAjaran = query.tahunAjaran;
+
+    // Scope cabang
+    if (user?.scope === 'CABANG' && user.cabangId) {
+      where.cabangId = user.cabangId;
+    }
+
+    const results = await this.prisma.ljkResult.findMany({
+      where,
+      select: {
+        id: true,
+        nisn: true,
+        jawaban: true,
+        skor: true,
+        totalSoal: true,
+        questionBankId: true,
+        mapel: true,
+        kelas: true,
+        semester: true,
+        student: {
+          include: { biodata: { select: { fullName: true } } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (results.length === 0) {
+      return {
+        totalSiswa: 0,
+        avgSkor: 0,
+        maxSkor: 0,
+        minSkor: 0,
+        kelulusanPct: 0,
+        skorDistribution: [],
+        perSoal: [],
+        soalTersulit: [],
+        soalTermudah: [],
+      };
+    }
+
+    // Ambil kunci jawaban dari questionBank jika ada
+    let answerKey: Record<string, string> = {};
+    if (query.questionBankId) {
+      const qb = await this.prisma.questionBank.findUnique({
+        where: { id: query.questionBankId },
+        include: { questions: { orderBy: { orderIndex: 'asc' }, include: { options: true } } },
+      });
+      if (qb) {
+        qb.questions.forEach((q: any, idx: number) => {
+          const correctOpt = q.options?.find((o: any) => o.isCorrect);
+          if (correctOpt) answerKey[(idx + 1).toString()] = correctOpt.label.toUpperCase();
+          else if (q.answerKey) answerKey[(idx + 1).toString()] = q.answerKey.toUpperCase();
+        });
+      }
+    }
+
+    const totalSoal = results[0]?.totalSoal || 25;
+    const skorList = results.map(r => r.skor ?? 0).filter(s => s !== null);
+    const avgSkor = skorList.length > 0 ? Math.round(skorList.reduce((a, b) => a + b, 0) / skorList.length * 10) / 10 : 0;
+    const maxSkor = skorList.length > 0 ? Math.max(...skorList) : 0;
+    const minSkor = skorList.length > 0 ? Math.min(...skorList) : 0;
+    const kelulusan = skorList.filter(s => s >= 75).length;
+    const kelulusanPct = skorList.length > 0 ? Math.round(kelulusan / skorList.length * 100) : 0;
+
+    // Distribusi skor dalam rentang 10 poin
+    const ranges = ['0–9','10–19','20–29','30–39','40–49','50–59','60–69','70–79','80–89','90–100'];
+    const skorDistribution = ranges.map((range, i) => {
+      const lo = i * 10;
+      const hi = i === 9 ? 100 : lo + 9;
+      return {
+        range,
+        count: skorList.filter(s => s >= lo && s <= hi).length,
+      };
+    });
+
+    // Analisis per soal
+    const perSoal: any[] = [];
+    for (let nomor = 1; nomor <= totalSoal; nomor++) {
+      const nStr = nomor.toString();
+      const kunci = answerKey[nStr] || null;
+      let benar = 0, salah = 0, kosong = 0;
+      const distribusiPilihan: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+
+      for (const r of results) {
+        const jawaban = r.jawaban as Record<string, string>;
+        const ans = (jawaban?.[nStr] || '').toUpperCase().trim();
+        if (!ans) {
+          kosong++;
+        } else {
+          distribusiPilihan[ans] = (distribusiPilihan[ans] || 0) + 1;
+          if (kunci && ans === kunci) benar++;
+          else salah++;
+        }
+      }
+
+      const total = results.length;
+      const pctBenar = total > 0 ? Math.round(benar / total * 1000) / 10 : 0;
+      const pctSalah = total > 0 ? Math.round(salah / total * 1000) / 10 : 0;
+      const pctKosong = total > 0 ? Math.round(kosong / total * 1000) / 10 : 0;
+
+      perSoal.push({
+        nomor,
+        kunciJawaban: kunci,
+        benar, salah, kosong,
+        pctBenar, pctSalah, pctKosong,
+        distribusiPilihan,
+        difficulty: kunci ? (salah / total) : null, // null jika tidak ada kunci
+        label: kunci
+          ? (pctBenar >= 90 ? 'MUDAH' : pctBenar >= 70 ? 'SEDANG' : pctBenar >= 50 ? 'AGAK_SULIT' : 'SULIT')
+          : 'TIDAK_ADA_KUNCI',
+      });
+    }
+
+    // Top 5 tersulit & termudah (hanya jika ada kunci jawaban)
+    const soalDenganKunci = perSoal.filter(s => s.kunciJawaban);
+    const soalTersulit = [...soalDenganKunci]
+      .sort((a, b) => a.pctBenar - b.pctBenar)
+      .slice(0, 5)
+      .map(s => ({ nomor: s.nomor, pctBenar: s.pctBenar, label: s.label }));
+    const soalTermudah = [...soalDenganKunci]
+      .sort((a, b) => b.pctBenar - a.pctBenar)
+      .slice(0, 5)
+      .map(s => ({ nomor: s.nomor, pctBenar: s.pctBenar, label: s.label }));
+
+    return {
+      totalSiswa: results.length,
+      avgSkor,
+      maxSkor,
+      minSkor,
+      kelulusanPct,
+      hasAnswerKey: Object.keys(answerKey).length > 0,
+      mapel: results[0]?.mapel || query.mapel || '',
+      kelas: results[0]?.kelas || query.kelas || '',
+      semester: results[0]?.semester || query.semester || '',
+      skorDistribution,
+      perSoal,
+      soalTersulit,
+      soalTermudah,
+    };
   }
 }
