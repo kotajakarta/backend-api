@@ -1745,14 +1745,29 @@ export class FormalService {
       orderBy: { student: { biodata: { fullName: 'asc' } } }
     });
 
+    const studentIds = siswaList.map(s => s.studentId);
+
     const existingNilai = await this.prisma.nilaiFormal.findMany({
       where: {
-        kelasId,
+        OR: [
+          { kelasId },
+          { studentId: { in: studentIds } },
+        ],
         mataPelajaranId,
         tahunAjaran,
         semester
       }
     });
+
+    // Self-healing: jika ada nilai siswa di kelas ini yang kelasId-nya belum sinkron, update otomatis
+    for (const n of existingNilai) {
+      if (n.kelasId !== kelasId) {
+        this.prisma.nilaiFormal.update({
+          where: { id: n.id },
+          data: { kelasId }
+        }).catch(() => {});
+      }
+    }
 
     const nilaiMap = new Map(existingNilai.map(n => [n.studentId, n]));
 
@@ -2446,9 +2461,14 @@ export class FormalService {
       orderBy: { kodeMapel: 'asc' }
     });
 
+    const studentIds = siswaList.map(s => s.studentId);
+
     const allNilai = await this.prisma.nilaiFormal.findMany({
       where: {
-        kelasId,
+        OR: [
+          { kelasId },
+          { studentId: { in: studentIds } },
+        ],
         tahunAjaran,
         semester
       }
@@ -2456,7 +2476,10 @@ export class FormalService {
 
     const riwayatList = await this.prisma.riwayatKelasFormal.findMany({
       where: {
-        kelasId,
+        OR: [
+          { kelasId },
+          { studentId: { in: studentIds } },
+        ],
         tahunAjaran,
         semester
       }

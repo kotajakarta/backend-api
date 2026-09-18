@@ -94,26 +94,6 @@ export class LjkController {
   }
 
   /**
-   * Endpoint analitik LJK: distribusi skor & analisis per soal
-   */
-  @Get('analytics')
-  async getLjkAnalytics(
-    @Req() req: any,
-    @Query('questionBankId') questionBankId?: string,
-    @Query('mapel') mapel?: string,
-    @Query('kelas') kelas?: string,
-    @Query('semester') semester?: string,
-    @Query('tahunAjaran') tahunAjaran?: string,
-    @Query('mataPelajaranId') mataPelajaranId?: string,
-    @Query('kelasId') kelasId?: string,
-  ) {
-    return this.ljkService.getLjkAnalytics(
-      { questionBankId, mapel, kelas, semester, tahunAjaran, mataPelajaranId, kelasId },
-      req.user,
-    );
-  }
-
-  /**
    * Endpoint serve file foto scan LJK
    */
   @Get('image/:filename')
