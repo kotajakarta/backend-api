@@ -217,16 +217,7 @@ export class LjkOmrService {
       return { x: (mmX / 148.5) * width, y: (mmY / 210.0) * height };
     };
 
-    const sampleBubbleMm = (
-      mmX: number,
-      mmY: number,
-      radiusMm: number = 1.6,
-    ): { fillRatio: number; meanIntensity: number; darkPixels: number } => {
-      const pt = getPointFromMm(mmX, mmY);
-      const cx = Math.round(pt.x);
-      const cy = Math.round(pt.y);
-      const r = Math.max(5, Math.round((radiusMm / 148.5) * width));
-
+    const measureCircle = (cx: number, cy: number, r: number) => {
       let darkPixels = 0;
       let totalPixels = 0;
       let sumIntensity = 0;
@@ -248,7 +239,39 @@ export class LjkOmrService {
 
       const fillRatio = totalPixels > 0 ? darkPixels / totalPixels : 0;
       const meanIntensity = totalPixels > 0 ? sumIntensity / totalPixels : 255;
-      return { fillRatio, meanIntensity, darkPixels };
+      const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
+      return { fillRatio, meanIntensity, darkScore };
+    };
+
+    const sampleBubbleMm = (
+      mmX: number,
+      mmY: number,
+      radiusMm: number = 1.6,
+    ): { fillRatio: number; meanIntensity: number; darkScore: number } => {
+      const pt = getPointFromMm(mmX, mmY);
+      const nominalCx = Math.round(pt.x);
+      const nominalCy = Math.round(pt.y);
+      const r = Math.max(5, Math.round((radiusMm / 148.5) * width));
+
+      const nominalRes = measureCircle(nominalCx, nominalCy, r);
+      // Fast path: jika nominal sudah jelas pekat/terisi penuh, langsung gunakan
+      if (nominalRes.fillRatio >= 0.70) {
+        return nominalRes;
+      }
+
+      // Adaptive centering: cari titik pusat terbaik dalam toleransi offset (+/- 7px horizontal, +/- 4px vertikal)
+      // untuk mengoreksi pergeseran pencetakan, pemotongan kertas A5, atau distorsi lensa kamera
+      let best = nominalRes;
+      for (let dy = -4; dy <= 4; dy += 2) {
+        for (let dx = -7; dx <= 7; dx += 2) {
+          if (dx === 0 && dy === 0) continue;
+          const candidate = measureCircle(nominalCx + dx, nominalCy + dy, r);
+          if (candidate.darkScore > best.darkScore) {
+            best = candidate;
+          }
+        }
+      }
+      return best;
     };
 
     // 5. Kode Cabang (4 digit x 10 baris)
@@ -260,10 +283,9 @@ export class LjkOmrService {
       let bestDigit = col === 0 ? '1' : '0';
       for (let digit = 0; digit <= 9; digit++) {
         const mmY = 33.5 + digit * 3.8;
-        const { fillRatio, meanIntensity } = sampleBubbleMm(mmX, mmY);
-        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-        if (darkScore > bestScore) {
-          bestScore = darkScore;
+        const res = sampleBubbleMm(mmX, mmY);
+        if (res.darkScore > bestScore) {
+          bestScore = res.darkScore;
           bestDigit = digit.toString();
         }
       }
@@ -282,10 +304,9 @@ export class LjkOmrService {
       let bestDigit = '0';
       for (let digit = 0; digit <= 9; digit++) {
         const mmY = 33.5 + digit * 3.8;
-        const { fillRatio, meanIntensity } = sampleBubbleMm(mmX, mmY);
-        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-        if (darkScore > bestScore) {
-          bestScore = darkScore;
+        const res = sampleBubbleMm(mmX, mmY);
+        if (res.darkScore > bestScore) {
+          bestScore = res.darkScore;
           bestDigit = digit.toString();
         }
       }
@@ -302,10 +323,9 @@ export class LjkOmrService {
       let bestDigit = (col % 10).toString();
       for (let digit = 0; digit <= 9; digit++) {
         const mmY = 33.5 + digit * 3.8;
-        const { fillRatio, meanIntensity } = sampleBubbleMm(mmX, mmY);
-        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-        if (darkScore > bestScore) {
-          bestScore = darkScore;
+        const res = sampleBubbleMm(mmX, mmY);
+        if (res.darkScore > bestScore) {
+          bestScore = res.darkScore;
           bestDigit = digit.toString();
         }
       }
@@ -319,10 +339,9 @@ export class LjkOmrService {
     let maxKelasScore = -Infinity;
     for (let i = 0; i < kelasOptions.length; i++) {
       const mmY = 33.5 + i * 3.8;
-      const { fillRatio, meanIntensity } = sampleBubbleMm(kelasMmX, mmY);
-      const score = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-      if (score > maxKelasScore && (fillRatio > 0.15 || score > 0.5)) {
-        maxKelasScore = score;
+      const res = sampleBubbleMm(kelasMmX, mmY);
+      if (res.darkScore > maxKelasScore && (res.fillRatio > 0.15 || res.darkScore > 0.5)) {
+        maxKelasScore = res.darkScore;
         extractedKelas = kelasOptions[i];
       }
     }
@@ -332,11 +351,9 @@ export class LjkOmrService {
     let extractedSemester = hints?.semester ?? 'GANJIL';
     const semGanjilResult = sampleBubbleMm(semMmX, 33.5);
     const semGenapResult = sampleBubbleMm(semMmX, 37.3);
-    const scoreGanjil = semGanjilResult.fillRatio * 3.0 + (avgPaperBrightness - semGanjilResult.meanIntensity) / 120;
-    const scoreGenap = semGenapResult.fillRatio * 3.0 + (avgPaperBrightness - semGenapResult.meanIntensity) / 120;
-    if (scoreGenap > scoreGanjil && (semGenapResult.fillRatio > 0.15 || scoreGenap > 0.5)) {
+    if (semGenapResult.darkScore > semGanjilResult.darkScore && (semGenapResult.fillRatio > 0.15 || semGenapResult.darkScore > 0.5)) {
       extractedSemester = 'GENAP';
-    } else if (semGanjilResult.fillRatio > 0.15 || scoreGanjil > 0.5) {
+    } else if (semGanjilResult.fillRatio > 0.15 || semGanjilResult.darkScore > 0.5) {
       extractedSemester = 'GANJIL';
     }
 
@@ -366,11 +383,8 @@ export class LjkOmrService {
 
       for (let oIdx = 0; oIdx < options.length; oIdx++) {
         const cx = startX + oIdx * optSpacingMm;
-        const r1 = sampleBubbleMm(cx, cy, 1.6);
-        const r2 = sampleBubbleMm(cx, cy, 2.0);
-        const { fillRatio, meanIntensity } = r1.fillRatio >= r2.fillRatio ? r1 : r2;
-        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-        scoredOptions.push({ opt: options[oIdx], ratio: fillRatio, intensity: meanIntensity, darkScore });
+        const res = sampleBubbleMm(cx, cy, 1.6);
+        scoredOptions.push({ opt: options[oIdx], ratio: res.fillRatio, intensity: res.meanIntensity, darkScore: res.darkScore });
       }
 
       scoredOptions.sort((a, b) => b.darkScore - a.darkScore);
@@ -378,9 +392,9 @@ export class LjkOmrService {
       const runnerUp = scoredOptions[1];
       const margin = top.darkScore - runnerUp.darkScore;
 
-      // Ambang batas: bubble yang dihitamkan pensil/pulpen memiliki fillRatio >= 0.58 dan darkScore >= 1.8,
-      // dengan margin yang jelas terhadap pilihan lain
-      const isFilled = (top.ratio >= 0.58 && top.darkScore >= 1.8) || (top.darkScore >= 2.0 && margin >= 0.35);
+      // Ambang batas: bubble yang dihitamkan pensil/pulpen memiliki fillRatio >= 0.55 dan darkScore >= 1.8,
+      // atau darkScore >= 2.0 dengan margin minimal 0.35 terhadap pilihan kedua
+      const isFilled = (top.ratio >= 0.55 && top.darkScore >= 1.8) || (top.darkScore >= 2.0 && margin >= 0.35);
 
       if (isFilled) {
         jawaban[q.toString()] = top.opt;
