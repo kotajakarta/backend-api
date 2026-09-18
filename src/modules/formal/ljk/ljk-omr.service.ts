@@ -83,12 +83,12 @@ export class LjkOmrService {
     const avgPaperBrightness = totalBrightness / sampleCount;
     const darkThreshold = Math.max(60, Math.min(140, avgPaperBrightness - 45));
 
-    // 3. Deteksi Corner Markers (5x5mm, center di 4.5mm dari tepi)
+    // 3. Deteksi Corner Markers (7x5mm, center di (9mm, 15mm) dan (139.5mm, 185mm))
     const zones = {
-      TL: { x0: 0.000, x1: 0.130, y0: 0.000, y1: 0.090 },
-      TR: { x0: 0.870, x1: 1.000, y0: 0.000, y1: 0.090 },
-      BL: { x0: 0.000, x1: 0.130, y0: 0.910, y1: 1.000 },
-      BR: { x0: 0.870, x1: 1.000, y0: 0.910, y1: 1.000 },
+      TL: { x0: 0.000, x1: 0.160, y0: 0.020, y1: 0.160 },
+      TR: { x0: 0.840, x1: 1.000, y0: 0.020, y1: 0.160 },
+      BL: { x0: 0.000, x1: 0.160, y0: 0.780, y1: 0.980 },
+      BR: { x0: 0.840, x1: 1.000, y0: 0.780, y1: 0.980 },
     };
 
     const win = Math.max(10, Math.round(width * 0.018));
@@ -135,10 +135,10 @@ export class LjkOmrService {
 
     this.logger.log(
       `OMR A5 Corners: ` +
-        `TL=(${detectedCorners.TL.x},${detectedCorners.TL.y},i=${detectedCorners.TL.intensity.toFixed(1)}) ` +
-        `TR=(${detectedCorners.TR.x},${detectedCorners.TR.y},i=${detectedCorners.TR.intensity.toFixed(1)}) ` +
-        `BL=(${detectedCorners.BL.x},${detectedCorners.BL.y},i=${detectedCorners.BL.intensity.toFixed(1)}) ` +
-        `BR=(${detectedCorners.BR.x},${detectedCorners.BR.y},i=${detectedCorners.BR.intensity.toFixed(1)}) | ` +
+        `TL=(${detectedCorners.TL.x},${detectedCorners.TL.y}) ` +
+        `TR=(${detectedCorners.TR.x},${detectedCorners.TR.y}) ` +
+        `BL=(${detectedCorners.BL.x},${detectedCorners.BL.y}) ` +
+        `BR=(${detectedCorners.BR.x},${detectedCorners.BR.y}) | ` +
         `AllFound=${allMarkersFound}`,
     );
 
@@ -190,13 +190,15 @@ export class LjkOmrService {
       return { fillRatio, meanIntensity, darkPixels };
     };
 
+    // Radius seragam: 3.2mm pada lebar 148.5mm -> normRadius = 1.6 / 148.5 = 0.0108
+    const BUBBLE_RADIUS = 0.011;
+
     // 5. Kode Cabang (4 digit x 10 baris)
-    // x=[12,17.5,23,28.5]mm, y=30+n*4.5mm, bubble 3.5mm -> normRadius=0.013
-    const DIGIT_RADIUS = 0.013;
-    const cabStartU = 12 / 148;
-    const cabColSpacing = 5.5 / 148;
-    const kodeStartV = 30 / 210;
-    const kodeRowSpacing = 4.5 / 210;
+    // x=[17.0, 22.2, 27.4, 32.6]mm, cy=33.5 + d*3.8mm
+    const cabStartU = 17.0 / 148.5;
+    const cabColSpacing = 5.2 / 148.5;
+    const digitStartV = 33.5 / 210;
+    const digitRowSpacing = 3.8 / 210;
 
     let extractedKodeCabang = '';
     for (let col = 0; col < 4; col++) {
@@ -204,8 +206,8 @@ export class LjkOmrService {
       let bestDigit = col === 0 ? '1' : '0';
       for (let digit = 0; digit <= 9; digit++) {
         const u = cabStartU + col * cabColSpacing;
-        const v = kodeStartV + digit * kodeRowSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(u, v, DIGIT_RADIUS);
+        const v = digitStartV + digit * digitRowSpacing;
+        const { fillRatio, meanIntensity } = sampleBubble(u, v, BUBBLE_RADIUS);
         const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
         if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
       }
@@ -216,9 +218,9 @@ export class LjkOmrService {
     }
 
     // 6. Kode Mapel (2 digit x 10 baris)
-    // x=[40,45.5]mm, y sama dengan kode cabang
-    const mapelStartU = 40 / 148;
-    const mapelColSpacing = 5.5 / 148;
+    // x=[40.6, 45.8]mm, cy=33.5 + d*3.8mm
+    const mapelStartU = 40.6 / 148.5;
+    const mapelColSpacing = 5.2 / 148.5;
 
     let extractedKodeMapelNum = '';
     for (let col = 0; col < 2; col++) {
@@ -226,8 +228,8 @@ export class LjkOmrService {
       let bestDigit = '0';
       for (let digit = 0; digit <= 9; digit++) {
         const u = mapelStartU + col * mapelColSpacing;
-        const v = kodeStartV + digit * kodeRowSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(u, v, DIGIT_RADIUS);
+        const v = digitStartV + digit * digitRowSpacing;
+        const { fillRatio, meanIntensity } = sampleBubble(u, v, BUBBLE_RADIUS);
         const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
         if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
       }
@@ -235,16 +237,34 @@ export class LjkOmrService {
     }
     if (extractedKodeMapelNum === '00') extractedKodeMapelNum = '';
 
-    // 7. Kelas (7-12, satu baris di y=32mm)
-    // x=[64,70.5,77,83.5,90,96.5]mm, v=32/210
-    const kelasOptions = ['7', '8', '9', '10', '11', '12'];
-    const kelasUOptions = [64, 70.5, 77, 83.5, 90, 96.5].map((x) => x / 148);
-    const kelasV = 32 / 210;
+    // 7. NISN (10 digit x 10 baris)
+    // x=54.8 + col*5.2mm, cy=33.5 + d*3.8mm
+    const nisnStartU = 54.8 / 148.5;
+    const nisnColSpacing = 5.2 / 148.5;
 
-    let extractedKelas = hints?.kelas ?? '12';
+    let extractedNisn = '';
+    for (let col = 0; col < 10; col++) {
+      let bestScore = -Infinity;
+      let bestDigit = (col % 10).toString();
+      for (let digit = 0; digit <= 9; digit++) {
+        const u = nisnStartU + col * nisnColSpacing;
+        const v = digitStartV + digit * digitRowSpacing;
+        const { fillRatio, meanIntensity } = sampleBubble(u, v, BUBBLE_RADIUS);
+        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
+        if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
+      }
+      extractedNisn += bestDigit;
+    }
+
+    // 8. Kelas (7-12, 1 kolom vertikal di x=111.55mm, cy=33.5 + idx*3.8mm)
+    const kelasOptions = ['7', '8', '9', '10', '11', '12'];
+    const kelasU = 111.55 / 148.5;
+
+    let extractedKelas = hints?.kelas ?? '10';
     let maxKelasScore = -Infinity;
     for (let i = 0; i < kelasOptions.length; i++) {
-      const { fillRatio, meanIntensity } = sampleBubble(kelasUOptions[i], kelasV, DIGIT_RADIUS);
+      const v = digitStartV + i * digitRowSpacing;
+      const { fillRatio, meanIntensity } = sampleBubble(kelasU, v, BUBBLE_RADIUS);
       const score = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
       if (score > maxKelasScore && (fillRatio > 0.15 || score > 0.5)) {
         maxKelasScore = score;
@@ -252,15 +272,14 @@ export class LjkOmrService {
       }
     }
 
-    // 8. Semester (Ganjil/Genap di y=42mm)
-    // Ganjil x=110mm, Genap x=126mm
-    const semV = 42 / 210;
-    const semGanjilU = 110 / 148;
-    const semGenapU = 126 / 148;
+    // 9. Semester (1 kolom vertikal di x=121.8mm, Ganjil di cy=33.5mm, Genap di cy=37.3mm)
+    const semU = 121.8 / 148.5;
+    const semGanjilV = 33.5 / 210;
+    const semGenapV = 37.3 / 210;
 
     let extractedSemester = hints?.semester ?? 'GANJIL';
-    const semGanjilResult = sampleBubble(semGanjilU, semV, DIGIT_RADIUS);
-    const semGenapResult = sampleBubble(semGenapU, semV, DIGIT_RADIUS);
+    const semGanjilResult = sampleBubble(semU, semGanjilV, BUBBLE_RADIUS);
+    const semGenapResult = sampleBubble(semU, semGenapV, BUBBLE_RADIUS);
     const scoreGanjil = semGanjilResult.fillRatio * 3.0 + (avgPaperBrightness - semGanjilResult.meanIntensity) / 120;
     const scoreGenap = semGenapResult.fillRatio * 3.0 + (avgPaperBrightness - semGenapResult.meanIntensity) / 120;
     if (scoreGenap > scoreGanjil && (semGenapResult.fillRatio > 0.15 || scoreGenap > 0.5)) {
@@ -271,51 +290,14 @@ export class LjkOmrService {
 
     const extractedMapel = hints?.mapel ?? '';
 
-    // 10. NISN (10 digit x 10 baris)
-    // x=11+col*14mm, y=90+n*4.5mm, bubble 3.5mm -> normRadius=0.013
-    const nisnStartU = 11 / 148;
-    const nisnColSpacing = 14 / 148;
-    const nisnStartV = 90 / 210;
-    const nisnRowSpacing = 4.5 / 210;
-
-    let extractedNisn = '';
-    for (let col = 0; col < 10; col++) {
-      let bestScore = -Infinity;
-      let bestDigit = (col % 10).toString();
-      for (let digit = 0; digit <= 9; digit++) {
-        const u = nisnStartU + col * nisnColSpacing;
-        const v = nisnStartV + digit * nisnRowSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(u, v, DIGIT_RADIUS);
-        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-        if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
-      }
-      extractedNisn += bestDigit;
-    }
-
-    // 11. Jawaban PG (25/30/40/50 butir)
-    // Left col A: x=24mm, Right col A: x=85mm, spacing=9mm
-    // Row 1: y=141mm, spacing tergantung totalSoal
-    const OPT_RADIUS = 0.015; // bubble 4.5mm -> r=2.25mm/148=0.015
-    const leftA_U = 24 / 148;
-    const rightA_U = 85 / 148;
-    const optSpacingU = 9 / 148;
-    const qStartV = 141 / 210;
-
-    const qRowSpacingMap: Record<number, number> = {
-      25: 4.0 / 210,
-      30: 3.5 / 210,
-      40: 2.8 / 210,
-      50: 2.3 / 210,
-    };
-    const leftRowsMap: Record<number, number> = {
-      25: 13,
-      30: 15,
-      40: 20,
-      50: 25,
-    };
-
-    const qRowSpacing = qRowSpacingMap[TOTAL_SOAL] ?? (4.0 / 210);
-    const LEFT_ROWS = leftRowsMap[TOTAL_SOAL] ?? 13;
+    // 10. Jawaban PG (3 Kolom: Col 1 = Q1-10, Col 2 = Q11-20, Col 3 = Q21-30)
+    // Col 1 start A: 31.0mm, Col 2 start A: 70.5mm, Col 3 start A: 110.0mm
+    // Option horizontal spacing = 5.5mm
+    // Row 1 cy = 87.5mm, rowSpacing = 4.4mm
+    const colStartsU = [31.0 / 148.5, 70.5 / 148.5, 110.0 / 148.5];
+    const optSpacingU = 5.5 / 148.5;
+    const qStartV = 87.5 / 210;
+    const qRowSpacing = 4.4 / 210;
 
     const options = ['A', 'B', 'C', 'D'];
     const jawaban: Record<string, string> = {};
@@ -324,17 +306,17 @@ export class LjkOmrService {
     const FILL_THRESHOLD = 0.18;
 
     for (let q = 1; q <= TOTAL_SOAL; q++) {
-      const isLeftCol = q <= LEFT_ROWS;
-      const rowIdx = isLeftCol ? q - 1 : q - LEFT_ROWS - 1;
-      const startU = isLeftCol ? leftA_U : rightA_U;
+      const colIdx = Math.min(2, Math.floor((q - 1) / 10));
+      const rowIdx = (q - 1) % 10;
+      const startU = colStartsU[colIdx];
       const v = qStartV + rowIdx * qRowSpacing;
 
       const scoredOptions: { opt: string; ratio: number; intensity: number; darkScore: number }[] = [];
 
       for (let oIdx = 0; oIdx < options.length; oIdx++) {
         const u = startU + oIdx * optSpacingU;
-        const r1 = sampleBubble(u, v, OPT_RADIUS);
-        const r2 = sampleBubble(u, v, OPT_RADIUS * 1.25);
+        const r1 = sampleBubble(u, v, BUBBLE_RADIUS);
+        const r2 = sampleBubble(u, v, BUBBLE_RADIUS * 1.25);
         const { fillRatio, meanIntensity } = r1.fillRatio >= r2.fillRatio ? r1 : r2;
         const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
         scoredOptions.push({ opt: options[oIdx], ratio: fillRatio, intensity: meanIntensity, darkScore });

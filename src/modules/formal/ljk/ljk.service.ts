@@ -100,13 +100,14 @@ export class LjkService {
     }
 
     // 3. Ekstraksi OMR menggunakan Sharp
+    const parsedTotalSoal = (hints as any).totalSoal ? Number((hints as any).totalSoal) : undefined;
     const omrResult = await this.omrService.processLjkImage(file.buffer, {
       mapel: questionBank?.subject || mapelHint,
       kelas: questionBank?.gradeLevel || kelasHint,
       semester: questionBank?.semester || hints.semester,
       questionBankId: questionBank?.id,
       answerKey: Object.keys(answerKey).length > 0 ? answerKey : undefined,
-      totalSoal: (hints as any).totalSoal,
+      totalSoal: (parsedTotalSoal && [25, 30, 40, 50].includes(parsedTotalSoal)) ? (parsedTotalSoal as 25 | 30 | 40 | 50) : undefined,
     });
 
     // 3.5. Auto-lookup Mata Pelajaran dari Kode Mapel yang terdeteksi OMR
