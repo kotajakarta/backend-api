@@ -126,20 +126,22 @@ export class LjkService {
     });
 
     // 3.5. Auto-lookup Mata Pelajaran dari Kode Mapel yang terdeteksi OMR
-    // Jika kodeMapelNum terdeteksi (mis. '02') DAN belum ada questionBank dari hints,
-    // cari mataPelajaran dengan kodeMapel = kodeMapelNum, lalu cari questionBank-nya.
-    if (omrResult.kodeMapelNum && !questionBank) {
-      const detectedMapel = await this.prisma.mataPelajaran.findFirst({
+    // SELALU override dari kodeMapelNum jika terdeteksi — jangan bergantung hint dari UI!
+    // Ini memastikan PDF massal berisi mapel berbeda tetap terbaca sesuai LJK-nya.
+    let detectedMataPelajaran: { id: string; name: string; kodeMapel: string | null } | null = null;
+    if (omrResult.kodeMapelNum) {
+      detectedMataPelajaran = await this.prisma.mataPelajaran.findFirst({
         where: { kodeMapel: omrResult.kodeMapelNum },
         select: { id: true, name: true, kodeMapel: true },
       });
 
-      if (detectedMapel) {
-        omrResult.mapel = detectedMapel.name;
-        // Cari questionBank resmi untuk mataPelajaran ini
+      if (detectedMataPelajaran) {
+        // Override mapel dari OMR — ini yang tertera di LJK siswa, bukan filter UI
+        omrResult.mapel = detectedMataPelajaran.name;
+        // Cari questionBank resmi untuk mataPelajaran yang terdeteksi OMR
         let autoBank = await this.prisma.questionBank.findFirst({
           where: {
-            subject: { contains: detectedMapel.name, mode: 'insensitive' },
+            subject: { contains: detectedMataPelajaran.name, mode: 'insensitive' },
             ...(omrResult.kelas ? { gradeLevel: { contains: omrResult.kelas, mode: 'insensitive' } } : {}),
             ...(hints.semester ? { semester: hints.semester } : {}),
             ...(hints.tahunAjaran ? { academicYear: hints.tahunAjaran } : {}),
@@ -155,7 +157,7 @@ export class LjkService {
         if (!autoBank) {
           autoBank = await this.prisma.questionBank.findFirst({
             where: {
-              subject: { contains: detectedMapel.name, mode: 'insensitive' },
+              subject: { contains: detectedMataPelajaran.name, mode: 'insensitive' },
               ...(omrResult.kelas ? { gradeLevel: { contains: omrResult.kelas, mode: 'insensitive' } } : {}),
               isOfficial: true,
             },
@@ -178,7 +180,7 @@ export class LjkService {
             if (correctOpt) answerKey[qNum] = correctOpt.label.toUpperCase();
             else if (q.answerKey) answerKey[qNum] = q.answerKey.toUpperCase();
           });
-          // Hitung ulang skor dengan kunci baru
+          // Hitung ulang skor dengan kunci jawaban sesuai mapel yang terdeteksi
           if (Object.keys(answerKey).length > 0) {
             let benar = 0, salah = 0, kosong = 0;
             const totalSoal = (autoBank as any).totalQuestions || Object.keys(answerKey).length || omrResult.totalSoal;
@@ -230,9 +232,37 @@ export class LjkService {
       });
     }
 
+    // 6. Resolusi Kelas dari omrResult.kelas (tingkat yang terdeteksi di LJK)
+    let detectedKelas: { id: string; name: string; tingkat: string | null } | null = null;
+    if (omrResult.kelas) {
+      // Coba match by tingkat dulu (mis. '12' → tingkat = '12')
+      const kelasTingkatStr = omrResult.kelas.replace(/\D/g, '');
+      if (kelasTingkatStr) {
+        detectedKelas = await this.prisma.kelas.findFirst({
+          where: { tingkat: kelasTingkatStr },
+          select: { id: true, name: true, tingkat: true },
+        });
+      }
+      if (!detectedKelas) {
+        detectedKelas = await this.prisma.kelas.findFirst({
+          where: { name: { contains: omrResult.kelas, mode: 'insensitive' } },
+          select: { id: true, name: true, tingkat: true },
+        });
+      }
+    }
+
     return {
       ...omrResult,
       fileUrl,
+      // mataPelajaranId dan kelasId yang terdeteksi dari LJK — frontend WAJIB pakai ini
+      mataPelajaranId: detectedMataPelajaran?.id || null,
+      mataPelajaranDetected: detectedMataPelajaran
+        ? { id: detectedMataPelajaran.id, name: detectedMataPelajaran.name, kodeMapel: detectedMataPelajaran.kodeMapel }
+        : null,
+      kelasId: detectedKelas?.id || null,
+      kelasDetected: detectedKelas
+        ? { id: detectedKelas.id, name: detectedKelas.name, tingkat: detectedKelas.tingkat }
+        : null,
       cabang: matchedCabang,
       student: matchedStudent
         ? {
@@ -289,29 +319,45 @@ export class LjkService {
     }
 
     // Resolusi Mata Pelajaran ID & Kelas ID
+    // PENTING: Selalu re-resolve dari dto.mapel/kodeMapel untuk menghindari
+    // mismatch saat frontend kirim mataPelajaranId dari filter UI, bukan dari scan LJK.
     let mataPelajaranId = dto.mataPelajaranId;
-    if (!mataPelajaranId && dto.mapel) {
-      const mp = await this.prisma.mataPelajaran.findFirst({
-        where: {
-          OR: [
-            { name: { contains: dto.mapel, mode: 'insensitive' } },
-            { kodeMapel: { contains: dto.mapel, mode: 'insensitive' } },
-          ],
-        },
-        select: { id: true },
+    if (dto.mapel) {
+      // Cari mapel berdasarkan nama — ini dari hasil OMR scan, bukan filter UI
+      const mpByName = await this.prisma.mataPelajaran.findFirst({
+        where: { name: { contains: dto.mapel, mode: 'insensitive' } },
+        select: { id: true, name: true },
       });
-      if (mp) mataPelajaranId = mp.id;
+      if (mpByName) {
+        mataPelajaranId = mpByName.id; // override dengan yang benar dari scan
+      } else if (!mataPelajaranId) {
+        // Fallback: cari by kodeMapel
+        const mpByKode = await this.prisma.mataPelajaran.findFirst({
+          where: { kodeMapel: { contains: dto.mapel, mode: 'insensitive' } },
+          select: { id: true },
+        });
+        if (mpByKode) mataPelajaranId = mpByKode.id;
+      }
     }
 
     let kelasId = dto.kelasId;
-    if (!kelasId && dto.kelas) {
-      const kl = await this.prisma.kelas.findFirst({
-        where: {
-          name: { contains: dto.kelas, mode: 'insensitive' },
-        },
-        select: { id: true },
-      });
-      if (kl) kelasId = kl.id;
+    if (dto.kelas) {
+      // Re-resolve kelas dari string kelas hasil scan (mis. '12' atau 'XII')
+      const kelasTingkatStr = dto.kelas.replace(/\D/g, '');
+      let resolvedKelas: any = null;
+      if (kelasTingkatStr) {
+        resolvedKelas = await this.prisma.kelas.findFirst({
+          where: { tingkat: kelasTingkatStr },
+          select: { id: true },
+        });
+      }
+      if (!resolvedKelas) {
+        resolvedKelas = await this.prisma.kelas.findFirst({
+          where: { name: { contains: dto.kelas, mode: 'insensitive' } },
+          select: { id: true },
+        });
+      }
+      if (resolvedKelas) kelasId = resolvedKelas.id;
     }
 
     // 3. Hitung Ulang Skor jika ada questionBankId
