@@ -104,12 +104,12 @@ export class LjkOmrService {
       let bestX = Math.round((x0 + x1) / 2);
       let bestY = Math.round((y0 + y1) / 2);
 
-      for (let y = y0 + win; y <= y1 - win; y += 2) {
-        for (let x = x0 + win; x <= x1 - win; x += 2) {
+      for (let y = y0 + win; y <= y1 - win; y += 4) {
+        for (let x = x0 + win; x <= x1 - win; x += 4) {
           let sum = 0;
           let count = 0;
-          for (let dy = -win; dy <= win; dy += 2) {
-            for (let dx = -win; dx <= win; dx += 2) {
+          for (let dy = -win; dy <= win; dy += 4) {
+            for (let dx = -win; dx <= win; dx += 4) {
               sum += rawPixels[(y + dy) * width + (x + dx)];
               count++;
             }
@@ -127,6 +127,58 @@ export class LjkOmrService {
       detectedCorners[name] = { x: bestX, y: bestY, intensity: minVal, found };
     }
 
+    // Fine-tune deteksi marker sudut di area lokal (+/- 4px)
+    for (const [name, corner] of Object.entries(detectedCorners)) {
+      if (!corner.found) continue;
+      let minVal = corner.intensity;
+      let bestX = corner.x;
+      let bestY = corner.y;
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const x = corner.x + dx;
+          const y = corner.y + dy;
+          let sum = 0;
+          let count = 0;
+          for (let wy = -win; wy <= win; wy += 3) {
+            for (let wx = -win; wx <= win; wx += 3) {
+              sum += rawPixels[(y + wy) * width + (x + wx)];
+              count++;
+            }
+          }
+          const val = sum / count;
+          if (val < minVal) {
+            minVal = val;
+            bestX = x;
+            bestY = y;
+          }
+        }
+      }
+      detectedCorners[name].x = bestX;
+      detectedCorners[name].y = bestY;
+    }
+
+    // Parallelogram extrapolation jika 3 dari 4 marker ditemukan
+    const foundCount = Object.values(detectedCorners).filter((c) => c.found).length;
+    if (foundCount === 3) {
+      if (!detectedCorners.TL.found) {
+        detectedCorners.TL.x = detectedCorners.TR.x + detectedCorners.BL.x - detectedCorners.BR.x;
+        detectedCorners.TL.y = detectedCorners.TR.y + detectedCorners.BL.y - detectedCorners.BR.y;
+        detectedCorners.TL.found = true;
+      } else if (!detectedCorners.TR.found) {
+        detectedCorners.TR.x = detectedCorners.TL.x + detectedCorners.BR.x - detectedCorners.BL.x;
+        detectedCorners.TR.y = detectedCorners.TL.y + detectedCorners.BR.y - detectedCorners.BL.y;
+        detectedCorners.TR.found = true;
+      } else if (!detectedCorners.BL.found) {
+        detectedCorners.BL.x = detectedCorners.TL.x + detectedCorners.BR.x - detectedCorners.TR.x;
+        detectedCorners.BL.y = detectedCorners.TL.y + detectedCorners.BR.y - detectedCorners.TR.y;
+        detectedCorners.BL.found = true;
+      } else if (!detectedCorners.BR.found) {
+        detectedCorners.BR.x = detectedCorners.TR.x + detectedCorners.BL.x - detectedCorners.TL.x;
+        detectedCorners.BR.y = detectedCorners.TR.y + detectedCorners.BL.y - detectedCorners.TL.y;
+        detectedCorners.BR.found = true;
+      }
+    }
+
     const allMarkersFound =
       detectedCorners.TL.found &&
       detectedCorners.TR.found &&
@@ -142,29 +194,38 @@ export class LjkOmrService {
         `AllFound=${allMarkersFound}`,
     );
 
-    // 4. Bilinear Mapping (u,v) ke piksel
-    const getPoint = (u: number, v: number): { x: number; y: number } => {
+    // 4. Bilinear Mapping dari milimeter template (mmX, mmY) ke piksel
+    // Posisi sudut marker A5 (148.5 x 210 mm):
+    // TL=(9.0mm, 15.0mm), TR=(139.5mm, 15.0mm), BL=(9.0mm, 185.0mm), BR=(139.5mm, 185.0mm)
+    const MARKER_TL_X = 9.0;
+    const MARKER_TL_Y = 15.0;
+    const MARKER_DX = 130.5; // 139.5 - 9.0
+    const MARKER_DY = 170.0; // 185.0 - 15.0
+
+    const getPointFromMm = (mmX: number, mmY: number): { x: number; y: number } => {
       if (allMarkersFound) {
         const tl = detectedCorners.TL;
         const tr = detectedCorners.TR;
         const bl = detectedCorners.BL;
         const br = detectedCorners.BR;
-        const x = (1 - u) * (1 - v) * tl.x + u * (1 - v) * tr.x + (1 - u) * v * bl.x + u * v * br.x;
-        const y = (1 - u) * (1 - v) * tl.y + u * (1 - v) * tr.y + (1 - u) * v * bl.y + u * v * br.y;
+        const relU = (mmX - MARKER_TL_X) / MARKER_DX;
+        const relV = (mmY - MARKER_TL_Y) / MARKER_DY;
+        const x = (1 - relU) * (1 - relV) * tl.x + relU * (1 - relV) * tr.x + (1 - relU) * relV * bl.x + relU * relV * br.x;
+        const y = (1 - relU) * (1 - relV) * tl.y + relU * (1 - relV) * tr.y + (1 - relU) * relV * bl.y + relU * relV * br.y;
         return { x, y };
       }
-      return { x: u * width, y: v * height };
+      return { x: (mmX / 148.5) * width, y: (mmY / 210.0) * height };
     };
 
-    const sampleBubble = (
-      u: number,
-      v: number,
-      normRadius: number,
+    const sampleBubbleMm = (
+      mmX: number,
+      mmY: number,
+      radiusMm: number = 1.6,
     ): { fillRatio: number; meanIntensity: number; darkPixels: number } => {
-      const pt = getPoint(u, v);
+      const pt = getPointFromMm(mmX, mmY);
       const cx = Math.round(pt.x);
       const cy = Math.round(pt.y);
-      const r = Math.max(5, Math.round(normRadius * width));
+      const r = Math.max(5, Math.round((radiusMm / 148.5) * width));
 
       let darkPixels = 0;
       let totalPixels = 0;
@@ -190,26 +251,21 @@ export class LjkOmrService {
       return { fillRatio, meanIntensity, darkPixels };
     };
 
-    // Radius seragam: 3.2mm pada lebar 148.5mm -> normRadius = 1.6 / 148.5 = 0.0108
-    const BUBBLE_RADIUS = 0.011;
-
     // 5. Kode Cabang (4 digit x 10 baris)
     // x=[17.0, 22.2, 27.4, 32.6]mm, cy=33.5 + d*3.8mm
-    const cabStartU = 17.0 / 148.5;
-    const cabColSpacing = 5.2 / 148.5;
-    const digitStartV = 33.5 / 210;
-    const digitRowSpacing = 3.8 / 210;
-
     let extractedKodeCabang = '';
     for (let col = 0; col < 4; col++) {
+      const mmX = 17.0 + col * 5.2;
       let bestScore = -Infinity;
       let bestDigit = col === 0 ? '1' : '0';
       for (let digit = 0; digit <= 9; digit++) {
-        const u = cabStartU + col * cabColSpacing;
-        const v = digitStartV + digit * digitRowSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(u, v, BUBBLE_RADIUS);
+        const mmY = 33.5 + digit * 3.8;
+        const { fillRatio, meanIntensity } = sampleBubbleMm(mmX, mmY);
         const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-        if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
+        if (darkScore > bestScore) {
+          bestScore = darkScore;
+          bestDigit = digit.toString();
+        }
       }
       extractedKodeCabang += bestDigit;
     }
@@ -219,19 +275,19 @@ export class LjkOmrService {
 
     // 6. Kode Mapel (2 digit x 10 baris)
     // x=[40.6, 45.8]mm, cy=33.5 + d*3.8mm
-    const mapelStartU = 40.6 / 148.5;
-    const mapelColSpacing = 5.2 / 148.5;
-
     let extractedKodeMapelNum = '';
     for (let col = 0; col < 2; col++) {
+      const mmX = 40.6 + col * 5.2;
       let bestScore = -Infinity;
       let bestDigit = '0';
       for (let digit = 0; digit <= 9; digit++) {
-        const u = mapelStartU + col * mapelColSpacing;
-        const v = digitStartV + digit * digitRowSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(u, v, BUBBLE_RADIUS);
+        const mmY = 33.5 + digit * 3.8;
+        const { fillRatio, meanIntensity } = sampleBubbleMm(mmX, mmY);
         const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-        if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
+        if (darkScore > bestScore) {
+          bestScore = darkScore;
+          bestDigit = digit.toString();
+        }
       }
       extractedKodeMapelNum += bestDigit;
     }
@@ -239,32 +295,31 @@ export class LjkOmrService {
 
     // 7. NISN (10 digit x 10 baris)
     // x=54.8 + col*5.2mm, cy=33.5 + d*3.8mm
-    const nisnStartU = 54.8 / 148.5;
-    const nisnColSpacing = 5.2 / 148.5;
-
     let extractedNisn = '';
     for (let col = 0; col < 10; col++) {
+      const mmX = 54.8 + col * 5.2;
       let bestScore = -Infinity;
       let bestDigit = (col % 10).toString();
       for (let digit = 0; digit <= 9; digit++) {
-        const u = nisnStartU + col * nisnColSpacing;
-        const v = digitStartV + digit * digitRowSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(u, v, BUBBLE_RADIUS);
+        const mmY = 33.5 + digit * 3.8;
+        const { fillRatio, meanIntensity } = sampleBubbleMm(mmX, mmY);
         const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
-        if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
+        if (darkScore > bestScore) {
+          bestScore = darkScore;
+          bestDigit = digit.toString();
+        }
       }
       extractedNisn += bestDigit;
     }
 
     // 8. Kelas (7-12, 1 kolom vertikal di x=111.55mm, cy=33.5 + idx*3.8mm)
     const kelasOptions = ['7', '8', '9', '10', '11', '12'];
-    const kelasU = 111.55 / 148.5;
-
+    const kelasMmX = 111.55;
     let extractedKelas = hints?.kelas ?? '10';
     let maxKelasScore = -Infinity;
     for (let i = 0; i < kelasOptions.length; i++) {
-      const v = digitStartV + i * digitRowSpacing;
-      const { fillRatio, meanIntensity } = sampleBubble(kelasU, v, BUBBLE_RADIUS);
+      const mmY = 33.5 + i * 3.8;
+      const { fillRatio, meanIntensity } = sampleBubbleMm(kelasMmX, mmY);
       const score = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
       if (score > maxKelasScore && (fillRatio > 0.15 || score > 0.5)) {
         maxKelasScore = score;
@@ -273,13 +328,10 @@ export class LjkOmrService {
     }
 
     // 9. Semester (1 kolom vertikal di x=121.8mm, Ganjil di cy=33.5mm, Genap di cy=37.3mm)
-    const semU = 121.8 / 148.5;
-    const semGanjilV = 33.5 / 210;
-    const semGenapV = 37.3 / 210;
-
+    const semMmX = 121.8;
     let extractedSemester = hints?.semester ?? 'GANJIL';
-    const semGanjilResult = sampleBubble(semU, semGanjilV, BUBBLE_RADIUS);
-    const semGenapResult = sampleBubble(semU, semGenapV, BUBBLE_RADIUS);
+    const semGanjilResult = sampleBubbleMm(semMmX, 33.5);
+    const semGenapResult = sampleBubbleMm(semMmX, 37.3);
     const scoreGanjil = semGanjilResult.fillRatio * 3.0 + (avgPaperBrightness - semGanjilResult.meanIntensity) / 120;
     const scoreGenap = semGenapResult.fillRatio * 3.0 + (avgPaperBrightness - semGenapResult.meanIntensity) / 120;
     if (scoreGenap > scoreGanjil && (semGenapResult.fillRatio > 0.15 || scoreGenap > 0.5)) {
@@ -294,29 +346,28 @@ export class LjkOmrService {
     // Col 1 start A: 31.0mm, Col 2 start A: 70.5mm, Col 3 start A: 110.0mm
     // Option horizontal spacing = 5.5mm
     // Row 1 cy = 87.5mm, rowSpacing = 4.4mm
-    const colStartsU = [31.0 / 148.5, 70.5 / 148.5, 110.0 / 148.5];
-    const optSpacingU = 5.5 / 148.5;
-    const qStartV = 87.5 / 210;
-    const qRowSpacing = 4.4 / 210;
+    const colStartsMm = [31.0, 70.5, 110.0];
+    const optSpacingMm = 5.5;
+    const qStartMm = 87.5;
+    const qRowSpacingMm = 4.4;
 
     const options = ['A', 'B', 'C', 'D'];
     const jawaban: Record<string, string> = {};
     const ambiguities: number[] = [];
     let totalConfidenceSum = 0;
-    const FILL_THRESHOLD = 0.18;
 
     for (let q = 1; q <= TOTAL_SOAL; q++) {
       const colIdx = Math.min(2, Math.floor((q - 1) / 10));
       const rowIdx = (q - 1) % 10;
-      const startU = colStartsU[colIdx];
-      const v = qStartV + rowIdx * qRowSpacing;
+      const startX = colStartsMm[colIdx];
+      const cy = qStartMm + rowIdx * qRowSpacingMm;
 
       const scoredOptions: { opt: string; ratio: number; intensity: number; darkScore: number }[] = [];
 
       for (let oIdx = 0; oIdx < options.length; oIdx++) {
-        const u = startU + oIdx * optSpacingU;
-        const r1 = sampleBubble(u, v, BUBBLE_RADIUS);
-        const r2 = sampleBubble(u, v, BUBBLE_RADIUS * 1.25);
+        const cx = startX + oIdx * optSpacingMm;
+        const r1 = sampleBubbleMm(cx, cy, 1.6);
+        const r2 = sampleBubbleMm(cx, cy, 2.0);
         const { fillRatio, meanIntensity } = r1.fillRatio >= r2.fillRatio ? r1 : r2;
         const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
         scoredOptions.push({ opt: options[oIdx], ratio: fillRatio, intensity: meanIntensity, darkScore });
@@ -325,15 +376,19 @@ export class LjkOmrService {
       scoredOptions.sort((a, b) => b.darkScore - a.darkScore);
       const top = scoredOptions[0];
       const runnerUp = scoredOptions[1];
+      const margin = top.darkScore - runnerUp.darkScore;
 
-      if (top.ratio >= FILL_THRESHOLD || top.darkScore >= 0.55) {
+      // Ambang batas: bubble yang dihitamkan pensil/pulpen memiliki fillRatio >= 0.58 dan darkScore >= 1.8,
+      // dengan margin yang jelas terhadap pilihan lain
+      const isFilled = (top.ratio >= 0.58 && top.darkScore >= 1.8) || (top.darkScore >= 2.0 && margin >= 0.35);
+
+      if (isFilled) {
         jawaban[q.toString()] = top.opt;
-        const margin = top.darkScore - runnerUp.darkScore;
-        if (margin < 0.25 && runnerUp.ratio >= 0.20) {
+        if (margin < 0.35 && runnerUp.ratio >= 0.50) {
           ambiguities.push(q);
           totalConfidenceSum += 0.7;
         } else {
-          totalConfidenceSum += Math.min(1.0, 0.85 + Math.min(0.15, margin * 0.3));
+          totalConfidenceSum += Math.min(1.0, 0.85 + Math.min(0.15, margin * 0.2));
         }
       } else {
         jawaban[q.toString()] = '';

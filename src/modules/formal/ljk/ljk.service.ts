@@ -84,6 +84,21 @@ export class LjkService {
           },
         },
       });
+      if (!questionBank) {
+        questionBank = await this.prisma.questionBank.findFirst({
+          where: {
+            subject: { contains: mapelHint, mode: 'insensitive' },
+            gradeLevel: { contains: kelasHint, mode: 'insensitive' },
+            isOfficial: true,
+          },
+          include: {
+            questions: {
+              orderBy: { orderIndex: 'asc' },
+              include: { options: true },
+            },
+          },
+        });
+      }
     }
 
     if (questionBank && questionBank.questions) {
@@ -122,7 +137,7 @@ export class LjkService {
       if (detectedMapel) {
         omrResult.mapel = detectedMapel.name;
         // Cari questionBank resmi untuk mataPelajaran ini
-        const autoBank = await this.prisma.questionBank.findFirst({
+        let autoBank = await this.prisma.questionBank.findFirst({
           where: {
             subject: { contains: detectedMapel.name, mode: 'insensitive' },
             ...(omrResult.kelas ? { gradeLevel: { contains: omrResult.kelas, mode: 'insensitive' } } : {}),
@@ -137,6 +152,21 @@ export class LjkService {
             },
           },
         });
+        if (!autoBank) {
+          autoBank = await this.prisma.questionBank.findFirst({
+            where: {
+              subject: { contains: detectedMapel.name, mode: 'insensitive' },
+              ...(omrResult.kelas ? { gradeLevel: { contains: omrResult.kelas, mode: 'insensitive' } } : {}),
+              isOfficial: true,
+            },
+            include: {
+              questions: {
+                orderBy: { orderIndex: 'asc' },
+                include: { options: true },
+              },
+            },
+          });
+        }
         if (autoBank) {
           questionBank = autoBank;
           // Bangun kunci jawaban dari questionBank yang ditemukan
@@ -151,7 +181,7 @@ export class LjkService {
           // Hitung ulang skor dengan kunci baru
           if (Object.keys(answerKey).length > 0) {
             let benar = 0, salah = 0, kosong = 0;
-            const totalSoal = omrResult.totalSoal;
+            const totalSoal = (autoBank as any).totalQuestions || Object.keys(answerKey).length || omrResult.totalSoal;
             for (let i = 1; i <= totalSoal; i++) {
               const siswa = (omrResult.jawaban[i.toString()] || '').toUpperCase().trim();
               const kunci = (answerKey[i.toString()] || '').toUpperCase().trim();
@@ -159,6 +189,7 @@ export class LjkService {
               else if (kunci && siswa === kunci) benar++;
               else salah++;
             }
+            omrResult.totalSoal = totalSoal;
             omrResult.jumlahBenar = benar;
             omrResult.jumlahSalah = salah;
             omrResult.jumlahKosong = kosong;
