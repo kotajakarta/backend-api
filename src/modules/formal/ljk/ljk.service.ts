@@ -106,7 +106,66 @@ export class LjkService {
       semester: questionBank?.semester || hints.semester,
       questionBankId: questionBank?.id,
       answerKey: Object.keys(answerKey).length > 0 ? answerKey : undefined,
+      totalSoal: (hints as any).totalSoal,
     });
+
+    // 3.5. Auto-lookup Mata Pelajaran dari Kode Mapel yang terdeteksi OMR
+    // Jika kodeMapelNum terdeteksi (mis. '02') DAN belum ada questionBank dari hints,
+    // cari mataPelajaran dengan kodeMapel = kodeMapelNum, lalu cari questionBank-nya.
+    if (omrResult.kodeMapelNum && !questionBank) {
+      const detectedMapel = await this.prisma.mataPelajaran.findFirst({
+        where: { kodeMapel: omrResult.kodeMapelNum },
+        select: { id: true, name: true, kodeMapel: true },
+      });
+
+      if (detectedMapel) {
+        omrResult.mapel = detectedMapel.name;
+        // Cari questionBank resmi untuk mataPelajaran ini
+        const autoBank = await this.prisma.questionBank.findFirst({
+          where: {
+            subject: { contains: detectedMapel.name, mode: 'insensitive' },
+            ...(omrResult.kelas ? { gradeLevel: { contains: omrResult.kelas, mode: 'insensitive' } } : {}),
+            ...(hints.semester ? { semester: hints.semester } : {}),
+            ...(hints.tahunAjaran ? { academicYear: hints.tahunAjaran } : {}),
+            isOfficial: true,
+          },
+          include: {
+            questions: {
+              orderBy: { orderIndex: 'asc' },
+              include: { options: true },
+            },
+          },
+        });
+        if (autoBank) {
+          questionBank = autoBank;
+          // Bangun kunci jawaban dari questionBank yang ditemukan
+          answerKey = {};
+          const bankQuestions = (autoBank as any).questions ?? [];
+          bankQuestions.forEach((q: any, idx: number) => {
+            const qNum = (idx + 1).toString();
+            const correctOpt = q.options?.find((o: any) => o.isCorrect);
+            if (correctOpt) answerKey[qNum] = correctOpt.label.toUpperCase();
+            else if (q.answerKey) answerKey[qNum] = q.answerKey.toUpperCase();
+          });
+          // Hitung ulang skor dengan kunci baru
+          if (Object.keys(answerKey).length > 0) {
+            let benar = 0, salah = 0, kosong = 0;
+            const totalSoal = omrResult.totalSoal;
+            for (let i = 1; i <= totalSoal; i++) {
+              const siswa = (omrResult.jawaban[i.toString()] || '').toUpperCase().trim();
+              const kunci = (answerKey[i.toString()] || '').toUpperCase().trim();
+              if (!siswa) kosong++;
+              else if (kunci && siswa === kunci) benar++;
+              else salah++;
+            }
+            omrResult.jumlahBenar = benar;
+            omrResult.jumlahSalah = salah;
+            omrResult.jumlahKosong = kosong;
+            omrResult.skor = Math.round((benar / totalSoal) * 100);
+          }
+        }
+      }
+    }
 
     // 4. Resolusi Cabang berdasarkan Kode Cabang
     let matchedCabang: any = null;

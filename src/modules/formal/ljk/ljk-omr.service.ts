@@ -3,6 +3,7 @@ import sharp from 'sharp';
 
 export interface OmrExtractionResult {
   kodeCabang: string;
+  kodeMapelNum: string; // '01'–'99', '' jika tidak terisi
   nisn: string;
   kelas: string;
   semester: string;
@@ -29,12 +30,15 @@ export class LjkOmrService {
   private readonly logger = new Logger(LjkOmrService.name);
 
   /**
-   * Memproses buffer gambar LJK menggunakan Sharp untuk Optical Mark Recognition (OMR).
+   * Memproses buffer gambar LJK A5 menggunakan Sharp untuk Optical Mark Recognition.
    *
-   * Fitur utama:
-   * - Deteksi otomatis batas kertas LJK menggunakan 4 fiducial corner marker (kotak hitam 7mm)
-   * - Coordinate remapping sehingga sampling bubble selalu relatif terhadap area LJK
-   * - Toleran terhadap foto kamera HP yang tidak memenuhi frame (ada background meja/lantai)
+   * Format baru (A5 portrait, hasil split dari A4 landscape):
+   *   - 4 kotak hitam 5x5mm di pojok (fiducial markers, 2mm dari tepi)
+   *   - Kode Cabang 4 digit, Kode Mapel 2 digit, Kelas, Semester
+   *   - NISN 10 digit
+   *   - Jawaban PG: 25/30/40/50 butir soal (via hints.totalSoal)
+   *
+   * Koordinat normalized: u=x/148mm, v=y/210mm
    */
   async processLjkImage(
     buffer: Buffer,
@@ -44,14 +48,21 @@ export class LjkOmrService {
       semester?: string;
       questionBankId?: string;
       answerKey?: Record<string, string>;
+      totalSoal?: 25 | 30 | 40 | 50;
     },
   ): Promise<OmrExtractionResult> {
+    const TOTAL_SOAL = (hints?.totalSoal ?? 25) as 25 | 30 | 40 | 50;
     const TARGET_WIDTH = 1000;
-    const TARGET_HEIGHT = 1414; // Rasio standar A4 (1 : 1.414)
+    const TARGET_HEIGHT = 1419; // 210/148 * 1000
 
-    // 1. Normalisasi & Konversi Grayscale via Sharp
-    const { data: rawPixels, info } = await sharp(buffer)
-      .rotate() // Auto-orient berdasarkan EXIF
+    // 1. Normalisasi, Deteksi Orientasi, & Grayscale
+    let pipeline = sharp(buffer).rotate();
+    const meta = await pipeline.metadata();
+    // Jika scan lembar A5 dalam posisi horizontal/landscape (lebar > tinggi), rotasikan 90° agar menjadi portrait A5
+    if (meta.width && meta.height && meta.width > meta.height) {
+      pipeline = pipeline.rotate(90);
+    }
+    const { data: rawPixels, info } = await pipeline
       .resize(TARGET_WIDTH, TARGET_HEIGHT, { fit: 'fill' })
       .grayscale()
       .normalize()
@@ -61,7 +72,7 @@ export class LjkOmrService {
     const width = info.width;
     const height = info.height;
 
-    // 2. Hitung ambang batas kehitaman (Adaptive Threshold)
+    // 2. Adaptive Threshold
     let totalBrightness = 0;
     const sampleStep = 10;
     let sampleCount = 0;
@@ -70,21 +81,17 @@ export class LjkOmrService {
       sampleCount++;
     }
     const avgPaperBrightness = totalBrightness / sampleCount;
-    // Nilai piksel di bawah batas ini = arsiran hitam pensil 2B / pulpen
     const darkThreshold = Math.max(60, Math.min(140, avgPaperBrightness - 45));
 
-    // ─── 3. DETEKSI FIDUCIAL CORNER MARKER & BILINEAR MAPPING ─────────────────
-    // LJK memiliki 4 kotak hitam solid (7mm) di setiap sudut kertas.
-    // Deteksi mencari window lokal paling gelap (minimum mean intensity) di masing-masing sudut,
-    // yang menjamin deteksi sukses bahkan dengan bayangan/glare lampu ruangan pada foto HP.
+    // 3. Deteksi Corner Markers (5x5mm, center di 4.5mm dari tepi)
     const zones = {
-      TL: { x0: 0.005, x1: 0.28, y0: 0.005, y1: 0.25 },
-      TR: { x0: 0.72, x1: 0.995, y0: 0.005, y1: 0.25 },
-      BL: { x0: 0.005, x1: 0.28, y0: 0.75, y1: 0.995 },
-      BR: { x0: 0.72, x1: 0.995, y0: 0.75, y1: 0.995 },
+      TL: { x0: 0.000, x1: 0.130, y0: 0.000, y1: 0.090 },
+      TR: { x0: 0.870, x1: 1.000, y0: 0.000, y1: 0.090 },
+      BL: { x0: 0.000, x1: 0.130, y0: 0.910, y1: 1.000 },
+      BR: { x0: 0.870, x1: 1.000, y0: 0.910, y1: 1.000 },
     };
 
-    const win = Math.max(8, Math.round(width * 0.013));
+    const win = Math.max(10, Math.round(width * 0.018));
     const detectedCorners: Record<string, { x: number; y: number; intensity: number; found: boolean }> = {};
 
     for (const [name, z] of Object.entries(zones)) {
@@ -116,7 +123,6 @@ export class LjkOmrService {
         }
       }
 
-      // Validasi: kotak marker harus secara signifikan lebih gelap dari kertas
       const found = minVal < avgPaperBrightness - 20;
       detectedCorners[name] = { x: bestX, y: bestY, intensity: minVal, found };
     }
@@ -128,19 +134,15 @@ export class LjkOmrService {
       detectedCorners.BR.found;
 
     this.logger.log(
-      `OMR Corner Markers: ` +
-        `TL=(${detectedCorners.TL.x},${detectedCorners.TL.y},dark=${detectedCorners.TL.intensity.toFixed(1)}) ` +
-        `TR=(${detectedCorners.TR.x},${detectedCorners.TR.y},dark=${detectedCorners.TR.intensity.toFixed(1)}) ` +
-        `BL=(${detectedCorners.BL.x},${detectedCorners.BL.y},dark=${detectedCorners.BL.intensity.toFixed(1)}) ` +
-        `BR=(${detectedCorners.BR.x},${detectedCorners.BR.y},dark=${detectedCorners.BR.intensity.toFixed(1)}) | ` +
-        `Detected=${allMarkersFound}`,
+      `OMR A5 Corners: ` +
+        `TL=(${detectedCorners.TL.x},${detectedCorners.TL.y},i=${detectedCorners.TL.intensity.toFixed(1)}) ` +
+        `TR=(${detectedCorners.TR.x},${detectedCorners.TR.y},i=${detectedCorners.TR.intensity.toFixed(1)}) ` +
+        `BL=(${detectedCorners.BL.x},${detectedCorners.BL.y},i=${detectedCorners.BL.intensity.toFixed(1)}) ` +
+        `BR=(${detectedCorners.BR.x},${detectedCorners.BR.y},i=${detectedCorners.BR.intensity.toFixed(1)}) | ` +
+        `AllFound=${allMarkersFound}`,
     );
 
-    // ─── 4. BILINEAR INTERPOLATION MAPPING ──────────────────────────────────
-    // Mengonversi koordinat relatif LJK (u, v) ∈ [0, 1] ke posisi piksel absolut (x, y).
-    // u: 0 = garis marker kiri, 1 = garis marker kanan
-    // v: 0 = garis marker atas, 1 = garis marker bawah
-    // Bilinear mapping secara otomatis mengoreksi perspektif, distorsi kamera HP, & kemiringan kertas!
+    // 4. Bilinear Mapping (u,v) ke piksel
     const getPoint = (u: number, v: number): { x: number; y: number } => {
       if (allMarkersFound) {
         const tl = detectedCorners.TL;
@@ -154,16 +156,15 @@ export class LjkOmrService {
       return { x: u * width, y: v * height };
     };
 
-    // Helper sampling bulatan dalam koordinat (u, v)
     const sampleBubble = (
       u: number,
       v: number,
-      normRadius = 0.007,
+      normRadius: number,
     ): { fillRatio: number; meanIntensity: number; darkPixels: number } => {
       const pt = getPoint(u, v);
       const cx = Math.round(pt.x);
       const cy = Math.round(pt.y);
-      const r = Math.max(4, Math.round(normRadius * width));
+      const r = Math.max(5, Math.round(normRadius * width));
 
       let darkPixels = 0;
       let totalPixels = 0;
@@ -189,140 +190,163 @@ export class LjkOmrService {
       return { fillRatio, meanIntensity, darkPixels };
     };
 
-    // ─── 5. Ekstraksi Grid Kode Cabang (4 digit: kolom 0..3, baris 0..9) ────
-    let extractedKodeCabang = '';
-    const cabStartU = 0.7638;
-    const cabColSpacing = 0.02736;
-    const cabStartV = 0.0854;
-    const cabRowSpacing = 0.01423;
+    // 5. Kode Cabang (4 digit x 10 baris)
+    // x=[12,17.5,23,28.5]mm, y=30+n*4.5mm, bubble 3.5mm -> normRadius=0.013
+    const DIGIT_RADIUS = 0.013;
+    const cabStartU = 12 / 148;
+    const cabColSpacing = 5.5 / 148;
+    const kodeStartV = 30 / 210;
+    const kodeRowSpacing = 4.5 / 210;
 
+    let extractedKodeCabang = '';
     for (let col = 0; col < 4; col++) {
       let bestScore = -Infinity;
       let bestDigit = col === 0 ? '1' : '0';
-
       for (let digit = 0; digit <= 9; digit++) {
         const u = cabStartU + col * cabColSpacing;
-        const v = cabStartV + digit * cabRowSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(u, v, 0.007);
-        const darkScore = fillRatio * 2.5 + (avgPaperBrightness - meanIntensity) / 100;
-
-        if (darkScore > bestScore) {
-          bestScore = darkScore;
-          bestDigit = digit.toString();
-        }
+        const v = kodeStartV + digit * kodeRowSpacing;
+        const { fillRatio, meanIntensity } = sampleBubble(u, v, DIGIT_RADIUS);
+        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
+        if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
       }
       extractedKodeCabang += bestDigit;
     }
-
     if (!extractedKodeCabang.startsWith('1')) {
       extractedKodeCabang = '1' + extractedKodeCabang.slice(1);
     }
 
-    // ─── 6. Ekstraksi Grid NISN (10 digit: kolom 0..9, baris 0..9) ──────────
-    let extractedNisn = '';
-    const nisnStartU = 0.3779;
-    const nisnColSpacing = 0.02736;
-    const nisnStartV = 0.2954;
-    const nisnRowSpacing = 0.01476;
+    // 6. Kode Mapel (2 digit x 10 baris)
+    // x=[40,45.5]mm, y sama dengan kode cabang
+    const mapelStartU = 40 / 148;
+    const mapelColSpacing = 5.5 / 148;
 
-    for (let col = 0; col < 10; col++) {
+    let extractedKodeMapelNum = '';
+    for (let col = 0; col < 2; col++) {
       let bestScore = -Infinity;
-      let bestDigit = (col % 10).toString();
-
+      let bestDigit = '0';
       for (let digit = 0; digit <= 9; digit++) {
-        const u = nisnStartU + col * nisnColSpacing;
-        const v = nisnStartV + digit * nisnRowSpacing;
-        const { fillRatio, meanIntensity } = sampleBubble(u, v, 0.007);
-        const darkScore = fillRatio * 2.5 + (avgPaperBrightness - meanIntensity) / 100;
-
-        if (darkScore > bestScore) {
-          bestScore = darkScore;
-          bestDigit = digit.toString();
-        }
+        const u = mapelStartU + col * mapelColSpacing;
+        const v = kodeStartV + digit * kodeRowSpacing;
+        const { fillRatio, meanIntensity } = sampleBubble(u, v, DIGIT_RADIUS);
+        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
+        if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
       }
-      extractedNisn += bestDigit;
+      extractedKodeMapelNum += bestDigit;
     }
+    if (extractedKodeMapelNum === '00') extractedKodeMapelNum = '';
 
-    // ─── 7. Ekstraksi Tingkat / Kelas (7 s.d 12) ────────────────────────────
+    // 7. Kelas (7-12, satu baris di y=32mm)
+    // x=[64,70.5,77,83.5,90,96.5]mm, v=32/210
     const kelasOptions = ['7', '8', '9', '10', '11', '12'];
-    const kelasUOptions = [0.734, 0.760, 0.786, 0.812, 0.838, 0.864];
-    const kelasV = 0.244;
-    let extractedKelas = hints?.kelas || '12';
-    let maxKelasScore = -Infinity;
+    const kelasUOptions = [64, 70.5, 77, 83.5, 90, 96.5].map((x) => x / 148);
+    const kelasV = 32 / 210;
 
+    let extractedKelas = hints?.kelas ?? '12';
+    let maxKelasScore = -Infinity;
     for (let i = 0; i < kelasOptions.length; i++) {
-      const { fillRatio, meanIntensity } = sampleBubble(kelasUOptions[i], kelasV, 0.007);
-      const score = fillRatio * 2.5 + (avgPaperBrightness - meanIntensity) / 100;
+      const { fillRatio, meanIntensity } = sampleBubble(kelasUOptions[i], kelasV, DIGIT_RADIUS);
+      const score = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
       if (score > maxKelasScore && (fillRatio > 0.15 || score > 0.5)) {
         maxKelasScore = score;
         extractedKelas = kelasOptions[i];
       }
     }
 
-    // ─── 8. Ekstraksi Semester (Ganjil / Genap) ──────────────────────────────
-    let extractedSemester = hints?.semester || 'GANJIL';
-    const semGanjil = sampleBubble(0.940, 0.244, 0.007);
-    const semGenap = sampleBubble(0.985, 0.244, 0.007);
-    const scoreGanjil = semGanjil.fillRatio * 2.5 + (avgPaperBrightness - semGanjil.meanIntensity) / 100;
-    const scoreGenap = semGenap.fillRatio * 2.5 + (avgPaperBrightness - semGenap.meanIntensity) / 100;
-    if (scoreGenap > scoreGanjil && (semGenap.fillRatio > 0.15 || scoreGenap > 0.5)) {
+    // 8. Semester (Ganjil/Genap di y=42mm)
+    // Ganjil x=110mm, Genap x=126mm
+    const semV = 42 / 210;
+    const semGanjilU = 110 / 148;
+    const semGenapU = 126 / 148;
+
+    let extractedSemester = hints?.semester ?? 'GANJIL';
+    const semGanjilResult = sampleBubble(semGanjilU, semV, DIGIT_RADIUS);
+    const semGenapResult = sampleBubble(semGenapU, semV, DIGIT_RADIUS);
+    const scoreGanjil = semGanjilResult.fillRatio * 3.0 + (avgPaperBrightness - semGanjilResult.meanIntensity) / 120;
+    const scoreGenap = semGenapResult.fillRatio * 3.0 + (avgPaperBrightness - semGenapResult.meanIntensity) / 120;
+    if (scoreGenap > scoreGanjil && (semGenapResult.fillRatio > 0.15 || scoreGenap > 0.5)) {
       extractedSemester = 'GENAP';
-    } else if (semGanjil.fillRatio > 0.15 || scoreGanjil > 0.5) {
+    } else if (semGanjilResult.fillRatio > 0.15 || scoreGanjil > 0.5) {
       extractedSemester = 'GANJIL';
     }
 
-    // ─── 9. Mata Pelajaran ───────────────────────────────────────────────────
-    const extractedMapel = hints?.mapel || 'Pendidikan Agama Islam';
+    const extractedMapel = hints?.mapel ?? '';
 
-    // ─── 10. Ekstraksi 25 Butir Soal Pilihan Ganda (A, B, C, D) ─────────────
-    // Grid 2 kolom dalam area LJK:
-    // Kolom Kiri : Nomor  1 s.d 13
-    // Kolom Kanan: Nomor 14 s.d 25
+    // 10. NISN (10 digit x 10 baris)
+    // x=11+col*14mm, y=90+n*4.5mm, bubble 3.5mm -> normRadius=0.013
+    const nisnStartU = 11 / 148;
+    const nisnColSpacing = 14 / 148;
+    const nisnStartV = 90 / 210;
+    const nisnRowSpacing = 4.5 / 210;
+
+    let extractedNisn = '';
+    for (let col = 0; col < 10; col++) {
+      let bestScore = -Infinity;
+      let bestDigit = (col % 10).toString();
+      for (let digit = 0; digit <= 9; digit++) {
+        const u = nisnStartU + col * nisnColSpacing;
+        const v = nisnStartV + digit * nisnRowSpacing;
+        const { fillRatio, meanIntensity } = sampleBubble(u, v, DIGIT_RADIUS);
+        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
+        if (darkScore > bestScore) { bestScore = darkScore; bestDigit = digit.toString(); }
+      }
+      extractedNisn += bestDigit;
+    }
+
+    // 11. Jawaban PG (25/30/40/50 butir)
+    // Left col A: x=24mm, Right col A: x=85mm, spacing=9mm
+    // Row 1: y=141mm, spacing tergantung totalSoal
+    const OPT_RADIUS = 0.015; // bubble 4.5mm -> r=2.25mm/148=0.015
+    const leftA_U = 24 / 148;
+    const rightA_U = 85 / 148;
+    const optSpacingU = 9 / 148;
+    const qStartV = 141 / 210;
+
+    const qRowSpacingMap: Record<number, number> = {
+      25: 4.0 / 210,
+      30: 3.5 / 210,
+      40: 2.8 / 210,
+      50: 2.3 / 210,
+    };
+    const leftRowsMap: Record<number, number> = {
+      25: 13,
+      30: 15,
+      40: 20,
+      50: 25,
+    };
+
+    const qRowSpacing = qRowSpacingMap[TOTAL_SOAL] ?? (4.0 / 210);
+    const LEFT_ROWS = leftRowsMap[TOTAL_SOAL] ?? 13;
+
     const options = ['A', 'B', 'C', 'D'];
     const jawaban: Record<string, string> = {};
     const ambiguities: number[] = [];
     let totalConfidenceSum = 0;
+    const FILL_THRESHOLD = 0.18;
 
-    // Koordinat terkalibrasi presisi dengan bilinear mapping
-    const leftA_u = 0.3540;
-    const leftOpt_spacing = 0.0405;
-    const rightA_u = 0.8615;
-    const rightOpt_spacing = 0.0405;
-    const qStartY = 0.6607;
-    const qRow_spacing = 0.02403;
-
-    // Adaptive threshold untuk arsiran bulatan
-    const FILL_THRESHOLD = 0.16;
-
-    for (let q = 1; q <= 25; q++) {
-      const isLeftCol = q <= 13;
-      const rowIdx = isLeftCol ? q - 1 : q - 14;
-      const startU = isLeftCol ? leftA_u : rightA_u;
-      const optSp = isLeftCol ? leftOpt_spacing : rightOpt_spacing;
-      const v = qStartY + rowIdx * qRow_spacing;
+    for (let q = 1; q <= TOTAL_SOAL; q++) {
+      const isLeftCol = q <= LEFT_ROWS;
+      const rowIdx = isLeftCol ? q - 1 : q - LEFT_ROWS - 1;
+      const startU = isLeftCol ? leftA_U : rightA_U;
+      const v = qStartV + rowIdx * qRowSpacing;
 
       const scoredOptions: { opt: string; ratio: number; intensity: number; darkScore: number }[] = [];
 
       for (let oIdx = 0; oIdx < options.length; oIdx++) {
-        const u = startU + oIdx * optSp;
-        const r1 = sampleBubble(u, v, 0.007);
-        const r2 = sampleBubble(u, v, 0.009);
+        const u = startU + oIdx * optSpacingU;
+        const r1 = sampleBubble(u, v, OPT_RADIUS);
+        const r2 = sampleBubble(u, v, OPT_RADIUS * 1.25);
         const { fillRatio, meanIntensity } = r1.fillRatio >= r2.fillRatio ? r1 : r2;
-        const darkScore = fillRatio * 2.5 + (avgPaperBrightness - meanIntensity) / 100;
-
+        const darkScore = fillRatio * 3.0 + (avgPaperBrightness - meanIntensity) / 120;
         scoredOptions.push({ opt: options[oIdx], ratio: fillRatio, intensity: meanIntensity, darkScore });
       }
 
-      // Urutkan dari skor kegelapan tertinggi
       scoredOptions.sort((a, b) => b.darkScore - a.darkScore);
-
       const top = scoredOptions[0];
       const runnerUp = scoredOptions[1];
 
       if (top.ratio >= FILL_THRESHOLD || top.darkScore >= 0.55) {
         jawaban[q.toString()] = top.opt;
         const margin = top.darkScore - runnerUp.darkScore;
-
         if (margin < 0.25 && runnerUp.ratio >= 0.20) {
           ambiguities.push(q);
           totalConfidenceSum += 0.7;
@@ -335,28 +359,26 @@ export class LjkOmrService {
       }
     }
 
-    const overallConfidence = Number((totalConfidenceSum / 25).toFixed(2));
+    const overallConfidence = Number((totalConfidenceSum / TOTAL_SOAL).toFixed(2));
 
-    // ─── 11. Log hasil ekstraksi untuk debugging ─────────────────────────────
     const detectedCount = Object.values(jawaban).filter(Boolean).length;
     this.logger.log(
-      `OMR Result: Kode=${extractedKodeCabang} NISN=${extractedNisn} ` +
-        `Kelas=${extractedKelas} Sem=${extractedSemester} ` +
-        `Jawaban terdeteksi: ${detectedCount}/25 | Confidence: ${(overallConfidence * 100).toFixed(0)}%`,
+      `OMR A5 Result: Kode=${extractedKodeCabang} MapelKode=${extractedKodeMapelNum || '-'} ` +
+        `NISN=${extractedNisn} Kelas=${extractedKelas} Sem=${extractedSemester} ` +
+        `Jawaban=${detectedCount}/${TOTAL_SOAL} Conf=${(overallConfidence * 100).toFixed(0)}%`,
     );
     this.logger.log(`OMR Jawaban: ${JSON.stringify(jawaban)}`);
 
-    // ─── 12. Perhitungan Skor Otomatis jika ada Kunci Jawaban ────────────────
+    // 13. Hitung Skor
     let jumlahBenar = 0;
     let jumlahSalah = 0;
     let jumlahKosong = 0;
     let skor: number | undefined = undefined;
 
     if (hints?.answerKey && Object.keys(hints.answerKey).length > 0) {
-      for (let q = 1; q <= 25; q++) {
-        const studentAns = (jawaban[q.toString()] || '').toUpperCase().trim();
-        const keyAns = (hints.answerKey[q.toString()] || '').toUpperCase().trim();
-
+      for (let q = 1; q <= TOTAL_SOAL; q++) {
+        const studentAns = (jawaban[q.toString()] ?? '').toUpperCase().trim();
+        const keyAns = (hints.answerKey[q.toString()] ?? '').toUpperCase().trim();
         if (!studentAns) {
           jumlahKosong++;
         } else if (keyAns && studentAns === keyAns) {
@@ -365,12 +387,12 @@ export class LjkOmrService {
           jumlahSalah++;
         }
       }
-      // Formula: benar × 4 (25 soal × 4 = 100 poin maks)
-      skor = jumlahBenar * 4;
+      skor = Math.round((jumlahBenar / TOTAL_SOAL) * 100);
     }
 
     return {
       kodeCabang: extractedKodeCabang,
+      kodeMapelNum: extractedKodeMapelNum,
       nisn: extractedNisn,
       kelas: extractedKelas,
       semester: extractedSemester,
@@ -378,7 +400,7 @@ export class LjkOmrService {
       jawaban,
       confidence: overallConfidence,
       ambiguities,
-      totalSoal: 25,
+      totalSoal: TOTAL_SOAL,
       jumlahBenar: hints?.answerKey ? jumlahBenar : undefined,
       jumlahSalah: hints?.answerKey ? jumlahSalah : undefined,
       jumlahKosong: hints?.answerKey ? jumlahKosong : undefined,
