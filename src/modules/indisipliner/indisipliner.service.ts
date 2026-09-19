@@ -34,7 +34,7 @@ export class IndisiplinerService {
         },
         siswaFormal: {
           include: {
-            kelas: { select: { namaKelas: true } },
+            kelas: { select: { name: true } },
           },
         },
       },
@@ -49,7 +49,7 @@ export class IndisiplinerService {
       namaSiswa: p.student?.biodata?.fullName || 'Santri',
       nisLokal: p.student?.biodata?.nisLokal || '-',
       nisn: p.student?.biodata?.nisn || undefined,
-      kelas: p.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
+      kelas: p.student?.siswaFormal?.kelas?.name || 'Umum',
       jenisPelanggaran: p.jenisPelanggaran,
       kategori: p.kategori === 'RINGAN' ? 'Ringan' : p.kategori === 'BERAT' ? 'Berat' : 'Sedang',
       poin: p.poin,
@@ -75,7 +75,7 @@ export class IndisiplinerService {
       siswaId: s.studentId,
       namaSiswa: s.student?.biodata?.fullName || 'Santri',
       nisLokal: s.student?.biodata?.nisLokal || '-',
-      kelas: s.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
+      kelas: s.student?.siswaFormal?.kelas?.name || 'Umum',
       tingkatSp: s.tingkatSp === 'SP_3' ? 'SP 3' : s.tingkatSp === 'SP_2' ? 'SP 2' : 'SP 1',
       status: statusFormatted,
       alasan: s.alasan,
@@ -100,7 +100,7 @@ export class IndisiplinerService {
       siswaId: p.studentId,
       namaSiswa: p.student?.biodata?.fullName || 'Santri',
       nisLokal: p.student?.biodata?.nisLokal || '-',
-      kelas: p.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
+      kelas: p.student?.siswaFormal?.kelas?.name || 'Umum',
       alasanPemberhentian: p.alasanPemberhentian,
       kategoriAlasan: katLabel,
       nomorSk: p.nomorSk,
@@ -183,7 +183,7 @@ export class IndisiplinerService {
             siswaFormal: {
               include: {
                 kelas: {
-                  select: { namaKelas: true },
+                  select: { name: true },
                 },
               },
             },
@@ -288,7 +288,7 @@ export class IndisiplinerService {
             siswaFormal: {
               include: {
                 kelas: {
-                  select: { namaKelas: true },
+                  select: { name: true },
                 },
               },
             },
@@ -407,7 +407,7 @@ export class IndisiplinerService {
             siswaFormal: {
               include: {
                 kelas: {
-                  select: { namaKelas: true },
+                  select: { name: true },
                 },
               },
             },
@@ -550,7 +550,7 @@ export class IndisiplinerService {
           tingkatSp: spRecord.tingkatSp.replace('_', ' '),
           namaSiswa: spRecord.student?.biodata?.fullName,
           nis: spRecord.student?.biodata?.nisLokal || spRecord.student?.siswaFormal?.nis,
-          kelas: spRecord.student?.siswaFormal?.kelas?.namaKelas,
+          kelas: spRecord.student?.siswaFormal?.kelas?.name,
           cabang: spRecord.student?.cabang?.name,
           tanggalTerbit: spRecord.tanggalTerbit.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
           berlakuHingga: spRecord.berlakuHingga ? spRecord.berlakuHingga.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : undefined,
@@ -594,7 +594,7 @@ export class IndisiplinerService {
           nomorSk: pRecord.nomorSk,
           namaSiswa: pRecord.student?.biodata?.fullName,
           nis: pRecord.student?.biodata?.nisLokal || pRecord.student?.siswaFormal?.nis,
-          kelas: pRecord.student?.siswaFormal?.kelas?.namaKelas,
+          kelas: pRecord.student?.siswaFormal?.kelas?.name,
           cabang: pRecord.student?.cabang?.name,
           tanggalKeluar: pRecord.tanggalKeluar.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
           tanggalSk: pRecord.tanggalSk.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
