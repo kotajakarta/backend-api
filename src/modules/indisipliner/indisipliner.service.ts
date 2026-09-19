@@ -144,7 +144,7 @@ export class IndisiplinerService {
       ? kategoriUpper
       : 'RINGAN';
 
-    const created = await (this.prisma as any).pelanggaranSantri.create({
+    const created = await this.prisma.pelanggaranSantri.create({
       data: {
         studentId: student.id,
         cabangId: student.cabangId,
@@ -273,7 +273,7 @@ export class IndisiplinerService {
 
     const nomorSp = dto.nomorSp?.trim() || `SP/${Date.now().toString().slice(-4)}/KDS/YTS/${new Date().getFullYear()}`;
 
-    const created = await (this.prisma as any).suratPeringatan.create({
+    const created = await this.prisma.suratPeringatan.create({
       data: {
         studentId: student.id,
         cabangId: student.cabangId,
@@ -416,7 +416,7 @@ export class IndisiplinerService {
 
     const nomorSk = dto.nomorSk?.trim() || `SK/DO/YTS/${new Date().getFullYear()}/${Date.now().toString().slice(-4)}`;
 
-    const created = await (this.prisma as any).pengeluaranSantri.create({
+    const created = await this.prisma.pengeluaranSantri.create({
       data: {
         studentId: student.id,
         cabangId: student.cabangId,
