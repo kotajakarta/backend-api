@@ -25,6 +25,93 @@ export class IndisiplinerService {
     return {};
   }
 
+  // Relasi student yang wajib disertakan agar hasil create() sama bentuknya dengan hasil list()
+  private readonly studentInclude = {
+    student: {
+      include: {
+        biodata: {
+          select: { fullName: true, nisLokal: true, nisn: true },
+        },
+        siswaFormal: {
+          include: {
+            kelas: { select: { namaKelas: true } },
+          },
+        },
+      },
+    },
+  };
+
+  private mapPelanggaran(p: any) {
+    return {
+      id: p.id,
+      tanggal: p.tanggal.toISOString().split('T')[0],
+      siswaId: p.studentId,
+      namaSiswa: p.student?.biodata?.fullName || 'Santri',
+      nisLokal: p.student?.biodata?.nisLokal || '-',
+      nisn: p.student?.biodata?.nisn || undefined,
+      kelas: p.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
+      jenisPelanggaran: p.jenisPelanggaran,
+      kategori: p.kategori === 'RINGAN' ? 'Ringan' : p.kategori === 'BERAT' ? 'Berat' : 'Sedang',
+      poin: p.poin,
+      lokasi: p.lokasi,
+      keterangan: p.keterangan,
+      tindakanPembinaan: p.tindakanPembinaan,
+      dicatatOleh: p.dicatatOleh,
+      createdAt: p.createdAt,
+    };
+  }
+
+  private mapSp(s: any) {
+    let statusFormatted = 'Aktif';
+    if (s.status === 'MASA_PEMBINAAN') statusFormatted = 'Masa Pembinaan';
+    else if (s.status === 'SIDANG_DISIPLIN') statusFormatted = 'Sidang Disiplin';
+    else if (s.status === 'SELESAI') statusFormatted = 'Selesai';
+    else if (s.status === 'DITINGKATKAN') statusFormatted = 'Ditingkatkan';
+
+    return {
+      id: s.id,
+      tanggalTerbit: s.tanggalTerbit.toISOString().split('T')[0],
+      nomorSp: s.nomorSp,
+      siswaId: s.studentId,
+      namaSiswa: s.student?.biodata?.fullName || 'Santri',
+      nisLokal: s.student?.biodata?.nisLokal || '-',
+      kelas: s.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
+      tingkatSp: s.tingkatSp === 'SP_3' ? 'SP 3' : s.tingkatSp === 'SP_2' ? 'SP 2' : 'SP 1',
+      status: statusFormatted,
+      alasan: s.alasan,
+      berlakuHingga: s.berlakuHingga ? s.berlakuHingga.toISOString().split('T')[0] : '',
+      poinAkumulasi: s.poinAkumulasi,
+      tembusan: s.tembusan,
+      dokumenSpUrl: s.dokumenSpUrl || null,
+      ukuranDokumen: s.ukuranDokumen || null,
+    };
+  }
+
+  private mapPengeluaran(p: any) {
+    let katLabel = 'Akumulasi Poin Maksimal';
+    if (p.kategoriAlasan === 'PELANGGARAN_BERAT') katLabel = 'Pelanggaran Berat Syariat / Asusila';
+    else if (p.kategoriAlasan === 'MANGKIR_KABUR') katLabel = 'Mangkir / Kabur >30 Hari';
+    else if (p.kategoriAlasan === 'KRIMINAL_NARKOBA') katLabel = 'Tindak Pidana / Kriminal / Narkoba';
+    else if (p.kategoriAlasan === 'LAINNYA') katLabel = 'Lainnya';
+
+    return {
+      id: p.id,
+      tanggalKeluar: p.tanggalKeluar.toISOString().split('T')[0],
+      siswaId: p.studentId,
+      namaSiswa: p.student?.biodata?.fullName || 'Santri',
+      nisLokal: p.student?.biodata?.nisLokal || '-',
+      kelas: p.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
+      alasanPemberhentian: p.alasanPemberhentian,
+      kategoriAlasan: katLabel,
+      nomorSk: p.nomorSk,
+      tanggalSk: p.tanggalSk.toISOString().split('T')[0],
+      dokumenSkUrl: p.dokumenSkUrl || null,
+      ukuranDokumen: p.ukuranDokumen || null,
+      pejabatTtd: p.pejabatTtd,
+      keteranganTambahan: p.keteranganTambahan,
+    };
+  }
+
   // === STATS ===
   async getStats(user: any) {
     const scopeFilter = this.buildScopeFilter(user);
@@ -106,23 +193,7 @@ export class IndisiplinerService {
       orderBy: { tanggal: 'desc' },
     });
 
-    return items.map((p: any) => ({
-      id: p.id,
-      tanggal: p.tanggal.toISOString().split('T')[0],
-      siswaId: p.studentId,
-      namaSiswa: p.student?.biodata?.fullName || 'Santri',
-      nisLokal: p.student?.biodata?.nisLokal || '-',
-      nisn: p.student?.biodata?.nisn || undefined,
-      kelas: p.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
-      jenisPelanggaran: p.jenisPelanggaran,
-      kategori: p.kategori === 'RINGAN' ? 'Ringan' : p.kategori === 'BERAT' ? 'Berat' : 'Sedang',
-      poin: p.poin,
-      lokasi: p.lokasi,
-      keterangan: p.keterangan,
-      tindakanPembinaan: p.tindakanPembinaan,
-      dicatatOleh: p.dicatatOleh,
-      createdAt: p.createdAt,
-    }));
+    return items.map((p: any) => this.mapPelanggaran(p));
   }
 
   async createPelanggaran(dto: any, user: any) {
@@ -144,7 +215,7 @@ export class IndisiplinerService {
       ? kategoriUpper
       : 'RINGAN';
 
-    const created = await this.prisma.pelanggaranSantri.create({
+    const created = await (this.prisma as any).pelanggaranSantri.create({
       data: {
         studentId: student.id,
         cabangId: student.cabangId,
@@ -158,9 +229,10 @@ export class IndisiplinerService {
         tindakanPembinaan: dto.tindakanPembinaan || null,
         dicatatOleh: dto.dicatatOleh || user.name || 'Petugas Disiplin',
       },
+      include: this.studentInclude,
     });
 
-    return created;
+    return this.mapPelanggaran(created);
   }
 
   async deletePelanggaran(id: string, user: any) {
@@ -226,31 +298,7 @@ export class IndisiplinerService {
       orderBy: { tanggalTerbit: 'desc' },
     });
 
-    return items.map((s: any) => {
-      let statusFormatted = 'Aktif';
-      if (s.status === 'MASA_PEMBINAAN') statusFormatted = 'Masa Pembinaan';
-      else if (s.status === 'SIDANG_DISIPLIN') statusFormatted = 'Sidang Disiplin';
-      else if (s.status === 'SELESAI') statusFormatted = 'Selesai';
-      else if (s.status === 'DITINGKATKAN') statusFormatted = 'Ditingkatkan';
-
-      return {
-        id: s.id,
-        tanggalTerbit: s.tanggalTerbit.toISOString().split('T')[0],
-        nomorSp: s.nomorSp,
-        siswaId: s.studentId,
-        namaSiswa: s.student?.biodata?.fullName || 'Santri',
-        nisLokal: s.student?.biodata?.nisLokal || '-',
-        kelas: s.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
-        tingkatSp: s.tingkatSp === 'SP_3' ? 'SP 3' : s.tingkatSp === 'SP_2' ? 'SP 2' : 'SP 1',
-        status: statusFormatted,
-        alasan: s.alasan,
-        berlakuHingga: s.berlakuHingga ? s.berlakuHingga.toISOString().split('T')[0] : '',
-        poinAkumulasi: s.poinAkumulasi,
-        tembusan: s.tembusan,
-        dokumenSpUrl: s.dokumenSpUrl || null,
-        ukuranDokumen: s.ukuranDokumen || null,
-      };
-    });
+    return items.map((s: any) => this.mapSp(s));
   }
 
   async createSp(dto: any, user: any) {
@@ -273,7 +321,7 @@ export class IndisiplinerService {
 
     const nomorSp = dto.nomorSp?.trim() || `SP/${Date.now().toString().slice(-4)}/KDS/YTS/${new Date().getFullYear()}`;
 
-    const created = await this.prisma.suratPeringatan.create({
+    const created = await (this.prisma as any).suratPeringatan.create({
       data: {
         studentId: student.id,
         cabangId: student.cabangId,
@@ -289,9 +337,10 @@ export class IndisiplinerService {
         dokumenSpUrl: dto.dokumenSpUrl || null,
         ukuranDokumen: dto.ukuranDokumen || null,
       },
+      include: this.studentInclude,
     });
 
-    return created;
+    return this.mapSp(created);
   }
 
   async updateSpStatus(id: string, status: string, user: any) {
@@ -368,30 +417,7 @@ export class IndisiplinerService {
       orderBy: { tanggalKeluar: 'desc' },
     });
 
-    return items.map((p: any) => {
-      let katLabel = 'Akumulasi Poin Maksimal';
-      if (p.kategoriAlasan === 'PELANGGARAN_BERAT') katLabel = 'Pelanggaran Berat Syariat / Asusila';
-      else if (p.kategoriAlasan === 'MANGKIR_KABUR') katLabel = 'Mangkir / Kabur >30 Hari';
-      else if (p.kategoriAlasan === 'KRIMINAL_NARKOBA') katLabel = 'Tindak Pidana / Kriminal / Narkoba';
-      else if (p.kategoriAlasan === 'LAINNYA') katLabel = 'Lainnya';
-
-      return {
-        id: p.id,
-        tanggalKeluar: p.tanggalKeluar.toISOString().split('T')[0],
-        siswaId: p.studentId,
-        namaSiswa: p.student?.biodata?.fullName || 'Santri',
-        nisLokal: p.student?.biodata?.nisLokal || '-',
-        kelas: p.student?.siswaFormal?.kelas?.namaKelas || 'Umum',
-        alasanPemberhentian: p.alasanPemberhentian,
-        kategoriAlasan: katLabel,
-        nomorSk: p.nomorSk,
-        tanggalSk: p.tanggalSk.toISOString().split('T')[0],
-        dokumenSkUrl: p.dokumenSkUrl || null,
-        ukuranDokumen: p.ukuranDokumen || null,
-        pejabatTtd: p.pejabatTtd,
-        keteranganTambahan: p.keteranganTambahan,
-      };
-    });
+    return items.map((p: any) => this.mapPengeluaran(p));
   }
 
   async createPengeluaran(dto: any, user: any) {
@@ -416,7 +442,7 @@ export class IndisiplinerService {
 
     const nomorSk = dto.nomorSk?.trim() || `SK/DO/YTS/${new Date().getFullYear()}/${Date.now().toString().slice(-4)}`;
 
-    const created = await this.prisma.pengeluaranSantri.create({
+    const created = await (this.prisma as any).pengeluaranSantri.create({
       data: {
         studentId: student.id,
         cabangId: student.cabangId,
@@ -431,6 +457,7 @@ export class IndisiplinerService {
         pejabatTtd: dto.pejabatTtd || 'Pimpinan Pesantren',
         keteranganTambahan: dto.keteranganTambahan || null,
       },
+      include: this.studentInclude,
     });
 
     // Update status santri menjadi DROP_OUT dan nonaktif
@@ -442,7 +469,7 @@ export class IndisiplinerService {
       },
     });
 
-    return created;
+    return this.mapPengeluaran(created);
   }
 
   async deletePengeluaran(id: string, user: any) {
