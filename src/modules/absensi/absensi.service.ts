@@ -505,11 +505,15 @@ export class AbsensiService {
       
       const counts = { HADIR: 0, SAKIT: 0, IZIN: 0, ALPA: 0 };
       const details: Record<string, string> = {};
+      const notes: Record<string, string> = {};
 
       programs.forEach(program => {
         const log = studentLogs.find(l => l.programId === program.id);
         const status = log?.status || '-';
         details[program.id] = status;
+        if (log?.catatan) {
+          notes[program.id] = log.catatan;
+        }
         if (status in counts) {
           counts[status as keyof typeof counts]++;
         }
@@ -524,6 +528,7 @@ export class AbsensiService {
         fullName: student.biodata.fullName,
         nisLokal: student.biodata.nisLokal,
         attendanceDetails: details,
+        attendanceNotes: notes,
         summary: {
           hadir: counts.HADIR,
           sakit: counts.SAKIT,
