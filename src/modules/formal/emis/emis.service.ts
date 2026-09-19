@@ -325,6 +325,13 @@ export class EmisService {
     return `${normName}|${normDate}`;
   }
 
+  createCleanNameBirthDateKey(nama: any, rawDate: any): string {
+    const normName = this.normalizeText(nama).replace(/\s+/g, '');
+    const normDate = this.normalizeDate(rawDate);
+    if (!normName || !normDate) return '';
+    return `${normName}|${normDate}`;
+  }
+
   createNameRombelKey(nama: any, rawRombel: any): string {
     const normName = this.normalizeText(nama);
     const normRombel = this.normalizeRombel(rawRombel);
@@ -339,17 +346,38 @@ export class EmisService {
 
   normalizeDate(rawDate: any): string | null {
     if (!rawDate) return null;
+
+    // Jika objek Date (dari PostgreSQL / Prisma / JS)
+    if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
+      const year = rawDate.getFullYear();
+      const month = String(rawDate.getMonth() + 1).padStart(2, '0');
+      const day = String(rawDate.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
     const str = String(rawDate).trim();
     if (!str) return null;
 
-    // ISO: yyyy-mm-dd
-    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    // Format ISO: yyyy-mm-dd atau yyyy/mm/dd
+    const isoMatch = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
     if (isoMatch) {
-      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+      const year = isoMatch[1];
+      const month = isoMatch[2].padStart(2, '0');
+      const day = isoMatch[3].padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
 
-    // Tanggal teks indonesia/inggris: "15 Agustus 2008" atau "15 Aug 2008"
-    const textMatch = str.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+    // Format Standar Indonesia / EMIS / Excel: dd-mm-yyyy atau dd/mm/yyyy
+    const dmyMatch = str.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+    if (dmyMatch) {
+      const day = dmyMatch[1].padStart(2, '0');
+      const month = dmyMatch[2].padStart(2, '0');
+      const year = dmyMatch[3];
+      return `${year}-${month}-${day}`;
+    }
+
+    // Tanggal teks indonesia/inggris: "15 Agustus 2008" atau "15 Aug 2008" atau "15-Agustus-2008"
+    const textMatch = str.match(/^(\d{1,2})[\s-]+([A-Za-z]+)[\s-]+(\d{4})/);
     if (textMatch) {
       const day = textMatch[1].padStart(2, '0');
       const monthToken = textMatch[2].toLowerCase();
@@ -394,6 +422,11 @@ export class EmisService {
     birthDate?: string | null;
     birthPlace?: string | null;
   }): string {
+    const nama = String(item.nama || '').trim();
+    const tgl = String(item.birthDate || '').trim();
+    const keyDob = this.createNameBirthDateKey(nama, tgl);
+    if (keyDob) return `NAME_DOB:${keyDob}`;
+
     const nik = this.normalizeNik(item.nik);
     if (nik && nik.length >= 10) return `NIK:${nik}`;
 
@@ -402,11 +435,6 @@ export class EmisService {
 
     const id = String(item.id || '').trim();
     if (id && !id.startsWith('temp-')) return `ID:${id}`;
-
-    const nama = String(item.nama || '').trim();
-    const tgl = String(item.birthDate || '').trim();
-    const keyDob = this.createNameBirthDateKey(nama, tgl);
-    if (keyDob) return `NAME_DOB:${keyDob}`;
 
     const tmpt = String(item.birthPlace || '').trim();
     const keyPob = this.createMergeKey(nama, tmpt);
@@ -723,16 +751,19 @@ export class EmisService {
     });
 
     // 2. Buat Lookup Map untuk EMIS
-    // Kunci 1: NIK (Prioritas Tertinggi / Unik Nasional)
-    // Kunci 2: NISN
-    // Kunci 3: Nama + Tanggal Lahir (sangat presisi)
+    // Kunci 1: Nama + Tanggal Lahir (Prioritas 1 Utama)
+    // Kunci 2: NIK (Prioritas 2)
+    // Kunci 3: NISN (Prioritas 3)
     // Kunci 4: Nama + Tempat Lahir
     // Kunci 5: Nama + Rombel
+    // Kunci 6: Nama Lengkap Persis (Fallback jika NIK/NISN/TglLahir beda input)
+    const emisByNameBirthDate = new Map<string, any>();
+    const emisByCleanNameBirthDate = new Map<string, any>();
     const emisByNik = new Map<string, any>();
     const emisByNisn = new Map<string, any>();
-    const emisByNameBirthDate = new Map<string, any>();
     const emisByNameBirthPlace = new Map<string, any>();
     const emisByNameRombel = new Map<string, any>();
+    const emisByName = new Map<string, any[]>();
     const processedEmisKeys = new Set<string>();
 
     for (const em of emisStudents) {
@@ -749,21 +780,31 @@ export class EmisService {
       em._parsed_tingkat = parsedTingkat;
 
       const keyNameBirthDate = this.createNameBirthDateKey(nama, tglLahir);
+      const keyCleanNameBirthDate = this.createCleanNameBirthDateKey(nama, tglLahir);
       const keyNameBirthPlace = this.createMergeKey(nama, tmptLahir);
       const keyNameRombel = this.createNameRombelKey(nama, em._parsed_rombel);
 
-      if (nik && nik.length >= 10) emisByNik.set(nik, em);
-      if (nisn) emisByNisn.set(nisn, em);
       if (keyNameBirthDate) emisByNameBirthDate.set(keyNameBirthDate, em);
+      if (keyCleanNameBirthDate) emisByCleanNameBirthDate.set(keyCleanNameBirthDate, em);
+      if (nik && nik.length >= 10) emisByNik.set(nik, em);
+      if (nisn && nisn !== '-' && nisn.length >= 8) emisByNisn.set(nisn, em);
       if (keyNameBirthPlace) emisByNameBirthPlace.set(keyNameBirthPlace, em);
       if (keyNameRombel) emisByNameRombel.set(keyNameRombel, em);
+
+      const normNama = this.normalizeText(nama);
+      if (normNama) {
+        if (!emisByName.has(normNama)) emisByName.set(normNama, []);
+        emisByName.get(normNama)!.push(em);
+      }
     }
 
     // 3. Buat Lookup Map untuk Verval
+    const vervalByNameBirthDate = new Map<string, VervalStudentItem>();
+    const vervalByCleanNameBirthDate = new Map<string, VervalStudentItem>();
     const vervalByNik = new Map<string, VervalStudentItem>();
     const vervalByNisn = new Map<string, VervalStudentItem>();
-    const vervalByNameBirthDate = new Map<string, VervalStudentItem>();
     const vervalByNameBirthPlace = new Map<string, VervalStudentItem>();
+    const vervalByName = new Map<string, VervalStudentItem[]>();
     const processedVervalKeys = new Set<string>();
 
     for (const vv of vervalStudents) {
@@ -773,12 +814,20 @@ export class EmisService {
       const tmpt = String(vv.tempatLahir || '').trim();
       const tgl = String(vv.tanggalLahir || '').trim();
       const keyNameBirthDate = this.createNameBirthDateKey(nama, tgl);
+      const keyCleanNameBirthDate = this.createCleanNameBirthDateKey(nama, tgl);
       const keyNameBirthPlace = this.createMergeKey(nama, tmpt);
 
-      if (nik && nik.length >= 10) vervalByNik.set(nik, vv);
-      if (nisn) vervalByNisn.set(nisn, vv);
       if (keyNameBirthDate) vervalByNameBirthDate.set(keyNameBirthDate, vv);
+      if (keyCleanNameBirthDate) vervalByCleanNameBirthDate.set(keyCleanNameBirthDate, vv);
+      if (nik && nik.length >= 10) vervalByNik.set(nik, vv);
+      if (nisn && nisn !== '-' && nisn.length >= 8) vervalByNisn.set(nisn, vv);
       if (keyNameBirthPlace) vervalByNameBirthPlace.set(keyNameBirthPlace, vv);
+
+      const normNama = this.normalizeText(nama);
+      if (normNama) {
+        if (!vervalByName.has(normNama)) vervalByName.set(normNama, []);
+        vervalByName.get(normNama)!.push(vv);
+      }
     }
 
     // 4. Lakukan Komparasi untuk Setiap Santri di Database eSantri
@@ -847,44 +896,72 @@ export class EmisService {
       const esantriTingkat = String(sf?.tingkat || sf?.kelas?.tingkat || '').trim();
 
       const keyNameBirthDate = this.createNameBirthDateKey(namaEsantri, bio.tanggalLahir);
+      const keyCleanNameBirthDate = this.createCleanNameBirthDateKey(namaEsantri, bio.tanggalLahir);
       const keyNameBirthPlace = this.createMergeKey(namaEsantri, tmptLahirEsantri);
       const keyNameRombel = this.createNameRombelKey(namaEsantri, esantriRombel);
 
-      // --- Matching EMIS (Hirarki: NIK -> NISN -> Nama+TglLahir -> Nama+TmptLahir -> Nama+Rombel) ---
+      const normNamaEsantri = this.normalizeText(namaEsantri);
+
+      // --- Matching EMIS (Hirarki: Nama+TglLahir -> NIK -> NISN -> Nama+TmptLahir -> Nama+Rombel -> Nama Persis) ---
       let matchedEmis: any = null;
       let matchMethodEmis = '';
-      if (nikEsantriClean && nikEsantriClean.length >= 10 && emisByNik.has(nikEsantriClean)) {
-        matchedEmis = emisByNik.get(nikEsantriClean);
-        matchMethodEmis = 'NIK';
-      } else if (nisnEsantri && emisByNisn.has(nisnEsantri)) {
-        matchedEmis = emisByNisn.get(nisnEsantri);
-        matchMethodEmis = 'NISN';
-      } else if (keyNameBirthDate && emisByNameBirthDate.has(keyNameBirthDate)) {
+      if (keyNameBirthDate && emisByNameBirthDate.has(keyNameBirthDate)) {
         matchedEmis = emisByNameBirthDate.get(keyNameBirthDate);
         matchMethodEmis = 'NAMA_TGL_LAHIR';
+      } else if (keyCleanNameBirthDate && emisByCleanNameBirthDate.has(keyCleanNameBirthDate)) {
+        matchedEmis = emisByCleanNameBirthDate.get(keyCleanNameBirthDate);
+        matchMethodEmis = 'NAMA_TGL_LAHIR';
+      } else if (nikEsantriClean && nikEsantriClean.length >= 10 && emisByNik.has(nikEsantriClean)) {
+        matchedEmis = emisByNik.get(nikEsantriClean);
+        matchMethodEmis = 'NIK';
+      } else if (nisnEsantri && nisnEsantri !== '-' && nisnEsantri.length >= 8 && emisByNisn.has(nisnEsantri)) {
+        matchedEmis = emisByNisn.get(nisnEsantri);
+        matchMethodEmis = 'NISN';
       } else if (keyNameBirthPlace && emisByNameBirthPlace.has(keyNameBirthPlace)) {
         matchedEmis = emisByNameBirthPlace.get(keyNameBirthPlace);
         matchMethodEmis = 'NAMA_TMPT_LAHIR';
       } else if (keyNameRombel && emisByNameRombel.has(keyNameRombel)) {
         matchedEmis = emisByNameRombel.get(keyNameRombel);
         matchMethodEmis = 'NAMA_ROMBEL';
+      } else if (normNamaEsantri && emisByName.has(normNamaEsantri)) {
+        const matches = emisByName.get(normNamaEsantri)!;
+        if (matches.length === 1) {
+          matchedEmis = matches[0];
+          matchMethodEmis = 'NAMA_PERSIS';
+        }
       }
 
-      // --- Matching Verval (Hirarki: NIK -> NISN -> Nama+TglLahir -> Nama+TmptLahir) ---
+      // --- Matching Verval (Hirarki: Nama+TglLahir -> NIK -> NISN -> Nama+TmptLahir -> Nama Persis) ---
       let matchedVerval: VervalStudentItem | null = null;
       let matchMethodVerval = '';
-      if (nikEsantriClean && nikEsantriClean.length >= 10 && vervalByNik.has(nikEsantriClean)) {
-        matchedVerval = vervalByNik.get(nikEsantriClean)!;
-        matchMethodVerval = 'NIK';
-      } else if (nisnEsantri && vervalByNisn.has(nisnEsantri)) {
-        matchedVerval = vervalByNisn.get(nisnEsantri)!;
-        matchMethodVerval = 'NISN';
-      } else if (keyNameBirthDate && vervalByNameBirthDate.has(keyNameBirthDate)) {
+      if (keyNameBirthDate && vervalByNameBirthDate.has(keyNameBirthDate)) {
         matchedVerval = vervalByNameBirthDate.get(keyNameBirthDate)!;
         matchMethodVerval = 'NAMA_TGL_LAHIR';
+      } else if (keyCleanNameBirthDate && vervalByCleanNameBirthDate.has(keyCleanNameBirthDate)) {
+        matchedVerval = vervalByCleanNameBirthDate.get(keyCleanNameBirthDate)!;
+        matchMethodVerval = 'NAMA_TGL_LAHIR';
+      } else if (nikEsantriClean && nikEsantriClean.length >= 10 && vervalByNik.has(nikEsantriClean)) {
+        matchedVerval = vervalByNik.get(nikEsantriClean)!;
+        matchMethodVerval = 'NIK';
+      } else if (nisnEsantri && nisnEsantri !== '-' && nisnEsantri.length >= 8 && vervalByNisn.has(nisnEsantri)) {
+        matchedVerval = vervalByNisn.get(nisnEsantri)!;
+        matchMethodVerval = 'NISN';
       } else if (keyNameBirthPlace && vervalByNameBirthPlace.has(keyNameBirthPlace)) {
         matchedVerval = vervalByNameBirthPlace.get(keyNameBirthPlace)!;
         matchMethodVerval = 'NAMA_TMPT_LAHIR';
+      } else if (normNamaEsantri && vervalByName.has(normNamaEsantri)) {
+        const matches = vervalByName.get(normNamaEsantri)!;
+        if (matches.length === 1) {
+          matchedVerval = matches[0];
+          matchMethodVerval = 'NAMA_PERSIS';
+        }
+      }
+
+      // Fallback Cross-System: Jika belum cocok di EMIS, tetapi santri cocok di VervalPD dan memiliki NISN resmi:
+      // Cocokkan ke EMIS menggunakan NISN dari VervalPD (sangat berguna jika data di eSantri belum terisi NISN-nya)
+      if (!matchedEmis && matchedVerval?.nisn && matchedVerval.nisn !== '-' && matchedVerval.nisn.length >= 8 && emisByNisn.has(matchedVerval.nisn)) {
+        matchedEmis = emisByNisn.get(matchedVerval.nisn);
+        matchMethodEmis = 'NISN_VIA_VERVAL';
       }
 
       const discrepancies: string[] = [];
@@ -907,6 +984,7 @@ export class EmisService {
 
         const emisNisn = String(matchedEmis.nisn || matchedEmis.list_nisn || '').trim();
         const emisTgl = this.normalizeDate(matchedEmis.birth_date || matchedEmis.tanggal_lahir);
+        const emisTmpt = String(matchedEmis.birth_place || matchedEmis.tempat_lahir || '').trim();
         const emisRombelName = String(matchedEmis._parsed_rombel || matchedEmis.la_study_group_name || matchedEmis.study_group_name || '').trim();
 
         if (nikEsantriClean && emisNik && nikEsantriClean !== emisNik) {
@@ -923,6 +1001,11 @@ export class EmisService {
 
         if (tglLahirEsantriStr && emisTgl && tglLahirEsantriStr !== emisTgl) {
           discrepancies.push(`Tanggal Lahir Berbeda: eSantri (${tglLahirEsantriStr}) vs EMIS (${emisTgl})`);
+          statusEmis = 'DISKREPANSI';
+        }
+
+        if (tmptLahirEsantri && emisTmpt && this.normalizeText(tmptLahirEsantri) !== this.normalizeText(emisTmpt)) {
+          discrepancies.push(`Tempat Lahir Berbeda: eSantri (${tmptLahirEsantri}) vs EMIS (${emisTmpt})`);
         }
 
         if (esantriRombel && emisRombelName) {

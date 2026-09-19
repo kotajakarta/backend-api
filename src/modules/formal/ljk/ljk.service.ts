@@ -428,6 +428,15 @@ export class LjkService {
     let jumlahKosong = dto.jumlahKosong;
     let skor = dto.skor;
 
+    // Pastikan formula skor konsisten: untuk 25 soal, skor = jumlahBenar * 4 (misal: 25 -> 100, 24 -> 96, 23 -> 92)
+    const totalSoal = dto.totalSoal || 25;
+    if (jumlahBenar !== undefined && jumlahBenar !== null) {
+      const calculatedExpected = Math.round((jumlahBenar / totalSoal) * 100);
+      if (skor === undefined || skor === null || Math.abs(skor - calculatedExpected) > 5) {
+        skor = calculatedExpected;
+      }
+    }
+
     if (dto.questionBankId && (skor === undefined || skor === null)) {
       const qb = await this.prisma.questionBank.findUnique({
         where: { id: dto.questionBankId },

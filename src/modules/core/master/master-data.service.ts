@@ -1018,6 +1018,7 @@ export class MasterDataService implements OnModuleInit {
       select: {
         id: true,
         name: true,
+        kode: true,
         isActive: true,
         wilayahId: true,
         nameGlodemy: true,

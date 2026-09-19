@@ -58,7 +58,7 @@ export class FormalService {
     return this.prisma.kelas.findMany({
       where: whereClause,
       include: {
-        cabang: { select: { id: true, name: true, wilayahId: true, wilayah: true } },
+        cabang: { select: { id: true, name: true, kode: true, wilayahId: true, wilayah: true } },
         lembagaMuadalah: true,
         waliKelas: true,
         ruang: true,

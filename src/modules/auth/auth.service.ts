@@ -31,7 +31,12 @@ export class AuthService {
       include: {
         wilayah: true,
         cabang: true,
-        staff: true,
+        staff: {
+          include: {
+            cabang: true,
+            wilayah: true,
+          },
+        },
       }
     });
     if (!user) {
@@ -79,7 +84,8 @@ export class AuthService {
       wilayahId: user.wilayahId || user.staff?.wilayahId || null,
       cabangId: user.cabangId || user.staff?.cabangId || null,
       wilayahName: user.wilayah?.name || null,
-      cabangName: user.cabang?.name || null,
+      cabangName: user.cabang?.name || (user.staff as any)?.cabang?.name || null,
+      cabangKode: user.cabang?.kode || (user.staff as any)?.cabang?.kode || null,
       twoFactorEnabled: false
     };
 
@@ -160,7 +166,8 @@ export class AuthService {
       wilayahId: user.wilayahId || user.staff?.wilayahId || null,
       cabangId: user.cabangId || user.staff?.cabangId || null,
       wilayahName: user.wilayah?.name || null,
-      cabangName: user.cabang?.name || null,
+      cabangName: user.cabang?.name || (user.staff as any)?.cabang?.name || null,
+      cabangKode: user.cabang?.kode || (user.staff as any)?.cabang?.kode || null,
       twoFactorEnabled: true
     };
 
