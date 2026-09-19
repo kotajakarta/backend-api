@@ -24,6 +24,7 @@ import { PortalModule } from './modules/portal/portal.module.js';
 import { BankSoalModule } from './modules/bank-soal/bank-soal.module.js';
 import { PpdbModule } from './modules/ppdb/ppdb.module.js';
 import { PesantrenExternalModule } from './modules/external/pesantren/pesantren-external.module.js';
+import { IndisiplinerModule } from './modules/indisipliner/indisipliner.module.js';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { PesantrenExternalModule } from './modules/external/pesantren/pesantren-
     PortalModule,
     BankSoalModule,
     PpdbModule,
+    IndisiplinerModule,
     ScheduleModule.forRoot()
   ],
   controllers: [],

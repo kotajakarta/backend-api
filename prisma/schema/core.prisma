@@ -242,6 +242,9 @@ model Student {
   pembayaran             PembayaranSantri[]
   komparasiEmis          KomparasiEmis[]
   ljkResults             LjkResult[]
+  pelanggaran            PelanggaranSantri[]
+  suratPeringatan        SuratPeringatan[]
+  pengeluaran            PengeluaranSantri?
 
   @@map("students")
   @@schema("core")

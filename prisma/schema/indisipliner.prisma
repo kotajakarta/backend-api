@@ -1,0 +1,102 @@
+enum KategoriPelanggaran {
+  RINGAN
+  SEDANG
+  BERAT
+
+  @@schema("core")
+}
+
+enum TingkatSp {
+  SP_1
+  SP_2
+  SP_3
+
+  @@schema("core")
+}
+
+enum StatusSp {
+  AKTIF
+  MASA_PEMBINAAN
+  SELESAI
+  DITINGKATKAN
+  SIDANG_DISIPLIN
+
+  @@schema("core")
+}
+
+enum KategoriPengeluaran {
+  AKUMULASI_POIN
+  PELANGGARAN_BERAT
+  MANGKIR_KABUR
+  KRIMINAL_NARKOBA
+  LAINNYA
+
+  @@schema("core")
+}
+
+model PelanggaranSantri {
+  id                String              @id @default(uuid())
+  studentId         String              @map("student_id")
+  wilayahId         String?             @map("wilayah_id")
+  cabangId          String?             @map("cabang_id")
+  tanggal           DateTime            @map("tanggal")
+  jenisPelanggaran  String              @map("jenis_pelanggaran")
+  kategori          KategoriPelanggaran @default(RINGAN) @map("kategori")
+  poin              Int                 @default(5) @map("poin")
+  lokasi            String?             @map("lokasi")
+  keterangan        String?             @map("keterangan")
+  tindakanPembinaan String?             @map("tindakan_pembinaan")
+  dicatatOleh       String?             @map("dicatat_oleh")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("pelanggaran_santri")
+  @@schema("core")
+}
+
+model SuratPeringatan {
+  id            String    @id @default(uuid())
+  studentId     String    @map("student_id")
+  wilayahId     String?   @map("wilayah_id")
+  cabangId      String?   @map("cabang_id")
+  nomorSp       String    @unique @map("nomor_sp")
+  tingkatSp     TingkatSp @default(SP_1) @map("tingkat_sp")
+  status        StatusSp  @default(AKTIF) @map("status")
+  tanggalTerbit DateTime  @map("tanggal_terbit")
+  berlakuHingga DateTime? @map("berlaku_hingga")
+  poinAkumulasi Int       @default(0) @map("poin_akumulasi")
+  alasan        String    @map("alasan")
+  tembusan      String?   @map("tembusan")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("surat_peringatan")
+  @@schema("core")
+}
+
+model PengeluaranSantri {
+  id                  String              @id @default(uuid())
+  studentId           String              @unique @map("student_id")
+  wilayahId           String?             @map("wilayah_id")
+  cabangId            String?             @map("cabang_id")
+  tanggalKeluar       DateTime            @map("tanggal_keluar")
+  alasanPemberhentian String              @map("alasan_pemberhentian")
+  kategoriAlasan      KategoriPengeluaran @default(AKUMULASI_POIN) @map("kategori_alasan")
+  nomorSk             String              @unique @map("nomor_sk")
+  tanggalSk           DateTime            @map("tanggal_sk")
+  dokumenSkUrl        String?             @map("dokumen_sk_url")
+  ukuranDokumen       String?             @map("ukuran_dokumen")
+  pejabatTtd          String              @map("pejabat_ttd")
+  keteranganTambahan  String?             @map("keterangan_tambahan")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("pengeluaran_santri")
+  @@schema("core")
+}
