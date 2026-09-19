@@ -1,9 +1,17 @@
-import { Injectable, Inject, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { MinioService } from '../../common/minio/minio.service.js';
+import { IndisiplinerTemplateService } from './indisipliner-template.service.js';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
 export class IndisiplinerService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional() @Inject(MinioService) private readonly minioService?: MinioService,
+    @Optional() @Inject(IndisiplinerTemplateService) private readonly templateService?: IndisiplinerTemplateService,
+  ) {}
 
   // Helper untuk membatasi filter berdasarkan scope pengguna
   private buildScopeFilter(user: any) {
@@ -239,6 +247,8 @@ export class IndisiplinerService {
         berlakuHingga: s.berlakuHingga ? s.berlakuHingga.toISOString().split('T')[0] : '',
         poinAkumulasi: s.poinAkumulasi,
         tembusan: s.tembusan,
+        dokumenSpUrl: s.dokumenSpUrl || null,
+        ukuranDokumen: s.ukuranDokumen || null,
       };
     });
   }
@@ -276,6 +286,8 @@ export class IndisiplinerService {
         poinAkumulasi: parseInt(dto.poinAkumulasi, 10) || 0,
         alasan: dto.alasan || 'Pelanggaran tata tertib pesantren',
         tembusan: dto.tembusan || null,
+        dokumenSpUrl: dto.dokumenSpUrl || null,
+        ukuranDokumen: dto.ukuranDokumen || null,
       },
     });
 
@@ -359,8 +371,8 @@ export class IndisiplinerService {
     return items.map((p: any) => {
       let katLabel = 'Akumulasi Poin Maksimal';
       if (p.kategoriAlasan === 'PELANGGARAN_BERAT') katLabel = 'Pelanggaran Berat Syariat / Asusila';
-      else if (p.kategoriAlasan === 'MANGKIR_KABUR') katLabel = 'Mangkir / Kabur';
-      else if (p.kategoriAlasan === 'KRIMINAL_NARKOBA') katLabel = 'Kriminal / Narkoba';
+      else if (p.kategoriAlasan === 'MANGKIR_KABUR') katLabel = 'Mangkir / Kabur >30 Hari';
+      else if (p.kategoriAlasan === 'KRIMINAL_NARKOBA') katLabel = 'Tindak Pidana / Kriminal / Narkoba';
       else if (p.kategoriAlasan === 'LAINNYA') katLabel = 'Lainnya';
 
       return {
@@ -374,8 +386,8 @@ export class IndisiplinerService {
         kategoriAlasan: katLabel,
         nomorSk: p.nomorSk,
         tanggalSk: p.tanggalSk.toISOString().split('T')[0],
-        dokumenSkUrl: p.dokumenSkUrl || `/dokumen/sk/${p.nomorSk.replace(/[\/]/g, '-')}.pdf`,
-        ukuranDokumen: p.ukuranDokumen || '320 KB',
+        dokumenSkUrl: p.dokumenSkUrl || null,
+        ukuranDokumen: p.ukuranDokumen || null,
         pejabatTtd: p.pejabatTtd,
         keteranganTambahan: p.keteranganTambahan,
       };
@@ -415,7 +427,7 @@ export class IndisiplinerService {
         nomorSk,
         tanggalSk: new Date(dto.tanggalSk || dto.tanggalKeluar || new Date()),
         dokumenSkUrl: dto.dokumenSkUrl || null,
-        ukuranDokumen: dto.ukuranDokumen || '350 KB',
+        ukuranDokumen: dto.ukuranDokumen || null,
         pejabatTtd: dto.pejabatTtd || 'Pimpinan Pesantren',
         keteranganTambahan: dto.keteranganTambahan || null,
       },
@@ -440,5 +452,132 @@ export class IndisiplinerService {
       throw new ForbiddenException('Akses ditolak.');
     }
     return (this.prisma as any).pengeluaranSantri.delete({ where: { id } });
+  }
+
+  // === UPLOAD BERKAS SP & PENGELUARAN (PDF / GAMBAR) ===
+  async uploadDokumen(file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('File berkas harus disertakan.');
+
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.pdf';
+    const allowed = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+    if (!allowed.includes(ext)) {
+      throw new BadRequestException(`Format berkas tidak didukung (${ext}). Harap gunakan file PDF atau Gambar (JPG/PNG).`);
+    }
+
+    const filename = `indisipliner_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+    const objectKey = `indisipliner/${filename}`;
+
+    if (this.minioService) {
+      try {
+        await this.minioService.uploadBuffer(objectKey, file.buffer, file.mimetype);
+      } catch (err) {
+        console.warn('MinIO upload warning, falling back to local storage:', err);
+        const localDir = path.resolve(process.cwd(), 'public/uploads/indisipliner');
+        if (!fs.existsSync(localDir)) {
+          fs.mkdirSync(localDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(localDir, filename), file.buffer);
+      }
+    } else {
+      const localDir = path.resolve(process.cwd(), 'public/uploads/indisipliner');
+      if (!fs.existsSync(localDir)) {
+        fs.mkdirSync(localDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(localDir, filename), file.buffer);
+    }
+
+    const sizeKb = Math.round(file.size / 1024);
+    const ukuranDokumen = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
+
+    return {
+      url: `/uploads/indisipliner/${filename}`,
+      filename: file.originalname,
+      ukuranDokumen,
+    };
+  }
+
+  // === TEMPLATE DOCX SP & PENGELUARAN ===
+  async getSpTemplateDocx(tingkat: string, spId?: string) {
+    if (!this.templateService) {
+      throw new BadRequestException('Layanan template DOCX tidak tersedia.');
+    }
+
+    let templateData: any = { tingkatSp: tingkat };
+
+    if (spId) {
+      const spRecord = await (this.prisma as any).suratPeringatan.findUnique({
+        where: { id: spId },
+        include: {
+          student: {
+            include: {
+              biodata: true,
+              siswaFormal: { include: { kelas: true } },
+              cabang: true,
+            },
+          },
+        },
+      });
+      if (spRecord) {
+        templateData = {
+          nomorSp: spRecord.nomorSp,
+          tingkatSp: spRecord.tingkatSp.replace('_', ' '),
+          namaSiswa: spRecord.student?.biodata?.fullName,
+          nis: spRecord.student?.biodata?.nisLokal || spRecord.student?.siswaFormal?.nis,
+          kelas: spRecord.student?.siswaFormal?.kelas?.namaKelas,
+          cabang: spRecord.student?.cabang?.name,
+          tanggalTerbit: spRecord.tanggalTerbit.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+          berlakuHingga: spRecord.berlakuHingga ? spRecord.berlakuHingga.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : undefined,
+          poinAkumulasi: spRecord.poinAkumulasi,
+          alasan: spRecord.alasan,
+        };
+      }
+    }
+
+    return this.templateService.generateSpDocx(templateData);
+  }
+
+  async getPengeluaranTemplateDocx(pengeluaranId?: string) {
+    if (!this.templateService) {
+      throw new BadRequestException('Layanan template DOCX tidak tersedia.');
+    }
+
+    let templateData: any = {};
+
+    if (pengeluaranId) {
+      const pRecord = await (this.prisma as any).pengeluaranSantri.findUnique({
+        where: { id: pengeluaranId },
+        include: {
+          student: {
+            include: {
+              biodata: true,
+              siswaFormal: { include: { kelas: true } },
+              cabang: true,
+            },
+          },
+        },
+      });
+      if (pRecord) {
+        let katLabel = 'Akumulasi Poin Maksimal';
+        if (pRecord.kategoriAlasan === 'PELANGGARAN_BERAT') katLabel = 'Pelanggaran Berat Syariat / Asusila';
+        else if (pRecord.kategoriAlasan === 'MANGKIR_KABUR') katLabel = 'Mangkir / Kabur >30 Hari';
+        else if (pRecord.kategoriAlasan === 'KRIMINAL_NARKOBA') katLabel = 'Tindak Pidana / Kriminal / Narkoba';
+        else if (pRecord.kategoriAlasan === 'LAINNYA') katLabel = 'Lainnya';
+
+        templateData = {
+          nomorSk: pRecord.nomorSk,
+          namaSiswa: pRecord.student?.biodata?.fullName,
+          nis: pRecord.student?.biodata?.nisLokal || pRecord.student?.siswaFormal?.nis,
+          kelas: pRecord.student?.siswaFormal?.kelas?.namaKelas,
+          cabang: pRecord.student?.cabang?.name,
+          tanggalKeluar: pRecord.tanggalKeluar.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+          tanggalSk: pRecord.tanggalSk.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+          alasanPemberhentian: pRecord.alasanPemberhentian,
+          kategoriAlasan: katLabel,
+          pejabatTtd: pRecord.pejabatTtd,
+        };
+      }
+    }
+
+    return this.templateService.generatePengeluaranDocx(templateData);
   }
 }

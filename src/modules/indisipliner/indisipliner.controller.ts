@@ -1,6 +1,25 @@
-import { Controller, Get, Post, Patch, Delete, UseGuards, Request, Inject, Query, Body, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  UseGuards,
+  Request,
+  Response,
+  Inject,
+  Query,
+  Body,
+  Param,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response as ExpressResponse } from 'express';
 import { IndisiplinerService } from './indisipliner.service.js';
 import { AccessControlGuard } from '../../common/guards/access-control.guard.js';
+import { AllowCookieAuth } from '../../common/decorators/access-control.decorator.js';
 
 @Controller('indisipliner')
 export class IndisiplinerController {
@@ -11,6 +30,52 @@ export class IndisiplinerController {
   @UseGuards(AccessControlGuard)
   getStats(@Request() req: any) {
     return this.indisiplinerService.getStats(req.user);
+  }
+
+  // === UPLOAD BERKAS (PDF / GAMBAR) ===
+  @Post('upload')
+  @UseGuards(AccessControlGuard)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
+  async uploadDokumen(
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('File berkas wajib diunggah.');
+    return this.indisiplinerService.uploadDokumen(file);
+  }
+
+  // === TEMPLATE DOCX SP & PENGELUARAN ===
+  @Get('template/sp/:tingkat')
+  @AllowCookieAuth()
+  @UseGuards(AccessControlGuard)
+  async downloadSpTemplate(
+    @Param('tingkat') tingkat: string,
+    @Query('id') spId: string,
+    @Response() res: ExpressResponse,
+  ) {
+    const buffer = await this.indisiplinerService.getSpTemplateDocx(tingkat, spId);
+    const sanitizedTingkat = tingkat.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const filename = spId ? `Surat_Peringatan_${sanitizedTingkat}.docx` : `Template_SP_${sanitizedTingkat}.docx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
+  }
+
+  @Get('template/pengeluaran')
+  @AllowCookieAuth()
+  @UseGuards(AccessControlGuard)
+  async downloadPengeluaranTemplate(
+    @Query('id') pengeluaranId: string,
+    @Response() res: ExpressResponse,
+  ) {
+    const buffer = await this.indisiplinerService.getPengeluaranTemplateDocx(pengeluaranId);
+    const filename = pengeluaranId ? 'SK_Pengeluaran_Santri.docx' : 'Template_SK_Pengeluaran_Santri.docx';
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   }
 
   // === PELANGGARAN ===
