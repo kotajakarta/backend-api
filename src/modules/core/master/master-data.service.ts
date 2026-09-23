@@ -201,6 +201,9 @@ export class MasterDataService implements OnModuleInit {
         cabangId: true,
         wilayahId: true,
         grupDaimiId: true,
+        ifadahUrl: true,
+        ktpUrl: true,
+        ijazahUrl: true,
         user: {
           select: {
             id: true,
@@ -245,6 +248,61 @@ export class MasterDataService implements OnModuleInit {
         { name: 'asc' }
       ]
     });
+  }
+
+  /**
+   * Mengambil data detail satu guru berdasarkan ID
+   */
+  async getGuruById(id: string, user?: any) {
+    const guru = await this.prisma.staff.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            scope: true,
+            isApproved: true,
+            status: true,
+          }
+        },
+        kelasWali: {
+          select: {
+            id: true,
+            name: true,
+            tingkat: true,
+          }
+        },
+        wilayah: {
+          select: { id: true, name: true }
+        },
+        cabang: {
+          select: { id: true, name: true, wilayahId: true }
+        },
+        grupDaimi: {
+          select: { id: true, name: true }
+        },
+        guruMapelKelas: {
+          select: {
+            id: true,
+            kelasId: true,
+            mataPelajaranId: true,
+            mataPelajaran: {
+              select: { id: true, name: true }
+            },
+            kelas: {
+              select: { id: true, name: true, tingkat: true, lembagaMuadalahId: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!guru) throw new NotFoundException('Data Guru tidak ditemukan.');
+    if (user) {
+      this.checkStaffScope(user, guru);
+    }
+    return guru;
   }
 
   /**
@@ -828,9 +886,9 @@ export class MasterDataService implements OnModuleInit {
         wilayahId: data.wilayahId || null,
         cabangId: isCabangActive ? data.cabangId : null,
         grupDaimiId: data.grupDaimiId || null,
-        ifadahUrl: data.ifadahUrl || null,
-        ktpUrl: data.ktpUrl || null,
-        ijazahUrl: data.ijazahUrl || null,
+        ifadahUrl: data.ifadahUrl !== undefined ? (data.ifadahUrl || null) : existing.ifadahUrl,
+        ktpUrl: data.ktpUrl !== undefined ? (data.ktpUrl || null) : existing.ktpUrl,
+        ijazahUrl: data.ijazahUrl !== undefined ? (data.ijazahUrl || null) : existing.ijazahUrl,
         jenisKelamin: data.jenisKelamin || null,
         pendidikanTerakhir: data.pendidikanTerakhir || null,
         perguruanTinggi: data.perguruanTinggi || null,

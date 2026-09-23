@@ -13,6 +13,12 @@ export class MasterDataController {
     return this.masterDataService.getGuru(req.user);
   }
 
+  @Get('guru/:id')
+  @UseGuards(AccessControlGuard)
+  getGuruById(@Request() req: any, @Param('id') id: string) {
+    return this.masterDataService.getGuruById(id, req.user);
+  }
+
   @Post('guru/import')
   @UseGuards(AccessControlGuard)
   importGuru(@Request() req: any) {
