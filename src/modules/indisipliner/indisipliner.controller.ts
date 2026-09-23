@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Delete,
   UseGuards,
   Request,
@@ -91,6 +92,18 @@ export class IndisiplinerController {
     return this.indisiplinerService.createPelanggaran(body, req.user);
   }
 
+  @Patch('pelanggaran/:id/status')
+  @UseGuards(AccessControlGuard)
+  updatePelanggaranStatus(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.indisiplinerService.updatePelanggaranStatus(id, body.status, req.user);
+  }
+
+  @Put('pelanggaran/:id')
+  @UseGuards(AccessControlGuard)
+  updatePelanggaran(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.indisiplinerService.updatePelanggaran(id, body, req.user);
+  }
+
   @Delete('pelanggaran/:id')
   @UseGuards(AccessControlGuard)
   deletePelanggaran(@Param('id') id: string, @Request() req: any) {
@@ -116,6 +129,18 @@ export class IndisiplinerController {
     return this.indisiplinerService.updateSpStatus(id, body.status, req.user);
   }
 
+  @Patch('sp/:id/status-approval')
+  @UseGuards(AccessControlGuard)
+  updateSpStatusApproval(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.indisiplinerService.updateSpStatusApproval(id, body.statusApproval || body.status, req.user);
+  }
+
+  @Put('sp/:id')
+  @UseGuards(AccessControlGuard)
+  updateSp(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.indisiplinerService.updateSp(id, body, req.user);
+  }
+
   @Delete('sp/:id')
   @UseGuards(AccessControlGuard)
   deleteSp(@Param('id') id: string, @Request() req: any) {
@@ -133,6 +158,18 @@ export class IndisiplinerController {
   @UseGuards(AccessControlGuard)
   createPengeluaran(@Body() body: any, @Request() req: any) {
     return this.indisiplinerService.createPengeluaran(body, req.user);
+  }
+
+  @Patch('pengeluaran/:id/status')
+  @UseGuards(AccessControlGuard)
+  updatePengeluaranStatus(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.indisiplinerService.updatePengeluaranStatus(id, body.status, req.user);
+  }
+
+  @Put('pengeluaran/:id')
+  @UseGuards(AccessControlGuard)
+  updatePengeluaran(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.indisiplinerService.updatePengeluaran(id, body, req.user);
   }
 
   @Delete('pengeluaran/:id')

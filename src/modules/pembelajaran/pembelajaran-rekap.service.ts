@@ -310,6 +310,59 @@ export class PembelajaranRekapService {
       accGlobal.silabusCompleted += completedCount;
     });
 
+    // Populate Pelaksanaan data (termasuk status LIBUR dan catatan alasan libur)
+    pelaksanaanList.forEach(p => {
+      const k = kelasById.get(p.kelasId);
+      if (!k) return;
+      const cabangId = k.cabangId || 'unknown';
+      const cabangName = k.cabang?.name || 'Tanpa Cabang';
+      const wilayahId = k.cabang?.wilayahId || 'unknown';
+      const wilayahName = k.cabang?.wilayah?.name || 'Tanpa Wilayah';
+
+      const levels: UnitAccumulator[] = [
+        getAcc('KELAS', k.id, k.name, cabangName),
+        getAcc('CABANG', cabangId, cabangName, wilayahName),
+        getAcc('WILAYAH', wilayahId, wilayahName, ''),
+        getAcc('GLOBAL', 'GLOBAL', 'PUSAT NASIONAL', '')
+      ];
+
+      const tglStr = p.tanggalDiajar ? p.tanggalDiajar.toISOString().split('T')[0] : '';
+      if (!tglStr) return;
+      const mapelName = p.mataPelajaran?.name || p.silabus?.mataPelajaran?.name || 'Mata Pelajaran';
+      const dKey = `${p.kelasId}__${p.mataPelajaranId}__${tglStr}`;
+
+      levels.forEach(acc => {
+        if (!acc.detailsMap.has(dKey)) {
+          acc.detailsMap.set(dKey, {
+            id: dKey,
+            kelasId: p.kelasId,
+            kelasName: k.name,
+            cabangId,
+            cabangName,
+            wilayahId,
+            wilayahName,
+            mataPelajaranId: p.mataPelajaranId,
+            mataPelajaranName: mapelName,
+            guruName: p.guru?.name || null,
+            tanggal: tglStr,
+            statusPelaksanaan: p.status,
+            catatan: p.catatan || null,
+            hadir: 0,
+            sakit: 0,
+            izin: 0,
+            alpa: 0,
+            totalSiswa: k.siswaFormal ? k.siswaFormal.length : 1,
+            persenHadirMapel: 0
+          });
+        } else {
+          const d = acc.detailsMap.get(dKey)!;
+          d.statusPelaksanaan = p.status;
+          if (p.catatan) d.catatan = p.catatan;
+          if (p.guru?.name) d.guruName = p.guru.name;
+        }
+      });
+    });
+
     // Populate Absensi data
     absensiList.forEach(a => {
       const k = kelasById.get(a.kelasId);
@@ -335,22 +388,29 @@ export class PembelajaranRekapService {
         // Detail mapel
         const mapelName = a.mataPelajaran?.name || 'Mata Pelajaran';
         const tglStr = a.tanggal.toISOString().split('T')[0];
-        const dKey = `${a.mataPelajaranId}__${tglStr}`;
+        const dKey = `${a.kelasId}__${a.mataPelajaranId}__${tglStr}`;
 
         if (!acc.detailsMap.has(dKey)) {
           const pel = pelaksanaanList.find(p => p.kelasId === a.kelasId && p.mataPelajaranId === a.mataPelajaranId && p.tanggalDiajar && p.tanggalDiajar.toISOString().split('T')[0] === tglStr);
           acc.detailsMap.set(dKey, {
             id: dKey,
+            kelasId: a.kelasId,
+            kelasName: k.name,
+            cabangId,
+            cabangName,
+            wilayahId,
+            wilayahName,
             mataPelajaranId: a.mataPelajaranId,
             mataPelajaranName: mapelName,
             guruName: pel?.guru?.name || null,
             tanggal: tglStr,
             statusPelaksanaan: pel?.status || 'COMPLETED',
+            catatan: pel?.catatan || null,
             hadir: 0,
             sakit: 0,
             izin: 0,
             alpa: 0,
-            totalSiswa: acc.jumlahSiswa || 1,
+            totalSiswa: k.siswaFormal ? k.siswaFormal.length : (acc.jumlahSiswa || 1),
             persenHadirMapel: 0
           });
         }
@@ -396,7 +456,7 @@ export class PembelajaranRekapService {
       // Finalize details
       const details = Array.from(acc.detailsMap.values()).map(d => {
         const rec = d.hadir + d.sakit + d.izin + d.alpa;
-        const tot = Math.max(jumlahSiswa, rec, 1);
+        const tot = Math.max(d.totalSiswa || 1, rec, 1);
         return {
           ...d,
           totalSiswa: tot,
@@ -431,6 +491,19 @@ export class PembelajaranRekapService {
         const wMapelTarget = jumlahKelas * 5;
         const wPersenMapel = isFuture || wMapelTarget === 0 ? 0 : Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
 
+        const wPelLibur = unitPel.filter(
+          p => p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'LIBUR'
+        );
+        const wMapelLibur = wPelLibur.length;
+        const holidayReasons = Array.from(new Set(
+          wPelLibur.map(p => p.catatan?.trim()).filter((c): c is string => !!c)
+        ));
+
+        let holidayType: 'FULL_DAY' | 'PARTIAL' | 'NONE' = 'NONE';
+        if (wMapelLibur > 0) {
+          holidayType = (wMapelCompleted === 0) ? 'FULL_DAY' : 'PARTIAL';
+        }
+
         const wAbsAll = unitAbs.filter(
           a => a.tanggal >= wStartDate && a.tanggal <= wEndDate
         );
@@ -443,6 +516,49 @@ export class PembelajaranRekapService {
           return dDate >= wStartDate && dDate <= wEndDate;
         });
 
+        // Agregasi status libur per cabang jika unitLevel adalah WILAYAH atau GLOBAL
+        let cabangHolidays: any[] = [];
+        if (acc.unitLevel === 'WILAYAH' || acc.unitLevel === 'GLOBAL') {
+          cabangHolidays = Array.from(acc.cabangSet).map(cId => {
+            const cClasses = rawKelasList.filter(k => k.cabangId === cId);
+            const cKelasCount = cClasses.length;
+            const cTarget = cKelasCount * 5;
+            const cPel = unitPel.filter(
+              p => cClasses.some(k => k.id === p.kelasId) && p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate
+            );
+            const cCompleted = cPel.filter(p => p.status === 'COMPLETED').length;
+            const cLibur = cPel.filter(p => p.status === 'LIBUR');
+            const cLiburCount = cLibur.length;
+            const cReasons = Array.from(new Set(cLibur.map(p => p.catatan?.trim()).filter((c): c is string => !!c)));
+
+            const cAbs = unitAbs.filter(
+              a => cClasses.some(k => k.id === a.kelasId) && a.tanggal >= wStartDate && a.tanggal <= wEndDate
+            );
+            const cHadir = cAbs.filter(a => a.status === 'HADIR').length;
+            const cTotalAbs = cAbs.length;
+
+            let cHolType: 'FULL_DAY' | 'PARTIAL' | 'NONE' = 'NONE';
+            if (cLiburCount > 0) {
+              cHolType = cCompleted === 0 ? 'FULL_DAY' : 'PARTIAL';
+            }
+
+            const cName = cClasses[0]?.cabang?.name || allCabangs.find(c => c.id === cId)?.name || 'Cabang';
+
+            return {
+              cabangId: cId,
+              cabangName: cName,
+              holidayType: cHolType,
+              holidayReasons: cReasons,
+              mapelCompleted: cCompleted,
+              mapelLibur: cLiburCount,
+              mapelTarget: cTarget,
+              persenMapel: cTarget > 0 ? Math.min(100, Math.round((cCompleted / cTarget) * 100)) : 0,
+              persenKehadiran: cTotalAbs > 0 ? Math.min(100, Math.round((cHadir / cTotalAbs) * 100)) : 0,
+              totalKelas: cKelasCount
+            };
+          }).filter(c => c.totalKelas > 0);
+        }
+
         return {
           weekNumber: wIdx + 1,
           dateLabel: wInfo.dateLabel,
@@ -453,6 +569,10 @@ export class PembelajaranRekapService {
           hadir: isFuture ? 0 : wHadir,
           totalAbsensi: wTotalAbs,
           persenKehadiran: wPersenHadir,
+          holidayType,
+          holidayReasons,
+          mapelLibur: wMapelLibur,
+          cabangHolidays,
           details: wDetails
         };
       });

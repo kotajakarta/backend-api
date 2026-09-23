@@ -13,12 +13,13 @@ export function createUploadAuthMiddleware(getNestApp: () => INestApplication | 
       token = req.headers.authorization.split(' ')[1];
     }
     // 2. Cek dari cookies (token=...)
-    else if (req.headers.cookie) {
+    if (!token && req.headers.cookie) {
       token = extractTokenFromCookieHeader(req.headers.cookie);
     }
     // 3. Cek dari query parameter (?token=... atau ?t=...) untuk request media <img>/<iframe>/<a download>
-    else if (req.query) {
-      const qToken = req.query.token || (req.query as any).t;
+    if (!token && req.query) {
+      let qToken = req.query.token || (req.query as any).t;
+      if (Array.isArray(qToken)) qToken = qToken[0];
       if (typeof qToken === 'string' && qToken.trim() !== '') {
         token = qToken.trim();
       }
