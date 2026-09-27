@@ -1,4 +1,4 @@
-# Edaimi Backend API Gateway
+# ESantri Backend API Gateway
 
 Backend API Terpusat untuk seluruh ekosistem aplikasi Yayasan / Edaimi (Sekolah App, Pesantren App, Absensi, dll). Aplikasi ini dibangun dengan mengedepankan keamanan, performa, dan isolasi data antar aplikasi.
 
