@@ -1,6 +1,6 @@
-# Edaimi Backend API Gateway
+# ESantri Backend API Gateway
 
-Backend API Terpusat untuk seluruh ekosistem aplikasi Yayasan / Edaimi (Sekolah App, Pesantren App, Absensi, dll). Aplikasi ini dibangun dengan mengedepankan keamanan, performa, dan isolasi data antar aplikasi.
+Backend API Terpusat untuk seluruh ekosistem aplikasi Yayasan / ESantri (Sekolah App, Pesantren App, Absensi, dll). Aplikasi ini dibangun dengan mengedepankan keamanan, performa, dan isolasi data antar aplikasi.
 
 ## 🚀 Teknologi Utama
 - **Framework**: NestJS v11 (Express-based)
