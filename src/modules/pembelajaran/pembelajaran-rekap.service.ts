@@ -442,7 +442,13 @@ export class PembelajaranRekapService {
       if (arr) arr.push(a); else absensiByKelas.set(a.kelasId, [a]);
     }
 
-    const upsertPromises = Array.from(accumulators.values()).map(acc => {
+    // Each unit's upsert is wrapped in a thunk (not fired immediately) so we can
+    // run them in small bounded-concurrency batches below — with 324 units and
+    // DATABASE_POOL_MAX=5, firing them all via Promise.all() at once queued
+    // hundreds of writes behind 5 pool connections and was observed in
+    // production taking 100+ seconds, starving every other query on the same
+    // worker (including the request that triggered this sync).
+    const upsertTasks = Array.from(accumulators.values()).map(acc => () => {
       const jumlahCabang = acc.cabangSet.size;
       const jumlahKelas = acc.kelasSet.size;
       const jumlahSiswa = acc.jumlahSiswa;
@@ -633,9 +639,12 @@ export class PembelajaranRekapService {
       });
     });
 
-    await Promise.all(upsertPromises);
-    this.logger.log(`RekapPembelajaran synced successfully for ${tahunAjaran} ${semester} ${mode} ${finalPeriodeKey} (${upsertPromises.length} units).`);
-    return { count: upsertPromises.length, periodeKey: finalPeriodeKey };
+    const UPSERT_BATCH_SIZE = 4;
+    for (let i = 0; i < upsertTasks.length; i += UPSERT_BATCH_SIZE) {
+      await Promise.all(upsertTasks.slice(i, i + UPSERT_BATCH_SIZE).map(task => task()));
+    }
+    this.logger.log(`RekapPembelajaran synced successfully for ${tahunAjaran} ${semester} ${mode} ${finalPeriodeKey} (${upsertTasks.length} units).`);
+    return { count: upsertTasks.length, periodeKey: finalPeriodeKey };
   }
 
   // Fast read from pre-calculated RekapPembelajaran table

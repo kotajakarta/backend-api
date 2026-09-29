@@ -32,3 +32,5 @@ podman exec esantri-api npx prisma db push
 
 echo "=== Deployment Selesai! ==="
 systemctl --user status esantri-api.service --no-pager
+
+#tes
