@@ -305,12 +305,27 @@ export class EmisService {
   }
 
   /**
-   * Normalisasi rombel untuk pencocokan toleran terhadap spasi dan tanda hubung
+   * Normalisasi rombel untuk pencocokan toleran terhadap spasi dan tanda hubung.
+   *
+   * Format rombel eSantri : "12-U2072", "12-U2072 A", "U2352", "W2357", "7-W2060"
+   * Format rombel EMIS raw: "Kelas 12 - U2072", "Kelas 7 - 7-W2060"
+   *
+   * Strategi:
+   * 1. Jika string berformat EMIS ("Kelas N - ..."), parse dulu rombel-nya.
+   * 2. Jika string berformat eSantri ("NN-UXXXX" atau "NN-UXXXX A"),
+   *    strip prefix tingkat (angka di awal diikuti '-') agar sisa-nya identik dengan rombel EMIS.
+   *    Juga strip suffix spasi+huruf tunggal (A/B) agar rombel yang dibagi tetap cocok.
    */
   normalizeRombel(str: any): string {
     if (!str) return '';
+    // Coba parse format EMIS ("Kelas N - ...") terlebih dahulu
     const parsed = this.parseEmisRombel(str);
-    const target = parsed.rombel || str;
+    let target = parsed.rombel || str;
+    // Strip prefix tingkat dari format eSantri: "12-U2072" -> "U2072", "7-W2060" -> "W2060"
+    // Pattern: satu-dua digit angka diikuti tanda hubung, sebelum huruf jenis rombel (U/W/dst)
+    target = target.replace(/^\d{1,2}-/, '');
+    // Strip suffix penanda sub-rombel (A/B) yang dipisah spasi: "U2072 A" -> "U2072"
+    target = target.replace(/\s+[A-Z]$/i, '');
     return this.normalizeText(target).replace(/[\s-_]/g, '');
   }
 
@@ -890,7 +905,7 @@ export class EmisService {
       const namaEsantri = String(bio.fullName || '').trim();
       const tmptLahirEsantri = String(bio.tempatLahir || '').trim();
       const tglLahirEsantriStr = this.normalizeDate(bio.tanggalLahir);
-      const nisnEsantri = String(sf?.nisn || bio.nisn || '').trim();
+      const nisnEsantri = String(bio.nisn || sf?.nisn || '').trim();
       const nikEsantriClean = this.normalizeNik(bio.nik);
       const esantriRombel = String(sf?.kelas?.name || '').trim();
       const esantriTingkat = String(sf?.tingkat || sf?.kelas?.tingkat || '').trim();
@@ -1011,7 +1026,10 @@ export class EmisService {
         if (esantriRombel && emisRombelName) {
           const normEsantriRombel = this.normalizeRombel(esantriRombel);
           const normEmisRombel = this.normalizeRombel(emisRombelName);
-          if (normEsantriRombel !== normEmisRombel) {
+          // Hanya laporkan diskrepansi jika kedua nilai rombel mengandung kode rombel (bukan hanya angka tingkat).
+          // Jika salah satu hanya berupa angka ("12", "7", dst.), data EMIS tidak cukup detail untuk dibandingkan.
+          const isOnlyNumber = (s: string) => /^\d{1,2}$/.test(s);
+          if (normEsantriRombel !== normEmisRombel && !isOnlyNumber(normEsantriRombel) && !isOnlyNumber(normEmisRombel)) {
             discrepancies.push(`Rombel Berbeda: eSantri (${esantriRombel}) vs EMIS (${emisRombelName})`);
           }
         }
@@ -1048,9 +1066,24 @@ export class EmisService {
           cStat.residuVerval++;
           totalResiduVerval++;
         } else {
-          statusVerval = 'VERVAL_OK';
-          cStat.vervalOk++;
-          totalVervalOk++;
+          // Cek apakah NISN di Verval tersedia.
+          // Santri yang ditemukan di Verval tetapi NISNnya kosong/tidak ada
+          // sebenarnya belum berstatus "Valid (OK)" — ini perlu ditindaklanjuti cabang.
+          const vervalNisnClean = String(matchedVerval.nisn || '').trim();
+          const hasVervalNisn = vervalNisnClean && vervalNisnClean !== '-' && vervalNisnClean.length >= 8;
+          if (!hasVervalNisn) {
+            statusVerval = 'RESIDU_VERVAL';
+            butuhTindakan = true;
+            rekomendasiList.push('NISN tidak tersedia di data Verval PD — cabang perlu melengkapi NISN di portal Verval');
+            if (!matchedVerval.residuDetail) (matchedVerval as any).residuDetail = {};
+            (matchedVerval.residuDetail as any)['NISN Kosong'] = 'NISN tidak ditemukan di data Verval PD';
+            cStat.residuVerval++;
+            totalResiduVerval++;
+          } else {
+            statusVerval = 'VERVAL_OK';
+            cStat.vervalOk++;
+            totalVervalOk++;
+          }
         }
       } else {
         statusVerval = 'BELUM_TERDAFTAR';

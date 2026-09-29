@@ -115,6 +115,21 @@ export class KegiatanService {
   }
 
   async createTemplate(data: any, files: any[]) {
+    // NOTE: upload ke MinIO dijalankan SEBELUM transaksi dibuka — network I/O
+    // di dalam transaksi interaktif menahan koneksi DB selama upload berlangsung
+    // (bisa lambat tergantung kondisi MinIO), pola yang pernah menyebabkan
+    // transaksi lain menggantung >100 detik dan menghabiskan connection pool.
+    // Transaksi tetap dipakai untuk penulisan DB-nya sendiri (template + dokumen
+    // sebaris) karena atomicity di situ masih relevan dan query-nya cepat.
+    const uploadedFiles: { filePath: string; fileName: string; fileType: 'PHOTO' | 'DOCUMENT' }[] = [];
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const isPhoto = file.mimetype.startsWith('image/');
+        const filePath = await this.uploadFileToMinio(file, 'kegiatan');
+        uploadedFiles.push({ filePath, fileName: file.originalname, fileType: isPhoto ? 'PHOTO' : 'DOCUMENT' });
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const template = await tx.templateKegiatan.create({
         data: {
@@ -134,19 +149,15 @@ export class KegiatanService {
         }
       });
 
-      if (files && files.length > 0) {
-        for (const file of files) {
-          const isPhoto = file.mimetype.startsWith('image/');
-          const filePath = await this.uploadFileToMinio(file, 'kegiatan');
-          await tx.dokumenTemplate.create({
-            data: {
-              templateId: template.id,
-              filePath: filePath,
-              fileName: file.originalname,
-              fileType: isPhoto ? 'PHOTO' : 'DOCUMENT'
-            }
-          });
-        }
+      for (const uf of uploadedFiles) {
+        await tx.dokumenTemplate.create({
+          data: {
+            templateId: template.id,
+            filePath: uf.filePath,
+            fileName: uf.fileName,
+            fileType: uf.fileType
+          }
+        });
       }
 
       return tx.templateKegiatan.findUnique({
@@ -162,6 +173,17 @@ export class KegiatanService {
   async updateTemplate(id: string, data: any, files?: any[]) {
     const exists = await this.prisma.templateKegiatan.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException('Template kegiatan tidak ditemukan.');
+
+    // NOTE: upload ke MinIO dijalankan SEBELUM transaksi dibuka — lihat catatan
+    // di createTemplate di atas untuk alasan.
+    const uploadedFiles: { filePath: string; fileName: string; fileType: 'PHOTO' | 'DOCUMENT' }[] = [];
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const isPhoto = file.mimetype.startsWith('image/');
+        const filePath = await this.uploadFileToMinio(file, 'kegiatan');
+        uploadedFiles.push({ filePath, fileName: file.originalname, fileType: isPhoto ? 'PHOTO' : 'DOCUMENT' });
+      }
+    }
 
     return this.prisma.$transaction(async (tx) => {
       await tx.templateKegiatan.update({
@@ -183,19 +205,15 @@ export class KegiatanService {
         }
       });
 
-      if (files && files.length > 0) {
-        for (const file of files) {
-          const isPhoto = file.mimetype.startsWith('image/');
-          const filePath = await this.uploadFileToMinio(file, 'kegiatan');
-          await tx.dokumenTemplate.create({
-            data: {
-              templateId: id,
-              filePath: filePath,
-              fileName: file.originalname,
-              fileType: isPhoto ? 'PHOTO' : 'DOCUMENT'
-            }
-          });
-        }
+      for (const uf of uploadedFiles) {
+        await tx.dokumenTemplate.create({
+          data: {
+            templateId: id,
+            filePath: uf.filePath,
+            fileName: uf.fileName,
+            fileType: uf.fileType
+          }
+        });
       }
 
       return tx.templateKegiatan.findUnique({
@@ -658,6 +676,19 @@ export class KegiatanService {
       tidakBisaBapAt: null,
     };
 
+    // NOTE: upload ke MinIO dijalankan SEBELUM transaksi dibuka — lihat catatan
+    // di createTemplate untuk alasan (network I/O di dalam transaksi interaktif
+    // menahan koneksi DB, pola yang pernah menyebabkan transaksi lain
+    // menggantung >100 detik dan menghabiskan connection pool).
+    const uploadedFiles: { filePath: string; fileName: string; fileType: string }[] = [];
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const fileType = this.getFileType(file);
+        const filePath = await this.uploadFileToMinio(file, 'kegiatan');
+        uploadedFiles.push({ filePath, fileName: file.originalname, fileType });
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const kegiatan = existingTidakBisa
         ? await tx.kegiatan.update({ where: { id: existingTidakBisa.id }, data: kegiatanData })
@@ -691,19 +722,15 @@ export class KegiatanService {
         });
       }
 
-      if (files && files.length > 0) {
-        for (const file of files) {
-          const fileType = this.getFileType(file);
-          const filePath = await this.uploadFileToMinio(file, 'kegiatan');
-          await tx.dokumenKegiatan.create({
-            data: {
-              kegiatanId: kegiatan.id,
-              filePath: filePath,
-              fileName: file.originalname,
-              fileType: fileType
-            }
-          });
-        }
+      for (const uf of uploadedFiles) {
+        await tx.dokumenKegiatan.create({
+          data: {
+            kegiatanId: kegiatan.id,
+            filePath: uf.filePath,
+            fileName: uf.fileName,
+            fileType: uf.fileType
+          }
+        });
       }
 
       return tx.kegiatan.findUnique({
@@ -854,6 +881,17 @@ export class KegiatanService {
       throw new ForbiddenException('Laporan BAP yang telah diterima/disetujui oleh Pusat tidak dapat diubah lagi oleh Cabang.');
     }
 
+    // NOTE: upload ke MinIO dijalankan SEBELUM transaksi dibuka — lihat catatan
+    // di createTemplate untuk alasan.
+    const uploadedFiles: { filePath: string; fileName: string; fileType: string }[] = [];
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const fileType = this.getFileType(file);
+        const filePath = await this.uploadFileToMinio(file, 'kegiatan');
+        uploadedFiles.push({ filePath, fileName: file.originalname, fileType });
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await tx.kegiatan.update({
         where: { id },
@@ -909,19 +947,15 @@ export class KegiatanService {
         }
       }
 
-      if (files && files.length > 0) {
-        for (const file of files) {
-          const fileType = this.getFileType(file);
-          const filePath = await this.uploadFileToMinio(file, 'kegiatan');
-          await tx.dokumenKegiatan.create({
-            data: {
-              kegiatanId: id,
-              filePath: filePath,
-              fileName: file.originalname,
-              fileType: fileType
-            }
-          });
-        }
+      for (const uf of uploadedFiles) {
+        await tx.dokumenKegiatan.create({
+          data: {
+            kegiatanId: id,
+            filePath: uf.filePath,
+            fileName: uf.fileName,
+            fileType: uf.fileType
+          }
+        });
       }
 
       return tx.kegiatan.findUnique({

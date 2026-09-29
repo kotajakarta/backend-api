@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { isCronLeader } from '../../common/utils/cluster-leader.util.js';
 
 const matchSubject = (subjectName: string | undefined | null, subKey: string) => {
   if (!subjectName) return false;
@@ -20,6 +21,7 @@ export class DashboardRekapService {
   // Nightly cron job to reconcile all dashboard aggregation scopes
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async handleDailyReconciliation() {
+    if (!isCronLeader()) return;
     this.logger.log('Starting daily RekapDashboardUtama reconciliation cron...');
     try {
       await this.syncAllRekap();

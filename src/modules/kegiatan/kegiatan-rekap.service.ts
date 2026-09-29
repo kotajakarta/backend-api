@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { isCronLeader } from '../../common/utils/cluster-leader.util.js';
 
 @Injectable()
 export class KegiatanRekapService {
@@ -617,6 +618,7 @@ export class KegiatanRekapService {
 
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async handleNightlyCron() {
+    if (!isCronLeader()) return;
     this.logger.log('Starting nightly Kegiatan Rekap sync...');
     try {
       await this.syncKegiatanRekap();

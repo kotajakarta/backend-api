@@ -165,6 +165,14 @@ export class PembelajaranController {
     if (!mode) {
       throw new BadRequestException('mode wajib diisi (weekly|monthly|semester)');
     }
+    // Admin Pusat (GLOBAL) tanpa filter wilayah/cabang pada mode semester akan
+    // menarik seluruh kelas + absensi/pelaksanaan se-Indonesia untuk satu
+    // semester penuh sekaligus — pernah menghabiskan heap worker dan
+    // menjatuhkan koneksi lain (termasuk login) yang sedang ditangani worker
+    // yang sama. Wajibkan pemilihan wilayah atau cabang untuk mode ini.
+    if (mode === 'semester' && req.user?.scope === 'GLOBAL' && !wilayahId && !cabangId) {
+      throw new BadRequestException('Pilih Wilayah atau Cabang terlebih dahulu untuk melihat Laporan mode Semester.');
+    }
     return this.pembelajaranService.getLaporan(
       { wilayahId, cabangId, mataPelajaranId, mode, weekStart, month, tahunAjaran, semester },
       req.user

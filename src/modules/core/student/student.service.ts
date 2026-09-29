@@ -4,6 +4,7 @@ import { PrismaService } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
 import { normalizeTurkish, sanitizeTurkishDeep } from '../../../common/utils/turkish-char.util.js';
 import { MinioService } from '../../../common/minio/minio.service.js';
+import { RedisService } from '../../../common/redis/redis.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import sharp from 'sharp';
@@ -34,7 +35,8 @@ export class StudentService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuditLogService) private readonly auditLogService: AuditLogService,
-    @Inject(MinioService) private readonly minioService: MinioService
+    @Inject(MinioService) private readonly minioService: MinioService,
+    @Inject(RedisService) private readonly redisService: RedisService
   ) {}
 
 
@@ -247,35 +249,35 @@ export class StudentService {
   }
 
   async importStudents(user: any, data: any[]) {
+    // NOTE: sengaja TIDAK dibungkus $transaction (dulu di-chunk 250 baris per
+    // transaksi dengan timeout 300 detik — tanda transaksinya sudah pernah
+    // kelamaan). Setiap baris Excel adalah record siswa independen, jadi tidak
+    // butuh atomicity lintas baris. Cache wilayah/cabang/biodata dihitung sekali
+    // untuk seluruh data (bukan per-chunk seperti sebelumnya), jadi query
+    // pre-fetch justru lebih sedikit dari versi lama.
     try {
       const results = [];
-      const BATCH_SIZE = 250;
-
-      for (let i = 0; i < data.length; i += BATCH_SIZE) {
-        const chunk = data.slice(i, i + BATCH_SIZE);
-        
-        const chunkResults = await this.prisma.$transaction(async (tx) => {
-          const chunkRes = [];
-          // Pre-fetch caches for this transaction
+      {
+          // Pre-fetch caches
           const wilayahCache = new Map<string, string>();
           const cabangCache = new Map<string, string>();
           const biodataCache = new Map<string, any>();
           const studentCache = new Map<string, any>();
-          
-          const allWilayah = await tx.wilayah.findMany();
+
+          const allWilayah = await this.prisma.wilayah.findMany();
           for (const w of allWilayah) {
             wilayahCache.set(w.name.toLowerCase(), w.id);
           }
-          
-          const allCabang = await tx.cabang.findMany();
+
+          const allCabang = await this.prisma.cabang.findMany();
           for (const c of allCabang) {
             cabangCache.set(c.name.toLowerCase(), c.id);
           }
-          
+
           const allNoGlodemy = [];
           const allNik = [];
           const allNisLokal = [];
-          for (const rawRow of chunk) {
+          for (const rawRow of data) {
              let row: any = {};
              for (const [k, v] of Object.entries(rawRow)) {
                 if (typeof k === 'string') {
@@ -303,9 +305,9 @@ export class StudentService {
              if (n) allNik.push(n);
              if (nl) allNisLokal.push(nl);
           }
-          
+
           if (allNoGlodemy.length > 0 || allNik.length > 0 || allNisLokal.length > 0) {
-            const existingBiodatas = await tx.biodata.findMany({
+            const existingBiodatas = await this.prisma.biodata.findMany({
                where: {
                   OR: [
                      { noGlodemy: { in: allNoGlodemy.length ? allNoGlodemy : ['__empty__'] } },
@@ -323,7 +325,7 @@ export class StudentService {
             }
           }
 
-          for (const rawRow of chunk) {
+          for (const rawRow of data) {
             // Normalize keys for easier matching
             const row: any = {};
             let hasData = false;
@@ -404,26 +406,26 @@ export class StudentService {
               if (wilayahCache.has(wilayahKey)) {
                 wilayahId = wilayahCache.get(wilayahKey);
               } else {
-                const w = await tx.wilayah.create({ data: { name: wilayahName } });
+                const w = await this.prisma.wilayah.create({ data: { name: wilayahName } });
                 wilayahId = w.id;
                 wilayahCache.set(wilayahKey, w.id);
               }
             }
-            
+
             let cabangId = user.scope === 'CABANG' ? user.cabangId : null;
             const rawCabang = getValue(['cabang', 'Cabang']);
             if (rawCabang && !cabangId) {
               const cabangName = String(rawCabang).trim();
               const cabangKey = cabangName.toLowerCase();
-              
+
               if (cabangCache.has(cabangKey)) {
                 cabangId = cabangCache.get(cabangKey);
               } else {
-                const c = await tx.cabang.create({ 
-                  data: { 
+                const c = await this.prisma.cabang.create({
+                  data: {
                     name: cabangName,
                     wilayahId: wilayahId || null
-                  } 
+                  }
                 });
                 cabangId = c.id;
                 cabangCache.set(cabangKey, c.id);
@@ -443,7 +445,7 @@ export class StudentService {
 
             if (existingBiodata) {
               // Update existing
-              const biodata = await tx.biodata.update({
+              const biodata = await this.prisma.biodata.update({
                 where: { id: existingBiodata.id },
                 data: {
                   fullName,
@@ -457,20 +459,20 @@ export class StudentService {
                   nisn: nisn || existingBiodata.nisn,
                 }
               });
-              
+
               let student = studentCache.get(biodata.id) || null;
 
               if (student) {
-                 student = await tx.student.update({
+                 student = await this.prisma.student.update({
                    where: { id: student.id },
                    data: {
                      wilayahId: wilayahId || student.wilayahId,
                      cabangId: cabangId || student.cabangId,
                    }
                  });
-                 chunkRes.push(student);
+                 results.push(student);
               } else {
-                 student = await tx.student.create({
+                 student = await this.prisma.student.create({
                    data: {
                      biodataId: biodata.id,
                      wilayahId,
@@ -478,12 +480,12 @@ export class StudentService {
                      statusPool: cabangId ? StatusPool.AKTIF_CABANG : StatusPool.TERSEDIA,
                    }
                  });
-                 chunkRes.push(student);
+                 results.push(student);
                  studentCache.set(biodata.id, student);
               }
             } else {
               // Create new
-              const biodata = await tx.biodata.create({
+              const biodata = await this.prisma.biodata.create({
                 data: {
                   noGlodemy,
                   nik,
@@ -499,12 +501,12 @@ export class StudentService {
                   namaAyah,
                 }
               });
-              
+
               if (noGlodemy) biodataCache.set(`g:${noGlodemy}`, biodata);
               if (nik) biodataCache.set(`n:${nik}`, biodata);
               if (nisLokal) biodataCache.set(`nl:${nisLokal}`, biodata);
 
-              const student = await tx.student.create({
+              const student = await this.prisma.student.create({
                 data: {
                   biodataId: biodata.id,
                   wilayahId,
@@ -512,17 +514,10 @@ export class StudentService {
                   statusPool: cabangId ? StatusPool.AKTIF_CABANG : StatusPool.TERSEDIA,
                 }
               });
-              chunkRes.push(student);
+              results.push(student);
               studentCache.set(biodata.id, student);
             }
           }
-          return chunkRes;
-        }, {
-          maxWait: 120000,
-          timeout: 300000
-        });
-        
-        results.push(...chunkResults);
       }
       return results;
     } catch (e: any) {
@@ -668,14 +663,25 @@ export class StudentService {
         if (data.kelasId) {
           const targetKelas = await tx.kelas.findUnique({ where: { id: data.kelasId } });
           if (targetKelas) {
+            const bioNisn = biodata.nisn && biodata.nisn.trim() !== '' && biodata.nisn.trim() !== '-' ? biodata.nisn.trim() : null;
+            const bioNis = biodata.nisLokal && biodata.nisLokal.trim() !== '' && biodata.nisLokal.trim() !== '-' ? biodata.nisLokal.trim() : null;
+
             await tx.siswaFormal.upsert({
               where: { studentId: id },
-              update: { kelasId: targetKelas.id, tingkat: targetKelas.tingkat, ...(data.isVerval !== undefined ? { isVerval: data.isVerval } : {}) },
+              update: {
+                kelasId: targetKelas.id,
+                tingkat: targetKelas.tingkat,
+                ...(data.isVerval !== undefined ? { isVerval: data.isVerval } : {}),
+                ...(bioNisn ? { nisn: bioNisn } : {}),
+                ...(bioNis ? { nis: bioNis } : {})
+              },
               create: {
                 studentId: id,
                 kelasId: targetKelas.id,
                 tingkat: targetKelas.tingkat,
-                isVerval: data.isVerval ?? false
+                isVerval: data.isVerval ?? false,
+                nisn: bioNisn,
+                nis: bioNis
               }
             });
           }
@@ -703,6 +709,26 @@ export class StudentService {
               isVerval: data.isVerval
             }
           });
+        }
+      }
+
+      // Sinkronisasi otomatis NISN dan NIS Lokal ke siswaFormal jika siswa terdaftar di formal
+      if (nisn !== undefined || nisLokal !== undefined) {
+        const cleanNisn = nisn !== undefined ? (nisn?.trim() ? nisn.trim() : null) : undefined;
+        const cleanNis = nisLokal !== undefined ? (nisLokal?.trim() ? nisLokal.trim() : null) : undefined;
+        const existingFormal = await tx.siswaFormal.findUnique({ where: { studentId: id } });
+        if (existingFormal) {
+          try {
+            await tx.siswaFormal.update({
+              where: { studentId: id },
+              data: {
+                ...(cleanNisn !== undefined ? { nisn: cleanNisn } : {}),
+                ...(cleanNis !== undefined ? { nis: cleanNis } : {})
+              }
+            });
+          } catch (err: any) {
+            console.warn(`[Sync-NISN] Warning updating siswaFormal for student ${id}:`, err?.message);
+          }
         }
       }
       if (user) {
@@ -1639,79 +1665,86 @@ export class StudentService {
       throw new BadRequestException(`Status akhir pelepasan tidak valid. Pilihan: ${validStatuses.join(', ')}`);
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const students = await tx.student.findMany({
-        where: { id: { in: cleanStudentIds } },
-        include: { siswaFormal: true, dataDaimi: true }
+    // NOTE: sengaja TIDAK dibungkus $transaction — loop query per-siswa di dalam
+    // satu transaksi interaktif menahan satu koneksi DB selama seluruh loop
+    // (bisa lama untuk pelepasan massal banyak siswa), pola yang sama yang
+    // pernah menyebabkan transaksi lain menggantung >100 detik dan menghabiskan
+    // connection pool. Validasi akses dilakukan untuk SEMUA siswa dulu SEBELUM
+    // ada satu pun yang ditulis, supaya siswa di luar scope user tetap menolak
+    // seluruh operasi tanpa meninggalkan siswa lain dalam keadaan terlanjur terupdate.
+    const students = await this.prisma.student.findMany({
+      where: { id: { in: cleanStudentIds } },
+      include: { siswaFormal: true, dataDaimi: true }
+    });
+
+    if (students.length === 0) {
+      throw new BadRequestException('Siswa tidak ditemukan');
+    }
+
+    if (user && user.scope !== 'GLOBAL') {
+      for (const student of students) {
+        if (user.scope === 'WILAYAH' && student.wilayahId && student.wilayahId !== user.wilayahId) {
+          throw new ForbiddenException(`Akses ditolak: Siswa ${student.id} berada di luar wilayah Anda.`);
+        }
+        if (user.scope === 'CABANG' && student.cabangId && student.cabangId !== user.cabangId) {
+          throw new ForbiddenException(`Akses ditolak: Siswa ${student.id} berada di luar cabang Anda.`);
+        }
+      }
+    }
+
+    for (const student of students) {
+      // Update current riwayat
+      const activeRiwayat = await this.prisma.riwayatPendidikan.findFirst({
+        where: {
+          studentId: student.id,
+          tanggalKeluar: null,
+        },
+        orderBy: {
+          tanggalMasuk: 'desc',
+        },
       });
 
-      if (students.length === 0) {
-        throw new BadRequestException('Siswa tidak ditemukan');
-      }
-
-      for (const student of students) {
-        if (user && user.scope !== 'GLOBAL') {
-          if (user.scope === 'WILAYAH' && student.wilayahId && student.wilayahId !== user.wilayahId) {
-            throw new ForbiddenException(`Akses ditolak: Siswa ${student.id} berada di luar wilayah Anda.`);
-          }
-          if (user.scope === 'CABANG' && student.cabangId && student.cabangId !== user.cabangId) {
-            throw new ForbiddenException(`Akses ditolak: Siswa ${student.id} berada di luar cabang Anda.`);
-          }
-        }
-
-        // Update current riwayat
-        const activeRiwayat = await tx.riwayatPendidikan.findFirst({
-          where: {
-            studentId: student.id,
-            tanggalKeluar: null,
-          },
-          orderBy: {
-            tanggalMasuk: 'desc',
-          },
-        });
-
-        if (activeRiwayat) {
-          await tx.riwayatPendidikan.update({
-            where: { id: activeRiwayat.id },
-            data: {
-              tanggalKeluar: new Date(),
-              statusAkhir: dto.statusAkhir,
-              catatan: dto.catatan || null,
-            },
-          });
-        }
-
-        let isActive = true;
-        if (dto.statusAkhir === StatusPool.MUTASI || dto.statusAkhir === StatusPool.DROP_OUT) {
-          isActive = false;
-        }
-
-        if (student.siswaFormal) {
-          await tx.siswaFormal.update({
-            where: { studentId: student.id },
-            data: { kelasId: null }
-          });
-        }
-        if (student.dataDaimi) {
-          await tx.dataDaimi.update({
-            where: { studentId: student.id },
-            data: { grupId: null, kelasId: null }
-          });
-        }
-
-        await tx.student.update({
-          where: { id: student.id },
+      if (activeRiwayat) {
+        await this.prisma.riwayatPendidikan.update({
+          where: { id: activeRiwayat.id },
           data: {
-            statusPool: dto.statusAkhir,
-            cabangId: null,
-            wilayahId: null,
-            isActive,
+            tanggalKeluar: new Date(),
+            statusAkhir: dto.statusAkhir,
+            catatan: dto.catatan || null,
           },
         });
       }
 
-      return { count: students.length };
-    });
+      let isActive = true;
+      if (dto.statusAkhir === StatusPool.MUTASI || dto.statusAkhir === StatusPool.DROP_OUT) {
+        isActive = false;
+      }
+
+      if (student.siswaFormal) {
+        await this.prisma.siswaFormal.update({
+          where: { studentId: student.id },
+          data: { kelasId: null }
+        });
+      }
+      if (student.dataDaimi) {
+        await this.prisma.dataDaimi.update({
+          where: { studentId: student.id },
+          data: { grupId: null, kelasId: null }
+        });
+      }
+
+      await this.prisma.student.update({
+        where: { id: student.id },
+        data: {
+          statusPool: dto.statusAkhir,
+          cabangId: null,
+          wilayahId: null,
+          isActive,
+        },
+      });
+    }
+
+    return { count: students.length };
   }
 
   async verifyDaftarUlang({ nik, kodeDaftarUlang }: { nik: string, kodeDaftarUlang: string }) {
@@ -2008,7 +2041,75 @@ export class StudentService {
       });
     }
   }
-  async getResiduStudents(user: any) {
+  /**
+   * Peta hitungan duplikat (NISN/ID Glodemy/NIS Lokal/NIK) bersifat sistem-lebar
+   * (lintas cabang/wilayah — NISN kembar di cabang lain tetap harus terdeteksi),
+   * jadi TIDAK bisa dipersempit per-scope user. Query di baliknya menyisir SEMUA
+   * siswa aktif se-sistem, cukup berat untuk dihitung ulang di setiap page-load
+   * setiap user yang buka halaman residu — di-cache di Redis (5 menit, cukup
+   * basi untuk kebutuhan review data ini) supaya cuma dihitung ulang sesekali,
+   * bukan setiap request.
+   */
+  private async getResiduDuplicateCounts(): Promise<{
+    nisnCounts: Record<string, number>;
+    glodemyCounts: Record<string, number>;
+    nisLokalCounts: Record<string, number>;
+    nikCounts: Record<string, number>;
+  }> {
+    const cacheKey = 'residu:dup-counts:v1';
+    const cached = await this.redisService.get(cacheKey).catch(() => null);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch {
+        // fallthrough dan hitung ulang kalau cache korup
+      }
+    }
+
+    const studentRecords = await this.prisma.student.findMany({
+      where: { isActive: true },
+      select: {
+        biodata: { select: { nisn: true, noGlodemy: true, nisLokal: true, nik: true } },
+        siswaFormal: { select: { nisn: true, nis: true } }
+      }
+    });
+
+    const nisnCounts: Record<string, number> = {};
+    const glodemyCounts: Record<string, number> = {};
+    const nisLokalCounts: Record<string, number> = {};
+    const nikCounts: Record<string, number> = {};
+
+    studentRecords.forEach(s => {
+      const bioNisn = s.biodata?.nisn?.trim();
+      const sfNisn = s.siswaFormal?.nisn?.trim();
+      const effectiveNisn = (bioNisn && bioNisn !== '-') ? bioNisn : (sfNisn && sfNisn !== '-') ? sfNisn : null;
+      if (effectiveNisn) nisnCounts[effectiveNisn] = (nisnCounts[effectiveNisn] || 0) + 1;
+
+      const glodemy = s.biodata?.noGlodemy?.trim();
+      if (glodemy && glodemy !== '-') glodemyCounts[glodemy] = (glodemyCounts[glodemy] || 0) + 1;
+
+      const bioNis = s.biodata?.nisLokal?.trim();
+      const sfNis = s.siswaFormal?.nis?.trim();
+      const effectiveNis = (bioNis && bioNis !== '-') ? bioNis : (sfNis && sfNis !== '-') ? sfNis : null;
+      if (effectiveNis) nisLokalCounts[effectiveNis] = (nisLokalCounts[effectiveNis] || 0) + 1;
+
+      const nik = s.biodata?.nik?.trim();
+      if (nik && nik !== '-') nikCounts[nik] = (nikCounts[nik] || 0) + 1;
+    });
+
+    const counts = { nisnCounts, glodemyCounts, nisLokalCounts, nikCounts };
+    await this.redisService.set(cacheKey, JSON.stringify(counts), 300).catch(() => {});
+    return counts;
+  }
+
+  async getResiduStudents(user: any, filters?: {
+    wilayahId?: string;
+    cabangId?: string;
+    kelasId?: string;
+    lembagaMuadalahId?: string;
+    jenisDaimi?: string;
+    tingkat?: string;
+  }) {
     let whereClause: any = {
       statusPool: StatusPool.AKTIF_CABANG,
       isActive: true
@@ -2017,6 +2118,27 @@ export class StudentService {
       whereClause.cabangId = user.cabangId;
     } else if (user.scope === 'WILAYAH') {
       whereClause.wilayahId = user.wilayahId;
+    }
+
+    // Filter struktural (dari AdvancedFilterBar) diterapkan di level DB supaya
+    // tidak lagi menarik seluruh scope user hanya untuk difilter di browser.
+    // Hanya boleh MEMPERSEMPIT whereClause di atas, tidak bisa dipakai untuk
+    // keluar dari batas scope (mis. user CABANG tetap terkunci ke cabangId-nya).
+    if (filters?.wilayahId && user.scope === 'GLOBAL') {
+      whereClause.wilayahId = filters.wilayahId;
+    }
+    if (filters?.cabangId && user.scope !== 'CABANG') {
+      whereClause.cabangId = filters.cabangId;
+    }
+    const siswaFormalFilter: any = {};
+    if (filters?.kelasId) siswaFormalFilter.kelasId = filters.kelasId;
+    if (filters?.tingkat) siswaFormalFilter.kelas = { ...(siswaFormalFilter.kelas || {}), tingkat: filters.tingkat };
+    if (filters?.lembagaMuadalahId) siswaFormalFilter.kelas = { ...(siswaFormalFilter.kelas || {}), lembagaMuadalahId: filters.lembagaMuadalahId };
+    if (Object.keys(siswaFormalFilter).length > 0) {
+      whereClause.siswaFormal = { is: siswaFormalFilter };
+    }
+    if (filters?.jenisDaimi) {
+      whereClause.dataDaimi = { is: { grup: { is: { jenis: filters.jenisDaimi } } } };
     }
 
     const students = await this.prisma.student.findMany({
@@ -2034,6 +2156,8 @@ export class StudentService {
         siswaFormal: {
           select: {
             kelasId: true,
+            nisn: true,
+            nis: true,
             kelas: { select: { id: true, tingkat: true, lembagaMuadalah: { select: { id: true } } } }
           }
         },
@@ -2045,21 +2169,7 @@ export class StudentService {
       }
     });
 
-    const allBiodata = await this.prisma.biodata.findMany({
-      select: { nisn: true, noGlodemy: true, nisLokal: true, nik: true }
-    });
-
-    const nisnCounts: Record<string, number> = {};
-    const glodemyCounts: Record<string, number> = {};
-    const nisLokalCounts: Record<string, number> = {};
-    const nikCounts: Record<string, number> = {};
-
-    allBiodata.forEach(b => {
-      if (b.nisn && b.nisn.trim() !== '' && b.nisn.trim() !== '-') nisnCounts[b.nisn] = (nisnCounts[b.nisn] || 0) + 1;
-      if (b.noGlodemy && b.noGlodemy.trim() !== '' && b.noGlodemy.trim() !== '-') glodemyCounts[b.noGlodemy] = (glodemyCounts[b.noGlodemy] || 0) + 1;
-      if (b.nisLokal && b.nisLokal.trim() !== '' && b.nisLokal.trim() !== '-') nisLokalCounts[b.nisLokal] = (nisLokalCounts[b.nisLokal] || 0) + 1;
-      if (b.nik && b.nik.trim() !== '' && b.nik.trim() !== '-') nikCounts[b.nik] = (nikCounts[b.nik] || 0) + 1;
-    });
+    const { nisnCounts, glodemyCounts, nisLokalCounts, nikCounts } = await this.getResiduDuplicateCounts();
 
     const requiredFields = [
       'noKk', 'anakKe', 'jumlahSaudara', 'tempatLahir', 'tanggalLahir', 'namaAyah',
@@ -2078,9 +2188,17 @@ export class StudentService {
         return 'VALID';
       };
 
-      flags.nisn = checkDup(b.nisn, nisnCounts);
+      const bioNisn = b.nisn?.trim();
+      const sfNisn = student.siswaFormal?.nisn?.trim();
+      const effectiveNisn = (bioNisn && bioNisn !== '-') ? bioNisn : (sfNisn && sfNisn !== '-') ? sfNisn : null;
+
+      const bioNis = b.nisLokal?.trim();
+      const sfNis = student.siswaFormal?.nis?.trim();
+      const effectiveNis = (bioNis && bioNis !== '-') ? bioNis : (sfNis && sfNis !== '-') ? sfNis : null;
+
+      flags.nisn = checkDup(effectiveNisn, nisnCounts);
       flags.noGlodemy = checkDup(b.noGlodemy, glodemyCounts);
-      flags.nisLokal = checkDup(b.nisLokal, nisLokalCounts);
+      flags.nisLokal = checkDup(effectiveNis, nisLokalCounts);
       flags.nik = checkDup(b.nik, nikCounts);
 
       // Other fields
@@ -2095,6 +2213,7 @@ export class StudentService {
 
       return {
         ...student,
+        nisn: effectiveNisn,
         flags
       };
     });

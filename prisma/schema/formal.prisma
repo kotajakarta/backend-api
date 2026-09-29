@@ -9,6 +9,7 @@ model SiswaFormal {
   kelas     Kelas?  @relation(fields: [kelasId], references: [id])
   student   Student @relation(fields: [studentId], references: [id])
 
+  @@index([kelasId])
   @@map("siswa_formal")
   @@schema("formal")
 }
@@ -40,6 +41,7 @@ model Kelas {
   absensiMapel       AbsensiMapel[]
   ljkResults         LjkResult[]
 
+  @@index([cabangId, isActive])
   @@map("kelas")
   @@schema("formal")
 }

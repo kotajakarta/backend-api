@@ -22,6 +22,7 @@ const uploadOptions: any = {
   storage,
   limits: {
     fileSize: 15 * 1024 * 1024, // 15MB
+    files: 10, // Cap file count so AnyFilesInterceptor endpoints can't buffer unlimited files in memory at once
   },
   fileFilter: (req: ExpressRequest, file: any, cb: any) => {
     const allowedMimeTypes = [

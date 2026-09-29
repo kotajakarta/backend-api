@@ -39,8 +39,18 @@ export class StudentController {
 
   @Get('residu')
   @UseGuards(AccessControlGuard)
-  getResiduStudents(@Request() req: any) {
-    return this.studentService.getResiduStudents(req.user);
+  getResiduStudents(
+    @Request() req: any,
+    @Query('wilayahId') wilayahId?: string,
+    @Query('cabangId') cabangId?: string,
+    @Query('kelasId') kelasId?: string,
+    @Query('lembagaMuadalahId') lembagaMuadalahId?: string,
+    @Query('jenisDaimi') jenisDaimi?: string,
+    @Query('tingkat') tingkat?: string,
+  ) {
+    return this.studentService.getResiduStudents(req.user, {
+      wilayahId, cabangId, kelasId, lembagaMuadalahId, jenisDaimi, tingkat
+    });
   }
 
   @Post()

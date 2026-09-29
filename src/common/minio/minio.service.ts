@@ -4,6 +4,7 @@ import * as Minio from 'minio';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
+import { isCronLeader } from '../utils/cluster-leader.util.js';
 
 const cleanEnv = (val?: string, defaultVal: string = ''): string => {
   if (!val) return defaultVal;
@@ -75,6 +76,7 @@ export class MinioService implements OnModuleInit {
    */
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async cleanupOldTempFiles(maxAgeHours: number = 24): Promise<{ deletedMinio: number; deletedLocal: number }> {
+    if (!isCronLeader()) return { deletedMinio: 0, deletedLocal: 0 };
     return new Promise((resolve) => {
       let deletedMinio = 0;
       let deletedLocal = 0;

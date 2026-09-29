@@ -246,6 +246,8 @@ model Student {
   suratPeringatan        SuratPeringatan[]
   pengeluaran            PengeluaranSantri?
 
+  @@index([cabangId, isActive])
+  @@index([wilayahId])
   @@map("students")
   @@schema("core")
 }
@@ -261,6 +263,7 @@ model RiwayatPendidikan {
   cabang        Cabang?   @relation(fields: [cabangId], references: [id])
   student       Student   @relation(fields: [studentId], references: [id])
 
+  @@index([studentId])
   @@map("riwayat_pendidikan")
   @@schema("core")
 }
@@ -299,6 +302,7 @@ model Staff {
   kehadiranGuru      KehadiranGuru[]
   user               User?
 
+  @@index([cabangId, statusPool])
   @@map("staff")
   @@schema("core")
 }

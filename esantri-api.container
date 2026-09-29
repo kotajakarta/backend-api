@@ -23,6 +23,28 @@ Volume=/webku/appsku/esantri/backend-api/uploads:/app/uploads:Z
 # Menjalankan backend API
 Exec=node dist/main.js
 
+# Batas memori container: mencegah satu proses yang leak/bocor menghabiskan
+# RAM seluruh host. --max-old-space-size diset di bawah batas container agar
+# V8 melakukan GC/OOM lebih dulu daripada kernel mematikan container secara paksa.
+#
+# Cluster mode: menjalankan 4 proses worker (dari 12 core yang tersedia) agar
+# API tidak lagi terpaku di 1 core.
+#
+# CATATAN (28 Sep 2026): --max-old-space-size sempat diset 768MB dengan asumsi
+# 4 worker x 768MB muat di Memory=4g. Ternyata 768MB kekecilan untuk beban
+# riil satu worker saat jam sibuk -> worker crash "JavaScript heap out of
+# memory" (SIGABRT) di tengah trafik nyata, menjatuhkan semua koneksi yang
+# sedang ditanganinya. Dikembalikan ke 1536MB (nilai yang sebelumnya terbukti
+# aman saat masih 1 proses), dan Memory= dinaikkan ke 8g supaya 4 worker x
+# 1536MB (~6GB heap ceiling) + overhead native (buffer Sharp/MinIO/pg per
+# worker) tetap punya headroom. Host punya 57GB RAM (~45GB free) tapi dipakai
+# bersama aplikasi lain, jadi 8g dipilih secukupnya, bukan maksimal host.
+Memory=8g
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=1536
+Environment=CLUSTER_WORKERS=4
+Environment=DATABASE_POOL_MAX=5
+
 # Menggunakan berkas environment host RHEL
 EnvironmentFile=%h/.secrets/esantri.secret
 

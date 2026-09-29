@@ -533,240 +533,221 @@ export class MasterDataService implements OnModuleInit {
   }
 
   async importGuru(user: any, data: any[]) {
+    // NOTE: sengaja TIDAK dibungkus $transaction (dulu di-chunk 250 baris per
+    // transaksi dengan timeout 300 detik — itu sendiri tanda transaksinya sudah
+    // pernah kelamaan). Setiap baris Excel adalah record staff independen, jadi
+    // tidak butuh atomicity lintas baris; tanpa transaksi tiap query auto-commit
+    // dan langsung melepas koneksinya, tidak ada lagi satu koneksi yang tertahan
+    // sepanjang proses import.
     const results = [];
-    const BATCH_SIZE = 250;
-    
-    for (let i = 0; i < data.length; i += BATCH_SIZE) {
-      const chunk = data.slice(i, i + BATCH_SIZE);
-      const chunkResults = await this.prisma.$transaction(async (tx) => {
-        const chunkRes = [];
-        for (const rawRow of chunk) {
-          const row: any = {};
-          for (const [k, v] of Object.entries(rawRow)) {
-            if (typeof k === 'string') {
-              const normalizedKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-              row[normalizedKey] = v;
-            }
-          }
+    for (const rawRow of data) {
+      const row: any = {};
+      for (const [k, v] of Object.entries(rawRow)) {
+        if (typeof k === 'string') {
+          const normalizedKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+          row[normalizedKey] = v;
+        }
+      }
 
-          const getValue = (keys: string[], fallbackMatches?: string[]) => {
-            for (const key of keys) {
-              const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (row[normalizedKey] !== undefined && row[normalizedKey] !== null) {
-                return row[normalizedKey];
-              }
-            }
-            if (fallbackMatches) {
-               for (const [k, v] of Object.entries(row)) {
-                  for (const match of fallbackMatches) {
-                     if (k.includes(match) && v !== undefined && v !== null && v !== '') return v;
-                  }
-               }
-            }
-            return '';
-          };
-
-          const nameRaw = getValue(['nama', 'name', 'Nama Guru', 'Nama'], ['nama', 'name', 'guru']);
-          const name = String(nameRaw).trim();
-          if (!name) continue;
-          const position = String(getValue(['posisi', 'position', 'Jabatan', 'Posisi']) || 'GURU').trim();
-
-          let wilayahId = user.scope === 'WILAYAH' ? user.wilayahId : null;
-          const rawWilayah = getValue(['wilayah', 'Wilayah']);
-          if (rawWilayah && !wilayahId) {
-            const wilayahName = String(rawWilayah).trim();
-            let w = await tx.wilayah.findFirst({ where: { name: { equals: wilayahName, mode: 'insensitive' } } });
-            if (!w) w = await tx.wilayah.create({ data: { name: wilayahName } });
-            wilayahId = w.id;
-          }
-
-          let cabangId = user.scope === 'CABANG' ? user.cabangId : null;
-          const rawCabang = getValue(['cabang', 'Cabang']);
-          if (rawCabang && !cabangId) {
-            const cabangName = String(rawCabang).trim();
-            let c = await tx.cabang.findFirst({ where: { name: { equals: cabangName, mode: 'insensitive' } } });
-            if (!c) {
-              c = await tx.cabang.create({ data: { name: cabangName, wilayahId: wilayahId || null } });
-            } else if (!c.wilayahId && wilayahId) {
-              c = await tx.cabang.update({ where: { id: c.id }, data: { wilayahId } });
-            }
-            cabangId = c.id;
-          }
-
-          const existing = await tx.staff.findFirst({ where: { name, cabangId: cabangId || null } });
-          if (existing) {
-            const updated = await tx.staff.update({
-              where: { id: existing.id },
-              data: { position, wilayahId }
-            });
-            chunkRes.push(updated);
-          } else {
-            const created = await tx.staff.create({
-              data: { name, position, wilayahId, cabangId, statusPool: 'TERSEDIA' }
-            });
-            chunkRes.push(created);
+      const getValue = (keys: string[], fallbackMatches?: string[]) => {
+        for (const key of keys) {
+          const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (row[normalizedKey] !== undefined && row[normalizedKey] !== null) {
+            return row[normalizedKey];
           }
         }
-        return chunkRes;
-      }, { maxWait: 120000, timeout: 300000 });
-      results.push(...chunkResults);
+        if (fallbackMatches) {
+           for (const [k, v] of Object.entries(row)) {
+              for (const match of fallbackMatches) {
+                 if (k.includes(match) && v !== undefined && v !== null && v !== '') return v;
+              }
+           }
+        }
+        return '';
+      };
+
+      const nameRaw = getValue(['nama', 'name', 'Nama Guru', 'Nama'], ['nama', 'name', 'guru']);
+      const name = String(nameRaw).trim();
+      if (!name) continue;
+      const position = String(getValue(['posisi', 'position', 'Jabatan', 'Posisi']) || 'GURU').trim();
+
+      let wilayahId = user.scope === 'WILAYAH' ? user.wilayahId : null;
+      const rawWilayah = getValue(['wilayah', 'Wilayah']);
+      if (rawWilayah && !wilayahId) {
+        const wilayahName = String(rawWilayah).trim();
+        let w = await this.prisma.wilayah.findFirst({ where: { name: { equals: wilayahName, mode: 'insensitive' } } });
+        if (!w) w = await this.prisma.wilayah.create({ data: { name: wilayahName } });
+        wilayahId = w.id;
+      }
+
+      let cabangId = user.scope === 'CABANG' ? user.cabangId : null;
+      const rawCabang = getValue(['cabang', 'Cabang']);
+      if (rawCabang && !cabangId) {
+        const cabangName = String(rawCabang).trim();
+        let c = await this.prisma.cabang.findFirst({ where: { name: { equals: cabangName, mode: 'insensitive' } } });
+        if (!c) {
+          c = await this.prisma.cabang.create({ data: { name: cabangName, wilayahId: wilayahId || null } });
+        } else if (!c.wilayahId && wilayahId) {
+          c = await this.prisma.cabang.update({ where: { id: c.id }, data: { wilayahId } });
+        }
+        cabangId = c.id;
+      }
+
+      const existing = await this.prisma.staff.findFirst({ where: { name, cabangId: cabangId || null } });
+      if (existing) {
+        const updated = await this.prisma.staff.update({
+          where: { id: existing.id },
+          data: { position, wilayahId }
+        });
+        results.push(updated);
+      } else {
+        const created = await this.prisma.staff.create({
+          data: { name, position, wilayahId, cabangId, statusPool: 'TERSEDIA' }
+        });
+        results.push(created);
+      }
     }
     return results;
   }
 
   async importCabang(user: any, data: any[]) {
+    // NOTE: sengaja TIDAK dibungkus $transaction — lihat catatan di importGuru
+    // di atas untuk alasan (transaksi ber-chunk dengan timeout 300 detik adalah
+    // tanda transaksinya sudah pernah kelamaan; tiap baris cabang independen).
     const results = [];
-    const BATCH_SIZE = 250;
-    
-    for (let i = 0; i < data.length; i += BATCH_SIZE) {
-      const chunk = data.slice(i, i + BATCH_SIZE);
-      const chunkResults = await this.prisma.$transaction(async (tx) => {
-        const chunkRes = [];
-        const wilayahCache = new Map<string, string>();
-        const cabangCache = new Map<string, any>();
-        
-        const allWilayah = await tx.wilayah.findMany();
-        for (const w of allWilayah) {
-          wilayahCache.set(w.name.toLowerCase(), w.id);
-        }
-        const allCabang = await tx.cabang.findMany();
-        for (const c of allCabang) {
-          cabangCache.set(c.name.toLowerCase(), c);
-        }
+    const wilayahCache = new Map<string, string>();
+    const cabangCache = new Map<string, any>();
 
-        for (const rawRow of chunk) {
-          const row: any = {};
-          for (const [k, v] of Object.entries(rawRow)) {
-            if (typeof k === 'string') {
-              const normalizedKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-              row[normalizedKey] = v;
-            }
+    const allWilayah = await this.prisma.wilayah.findMany();
+    for (const w of allWilayah) {
+      wilayahCache.set(w.name.toLowerCase(), w.id);
+    }
+    const allCabang = await this.prisma.cabang.findMany();
+    for (const c of allCabang) {
+      cabangCache.set(c.name.toLowerCase(), c);
+    }
+
+    for (const rawRow of data) {
+      const row: any = {};
+      for (const [k, v] of Object.entries(rawRow)) {
+        if (typeof k === 'string') {
+          const normalizedKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+          row[normalizedKey] = v;
+        }
+      }
+
+      const getValue = (keys: string[], fallbackMatches?: string[]) => {
+        for (const key of keys) {
+          const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (row[normalizedKey] !== undefined && row[normalizedKey] !== null) {
+            return row[normalizedKey];
           }
-
-          const getValue = (keys: string[], fallbackMatches?: string[]) => {
-            for (const key of keys) {
-              const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (row[normalizedKey] !== undefined && row[normalizedKey] !== null) {
-                return row[normalizedKey];
+        }
+        if (fallbackMatches) {
+           for (const [k, v] of Object.entries(row)) {
+              for (const match of fallbackMatches) {
+                 if (k.includes(match) && v !== undefined && v !== null && v !== '') return v;
               }
-            }
-            if (fallbackMatches) {
-               for (const [k, v] of Object.entries(row)) {
-                  for (const match of fallbackMatches) {
-                     if (k.includes(match) && v !== undefined && v !== null && v !== '') return v;
-                  }
-               }
-            }
-            return '';
-          };
-
-          const name = String(getValue(['nama', 'name', 'Nama Cabang', 'Cabang'], ['nama', 'cabang'])).trim();
-          if (!name) continue;
-          
-          let wilayahId = user.scope === 'WILAYAH' ? user.wilayahId : null;
-          const rawWilayah = getValue(['wilayah', 'Wilayah']);
-          if (rawWilayah && !wilayahId) {
-            const wilayahName = String(rawWilayah).trim();
-            const wilayahKey = wilayahName.toLowerCase();
-            if (wilayahCache.has(wilayahKey)) {
-              wilayahId = wilayahCache.get(wilayahKey);
-            } else {
-              const w = await tx.wilayah.create({ data: { name: wilayahName } });
-              wilayahCache.set(wilayahKey, w.id);
-              wilayahId = w.id;
-            }
-          }
-
-          const address = String(getValue(['alamat', 'address', 'Alamat']));
-          const nameKey = name.toLowerCase();
-          const existing = cabangCache.get(nameKey);
-          
-          if (existing) {
-            const updated = await tx.cabang.update({
-              where: { id: existing.id },
-              data: { wilayahId: wilayahId || existing.wilayahId }
-            });
-            chunkRes.push(updated);
-          } else {
-            const created = await tx.cabang.create({
-              data: { name, wilayahId }
-            });
-            cabangCache.set(nameKey, created);
-            chunkRes.push(created);
-          }
+           }
         }
-        return chunkRes;
-      }, { maxWait: 120000, timeout: 300000 });
-      results.push(...chunkResults);
+        return '';
+      };
+
+      const name = String(getValue(['nama', 'name', 'Nama Cabang', 'Cabang'], ['nama', 'cabang'])).trim();
+      if (!name) continue;
+
+      let wilayahId = user.scope === 'WILAYAH' ? user.wilayahId : null;
+      const rawWilayah = getValue(['wilayah', 'Wilayah']);
+      if (rawWilayah && !wilayahId) {
+        const wilayahName = String(rawWilayah).trim();
+        const wilayahKey = wilayahName.toLowerCase();
+        if (wilayahCache.has(wilayahKey)) {
+          wilayahId = wilayahCache.get(wilayahKey);
+        } else {
+          const w = await this.prisma.wilayah.create({ data: { name: wilayahName } });
+          wilayahCache.set(wilayahKey, w.id);
+          wilayahId = w.id;
+        }
+      }
+
+      const address = String(getValue(['alamat', 'address', 'Alamat']));
+      const nameKey = name.toLowerCase();
+      const existing = cabangCache.get(nameKey);
+
+      if (existing) {
+        const updated = await this.prisma.cabang.update({
+          where: { id: existing.id },
+          data: { wilayahId: wilayahId || existing.wilayahId }
+        });
+        results.push(updated);
+      } else {
+        const created = await this.prisma.cabang.create({
+          data: { name, wilayahId }
+        });
+        cabangCache.set(nameKey, created);
+        results.push(created);
+      }
     }
     return results;
   }
 
   async importWilayah(user: any, data: any[]) {
+    // NOTE: sengaja TIDAK dibungkus $transaction — lihat catatan di importGuru
+    // di atas untuk alasan.
     const results = [];
-    const BATCH_SIZE = 250;
-    
-    for (let i = 0; i < data.length; i += BATCH_SIZE) {
-      const chunk = data.slice(i, i + BATCH_SIZE);
-      const chunkResults = await this.prisma.$transaction(async (tx) => {
-        const chunkRes = [];
-        const wilayahCache = new Map<string, any>();
-        
-        const allWilayah = await tx.wilayah.findMany();
-        for (const w of allWilayah) {
-          wilayahCache.set(w.name.toLowerCase(), w);
+    const wilayahCache = new Map<string, any>();
+
+    const allWilayah = await this.prisma.wilayah.findMany();
+    for (const w of allWilayah) {
+      wilayahCache.set(w.name.toLowerCase(), w);
+    }
+
+    for (const rawRow of data) {
+      const row: any = {};
+      for (const [k, v] of Object.entries(rawRow)) {
+        if (typeof k === 'string') {
+          const normalizedKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+          row[normalizedKey] = v;
         }
+      }
 
-        for (const rawRow of chunk) {
-          const row: any = {};
-          for (const [k, v] of Object.entries(rawRow)) {
-            if (typeof k === 'string') {
-              const normalizedKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-              row[normalizedKey] = v;
-            }
+      const getValue = (keys: string[], fallbackMatches?: string[]) => {
+        for (const key of keys) {
+          const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (row[normalizedKey] !== undefined && row[normalizedKey] !== null) {
+            return row[normalizedKey];
           }
-
-          const getValue = (keys: string[], fallbackMatches?: string[]) => {
-            for (const key of keys) {
-              const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (row[normalizedKey] !== undefined && row[normalizedKey] !== null) {
-                return row[normalizedKey];
+        }
+        if (fallbackMatches) {
+           for (const [k, v] of Object.entries(row)) {
+              for (const match of fallbackMatches) {
+                 if (k.includes(match) && v !== undefined && v !== null && v !== '') return v;
               }
-            }
-            if (fallbackMatches) {
-               for (const [k, v] of Object.entries(row)) {
-                  for (const match of fallbackMatches) {
-                     if (k.includes(match) && v !== undefined && v !== null && v !== '') return v;
-                  }
-               }
-            }
-            return '';
-          };
-
-          const name = String(getValue(['nama', 'name', 'Nama Wilayah', 'Wilayah'], ['nama', 'wilayah'])).trim();
-          if (!name) continue;
-          
-          const address = String(getValue(['alamat', 'address', 'Alamat']));
-          const nameKey = name.toLowerCase();
-          const existing = wilayahCache.get(nameKey);
-          
-          if (existing) {
-            const updated = await tx.wilayah.update({
-              where: { id: existing.id },
-              data: { name }
-            });
-            chunkRes.push(updated);
-          } else {
-            const created = await tx.wilayah.create({
-              data: { name }
-            });
-            wilayahCache.set(nameKey, created);
-            chunkRes.push(created);
-          }
+           }
         }
-        return chunkRes;
-      }, { maxWait: 120000, timeout: 300000 });
-      results.push(...chunkResults);
+        return '';
+      };
+
+      const name = String(getValue(['nama', 'name', 'Nama Wilayah', 'Wilayah'], ['nama', 'wilayah'])).trim();
+      if (!name) continue;
+
+      const address = String(getValue(['alamat', 'address', 'Alamat']));
+      const nameKey = name.toLowerCase();
+      const existing = wilayahCache.get(nameKey);
+
+      if (existing) {
+        const updated = await this.prisma.wilayah.update({
+          where: { id: existing.id },
+          data: { name }
+        });
+        results.push(updated);
+      } else {
+        const created = await this.prisma.wilayah.create({
+          data: { name }
+        });
+        wilayahCache.set(nameKey, created);
+        results.push(created);
+      }
     }
     return results;
   }

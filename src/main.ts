@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import 'reflect-metadata';
+import cluster from 'node:cluster';
+import os from 'node:os';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { PrismaClientExceptionFilter } from './common/filters/prisma-client-exception.filter.js';
@@ -10,6 +12,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { pipeline } from 'node:stream/promises';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -144,7 +147,14 @@ async function bootstrap() {
         res.setHeader('Cache-Control', 'public, max-age=86400');
         res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
 
-        stream.pipe(res);
+        try {
+          // pipeline() (unlike stream.pipe()) destroys the MinIO source stream
+          // when the client disconnects mid-download, preventing leaked sockets/buffers.
+          await pipeline(stream, res);
+        } catch {
+          // Client aborted the download or the stream errored after headers were sent.
+          // Nothing more to send at this point; pipeline() already cleaned up both streams.
+        }
         return;
       }
 
@@ -242,6 +252,17 @@ async function bootstrap() {
   const port = process.env.PORT || 8080;
   await nestApp.listen(port, '0.0.0.0');
 
+  // Node's default keepAliveTimeout (5s) is shorter than how long Cloudflare
+  // Tunnel keeps and reuses its connections to this origin. Once a reused
+  // connection sits idle past 5s, Node has already closed the socket, so
+  // cloudflared's next request on it gets an abrupt reset — this showed up in
+  // production as "read: connection reset by peer" / "context canceled" on
+  // otherwise-unrelated endpoints. headersTimeout must stay above
+  // keepAliveTimeout (Node requirement).
+  const httpServer = nestApp.getHttpServer();
+  httpServer.keepAliveTimeout = 65_000;
+  httpServer.headersTimeout = 66_000;
+
   console.log(`🚀 Backend API Gateway is running on http://0.0.0.0:${port}`);
   console.log(`🛡️  Security: Helmet, Rate Limiting, CORS, Audit Logging — ACTIVE`);
   if (enableSwagger) {
@@ -250,6 +271,49 @@ async function bootstrap() {
   console.log(`❤️  Health Check: http://localhost:${port}/${apiPrefix}/health`);
 }
 
-bootstrap();
+// ════════════════════════════════════════════════════════════════
+//  Cluster Mode — memanfaatkan banyak core CPU
+//  Node.js menjalankan JS di satu thread; tanpa cluster, aplikasi
+//  hanya memakai 1 core meski server punya banyak core. Opt-in lewat
+//  CLUSTER_WORKERS (jumlah proses worker, atau "auto" = cpus-1).
+//  Tidak diset / "1" -> jalan seperti biasa (1 proses, tanpa cluster).
+// ════════════════════════════════════════════════════════════════
+function resolveWorkerCount(): number {
+  const raw = (process.env.CLUSTER_WORKERS || '').trim().toLowerCase();
+  if (!raw || raw === '1') return 1;
+  if (raw === 'auto') return Math.max(1, os.cpus().length - 1);
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+const workerCount = resolveWorkerCount();
+
+if (workerCount > 1 && cluster.isPrimary) {
+  console.log(`🧵 Cluster mode aktif (primary pid=${process.pid}): menjalankan ${workerCount} worker process...`);
+
+  // Memetakan cluster worker.id (berubah tiap kali proses baru dibuat) ke
+  // CLUSTER_WORKER_ID yang stabil, supaya kalau worker #1 (leader cron) mati,
+  // penggantinya tetap diberi CLUSTER_WORKER_ID=1 — bukan worker lain yang
+  // "diam-diam" ikut menjalankan cron dan menyebabkan duplikasi.
+  const workerRoles = new Map<number, string>();
+
+  const spawnWorker = (stableId: string) => {
+    const worker = cluster.fork({ CLUSTER_WORKER_ID: stableId });
+    workerRoles.set(worker.id, stableId);
+  };
+
+  for (let i = 1; i <= workerCount; i++) {
+    spawnWorker(String(i));
+  }
+
+  cluster.on('exit', (worker, code, signal) => {
+    const stableId = workerRoles.get(worker.id) ?? 'unknown';
+    workerRoles.delete(worker.id);
+    console.error(`⚠️  Worker #${stableId} (pid=${worker.process.pid}) berhenti (code=${code}, signal=${signal}). Membuat worker pengganti...`);
+    spawnWorker(stableId);
+  });
+} else {
+  bootstrap();
+}
 // Pesantren External API Module loaded
 

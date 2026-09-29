@@ -342,46 +342,49 @@ export class PembelajaranService {
     logs: Array<{ silabusId?: string | null; mataPelajaranId: string; status: StatusSilabus; tanggalDiajar: string; catatan?: string; guruId?: string | null }>,
     userId?: string
   ) {
-    const txResults = await this.prisma.$transaction(async (tx) => {
-      const results = [];
-      for (const log of logs) {
-        if (!log.tanggalDiajar || !log.mataPelajaranId) continue;
-        const date = new Date(log.tanggalDiajar);
+    // NOTE: tiap log adalah record kelas+mapel+tanggal yang independen, jadi
+    // sengaja TIDAK dibungkus $transaction — loop query di dalam satu transaksi
+    // interaktif menahan satu koneksi DB selama seluruh loop berjalan (bisa
+    // puluhan/ratusan query), yang pernah menyebabkan transaksi menggantung
+    // >100 detik dan menghabiskan connection pool saat batch besar. Auto-commit
+    // per-query melepas koneksinya segera setelah tiap query selesai.
+    const results = [];
+    for (const log of logs) {
+      if (!log.tanggalDiajar || !log.mataPelajaranId) continue;
+      const date = new Date(log.tanggalDiajar);
 
-        if (!log.silabusId && log.status !== 'LIBUR') {
-          // Unassigned: hapus pelaksanaan di tanggal tersebut jika ada
-          await tx.pelaksanaanSilabus.deleteMany({
-            where: { kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date }
-          });
-          continue;
-        }
-
-        // Silabus hanya boleh diisi/diperbarui untuk tanggal hari ini atau sebelumnya.
-        if (this.isFutureDate(log.tanggalDiajar)) continue;
-
-        const dataPayload = {
-          silabusId: log.silabusId || null,
-          status: log.status,
-          catatan: log.catatan || null,
-          guruId: log.guruId || null,
-          updatedById: userId || null
-        };
-
-        results.push(await tx.pelaksanaanSilabus.upsert({
-          where: { kelasId_mataPelajaranId_tanggalDiajar: { kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date } },
-          update: dataPayload,
-          create: {
-            kelasId,
-            mataPelajaranId: log.mataPelajaranId,
-            tanggalDiajar: date,
-            ...dataPayload
-          }
-        }));
+      if (!log.silabusId && log.status !== 'LIBUR') {
+        // Unassigned: hapus pelaksanaan di tanggal tersebut jika ada
+        await this.prisma.pelaksanaanSilabus.deleteMany({
+          where: { kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date }
+        });
+        continue;
       }
-      return results;
-    });
+
+      // Silabus hanya boleh diisi/diperbarui untuk tanggal hari ini atau sebelumnya.
+      if (this.isFutureDate(log.tanggalDiajar)) continue;
+
+      const dataPayload = {
+        silabusId: log.silabusId || null,
+        status: log.status,
+        catatan: log.catatan || null,
+        guruId: log.guruId || null,
+        updatedById: userId || null
+      };
+
+      results.push(await this.prisma.pelaksanaanSilabus.upsert({
+        where: { kelasId_mataPelajaranId_tanggalDiajar: { kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date } },
+        update: dataPayload,
+        create: {
+          kelasId,
+          mataPelajaranId: log.mataPelajaranId,
+          tanggalDiajar: date,
+          ...dataPayload
+        }
+      }));
+    }
     this.triggerRekapSync(logs.map(l => l.tanggalDiajar));
-    return txResults;
+    return results;
   }
 
   // ===== Daily Batch Kontrol Silabus (Per Tanggal Pelaksanaan untuk Seluruh Rombel Cabang) =====
@@ -585,81 +588,82 @@ export class PembelajaranService {
 
     const date = new Date(`${tanggal.slice(0, 10)}T00:00:00.000Z`);
 
-    const txResults = await this.prisma.$transaction(async (tx) => {
-      const results = [];
+    // NOTE: tiap log adalah record kelas+mapel independen untuk tanggal yang sama,
+    // jadi sengaja TIDAK dibungkus $transaction — lihat catatan di savePelaksanaanBulk
+    // di atas untuk alasan (transaksi interaktif dengan loop query pernah menggantung
+    // >100 detik dan menghabiskan connection pool saat logs berisi banyak item).
+    const results = [];
 
-      // Pre-fetch kelas tingkat map for quick fallback silabus lookup
-      const kelasList = await tx.kelas.findMany({
-        where: { id: { in: Array.from(new Set(logs.map(l => l.kelasId))) } },
-        select: { id: true, tingkat: true }
-      });
-      const kelasTingkatMap = new Map(kelasList.map(k => [k.id, k.tingkat]));
-
-      // Pre-fetch first active silabus per (tingkat + mapel)
-      const tingkatList = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
-      const silabusList = await tx.silabusMapel.findMany({
-        where: { tingkat: { in: tingkatList }, isActive: true },
-        orderBy: { urutanBab: 'asc' }
-      });
-      const defaultSilabusMap = new Map<string, string>();
-      silabusList.forEach(s => {
-        const key = `${s.tingkat}__${s.mataPelajaranId}`;
-        if (!defaultSilabusMap.has(key)) {
-          defaultSilabusMap.set(key, s.id);
-        }
-      });
-
-      for (const log of logs) {
-        if (!log.kelasId || !log.mataPelajaranId) continue;
-
-        if (log.status === 'PENDING') {
-          // If status is reset to PENDING, remove execution record and attendance
-          await tx.pelaksanaanSilabus.deleteMany({
-            where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date }
-          });
-          await tx.absensiMapel.deleteMany({
-            where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggal: date }
-          });
-          continue;
-        }
-
-        if (log.status === 'LIBUR') {
-          // If status is LIBUR, clean up attendance
-          await tx.absensiMapel.deleteMany({
-            where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggal: date }
-          });
-        }
-
-        // Determine silabusId (use provided or fallback to first silabus section)
-        let silabusId = log.silabusId;
-        if (!silabusId) {
-          const tingkat = kelasTingkatMap.get(log.kelasId);
-          silabusId = defaultSilabusMap.get(`${tingkat}__${log.mataPelajaranId}`) || null;
-        }
-
-        const dataPayload = {
-          silabusId: silabusId || null,
-          status: log.status,
-          catatan: log.catatan || null,
-          guruId: log.guruId || null,
-          updatedById: user?.id || null
-        };
-
-        results.push(await tx.pelaksanaanSilabus.upsert({
-          where: { kelasId_mataPelajaranId_tanggalDiajar: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date } },
-          update: dataPayload,
-          create: {
-            kelasId: log.kelasId,
-            mataPelajaranId: log.mataPelajaranId,
-            tanggalDiajar: date,
-            ...dataPayload
-          }
-        }));
-      }
-      return results;
+    // Pre-fetch kelas tingkat map for quick fallback silabus lookup
+    const kelasList = await this.prisma.kelas.findMany({
+      where: { id: { in: Array.from(new Set(logs.map(l => l.kelasId))) } },
+      select: { id: true, tingkat: true }
     });
+    const kelasTingkatMap = new Map(kelasList.map(k => [k.id, k.tingkat]));
+
+    // Pre-fetch first active silabus per (tingkat + mapel)
+    const tingkatList = Array.from(new Set(kelasList.map(k => k.tingkat).filter((t): t is string => !!t)));
+    const silabusList = await this.prisma.silabusMapel.findMany({
+      where: { tingkat: { in: tingkatList }, isActive: true },
+      orderBy: { urutanBab: 'asc' }
+    });
+    const defaultSilabusMap = new Map<string, string>();
+    silabusList.forEach(s => {
+      const key = `${s.tingkat}__${s.mataPelajaranId}`;
+      if (!defaultSilabusMap.has(key)) {
+        defaultSilabusMap.set(key, s.id);
+      }
+    });
+
+    for (const log of logs) {
+      if (!log.kelasId || !log.mataPelajaranId) continue;
+
+      if (log.status === 'PENDING') {
+        // If status is reset to PENDING, remove execution record and attendance
+        await this.prisma.pelaksanaanSilabus.deleteMany({
+          where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date }
+        });
+        await this.prisma.absensiMapel.deleteMany({
+          where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggal: date }
+        });
+        continue;
+      }
+
+      if (log.status === 'LIBUR') {
+        // If status is LIBUR, clean up attendance
+        await this.prisma.absensiMapel.deleteMany({
+          where: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggal: date }
+        });
+      }
+
+      // Determine silabusId (use provided or fallback to first silabus section)
+      let silabusId = log.silabusId;
+      if (!silabusId) {
+        const tingkat = kelasTingkatMap.get(log.kelasId);
+        silabusId = defaultSilabusMap.get(`${tingkat}__${log.mataPelajaranId}`) || null;
+      }
+
+      const dataPayload = {
+        silabusId: silabusId || null,
+        status: log.status,
+        catatan: log.catatan || null,
+        guruId: log.guruId || null,
+        updatedById: user?.id || null
+      };
+
+      results.push(await this.prisma.pelaksanaanSilabus.upsert({
+        where: { kelasId_mataPelajaranId_tanggalDiajar: { kelasId: log.kelasId, mataPelajaranId: log.mataPelajaranId, tanggalDiajar: date } },
+        update: dataPayload,
+        create: {
+          kelasId: log.kelasId,
+          mataPelajaranId: log.mataPelajaranId,
+          tanggalDiajar: date,
+          ...dataPayload
+        }
+      }));
+    }
     this.triggerRekapSync([tanggal]);
-    return txResults;
+    return results;
   }
 
   // ===== C. Absensi Siswa per Mapel (User Cabang) — direkam per baris silabus/materi =====
@@ -716,56 +720,56 @@ export class PembelajaranService {
 
     const date = new Date(`${tanggal.slice(0, 10)}T00:00:00.000Z`);
 
-    const txResults = await this.prisma.$transaction(async (tx) => {
-      for (const log of logs) {
-        await tx.absensiMapel.upsert({
-          where: {
-            mataPelajaranId_kelasId_studentId_tanggal: {
-              mataPelajaranId: silabus.mataPelajaranId,
-              kelasId,
-              studentId: log.studentId,
-              tanggal: date
-            }
-          },
-          update: { silabusId, status: log.status, catatan: log.catatan || null },
-          create: {
-            silabusId,
+    // NOTE: sengaja TIDAK dibungkus $transaction — lihat catatan di savePelaksanaanBulk
+    // di atas untuk alasan (transaksi interaktif dengan loop query pernah menggantung
+    // >100 detik dan menghabiskan connection pool saat logs berisi banyak siswa).
+    for (const log of logs) {
+      await this.prisma.absensiMapel.upsert({
+        where: {
+          mataPelajaranId_kelasId_studentId_tanggal: {
             mataPelajaranId: silabus.mataPelajaranId,
             kelasId,
             studentId: log.studentId,
-            tanggal: date,
-            status: log.status,
-            catatan: log.catatan || null
-          }
-        });
-      }
-
-      // Automatically ensure pelaksanaanSilabus is COMPLETED
-      await tx.pelaksanaanSilabus.upsert({
-        where: {
-          kelasId_mataPelajaranId_tanggalDiajar: {
-            kelasId,
-            mataPelajaranId: silabus.mataPelajaranId,
-            tanggalDiajar: date
+            tanggal: date
           }
         },
-        update: {
-          silabusId,
-          status: 'COMPLETED'
-        },
+        update: { silabusId, status: log.status, catatan: log.catatan || null },
         create: {
-          kelasId,
-          mataPelajaranId: silabus.mataPelajaranId,
           silabusId,
-          tanggalDiajar: date,
-          status: 'COMPLETED'
+          mataPelajaranId: silabus.mataPelajaranId,
+          kelasId,
+          studentId: log.studentId,
+          tanggal: date,
+          status: log.status,
+          catatan: log.catatan || null
         }
       });
+    }
 
-      return { success: true, count: logs.length };
+    // Automatically ensure pelaksanaanSilabus is COMPLETED
+    await this.prisma.pelaksanaanSilabus.upsert({
+      where: {
+        kelasId_mataPelajaranId_tanggalDiajar: {
+          kelasId,
+          mataPelajaranId: silabus.mataPelajaranId,
+          tanggalDiajar: date
+        }
+      },
+      update: {
+        silabusId,
+        status: 'COMPLETED'
+      },
+      create: {
+        kelasId,
+        mataPelajaranId: silabus.mataPelajaranId,
+        silabusId,
+        tanggalDiajar: date,
+        status: 'COMPLETED'
+      }
     });
+
     this.triggerRekapSync([tanggal]);
-    return txResults;
+    return { success: true, count: logs.length };
   }
 
   async deleteAbsensiMapel(
