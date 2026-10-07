@@ -192,6 +192,7 @@ export class PembelajaranController {
     @Query('kelasId') kelasId: string | undefined,
     @Query('wilayahId') wilayahId: string | undefined,
     @Query('cabangId') cabangId: string | undefined,
+    @Query('withDetails') withDetails: string | undefined,
     @Request() req: any
   ) {
     return this.pembelajaranService.getRingkasan(req.user, {
@@ -202,8 +203,33 @@ export class PembelajaranController {
       semester,
       kelasId,
       wilayahId,
-      cabangId
+      cabangId,
+      // Detail rows are several MB; the UI asks for them per week via ringkasan/detail.
+      withDetails: withDetails === 'false' ? false : undefined
     });
+  }
+
+  @Get('ringkasan/detail')
+  @UseGuards(AccessControlGuard)
+  getRingkasanDetail(
+    @Query('mode') mode: 'weekly' | 'monthly' | 'semester' | 'yearly' | undefined,
+    @Query('weekStart') weekStart: string | undefined,
+    @Query('month') month: string | undefined,
+    @Query('tahunAjaran') tahunAjaran: string | undefined,
+    @Query('semester') semester: string | undefined,
+    @Query('kelasId') kelasId: string | undefined,
+    @Query('wilayahId') wilayahId: string | undefined,
+    @Query('cabangId') cabangId: string | undefined,
+    @Query('unitIds') unitIds: string | undefined,
+    @Query('weekNumber') weekNumber: string | undefined,
+    @Request() req: any
+  ) {
+    return this.pembelajaranService.getRingkasanWeekDetails(
+      req.user,
+      { mode, weekStart, month, tahunAjaran, semester, kelasId, wilayahId, cabangId },
+      (unitIds || '').split(',').map(s => s.trim()).filter(Boolean),
+      parseInt(weekNumber || '', 10) || 0
+    );
   }
 
   @Post('rekap/sync')

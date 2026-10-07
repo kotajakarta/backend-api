@@ -14,6 +14,8 @@ model Wilayah {
   permohonanKelas    PermohonanKelas[]
   bankSoalAssignments BankSoalAssignment[]
   lembagaMuadalah    LembagaMuadalah[]
+  pemesananBukuCabang  PemesananBukuCabang[]
+  pemesananBukuWilayah PemesananBukuWilayah[]
 
   @@map("wilayah")
   @@schema("core")
@@ -78,6 +80,7 @@ model Cabang {
   tagihanSantri             TagihanSantri[]
   bankSoalAssignments      BankSoalAssignment[]
   ljkResults                LjkResult[]
+  pemesananBuku             PemesananBukuCabang[]
 
   @@map("cabang")
   @@schema("core")

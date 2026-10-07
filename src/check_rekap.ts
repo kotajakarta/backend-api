@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { expandWeeksJson } from './modules/pembelajaran/pembelajaran-rekap.service.js';
 
 const connectionString = process.env.DATABASE_URL;
 const pool = new Pool({ connectionString });
@@ -15,7 +16,7 @@ async function main() {
   console.log('Found rows count:', rows.length);
   for (const row of rows) {
     console.log('--- Row:', row.unitName, row.periodeKey, row.unitLevel, 'updatedAt:', row.updatedAt);
-    const json = row.weeksJson as any;
+    const json = expandWeeksJson(row.weeksJson as any);
     if (json && json.weeks) {
       console.log('  Number of weeks:', json.weeks.length);
       const w0 = json.weeks[0];

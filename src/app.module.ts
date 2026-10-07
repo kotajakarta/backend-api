@@ -25,6 +25,7 @@ import { BankSoalModule } from './modules/bank-soal/bank-soal.module.js';
 import { PpdbModule } from './modules/ppdb/ppdb.module.js';
 import { PesantrenExternalModule } from './modules/external/pesantren/pesantren-external.module.js';
 import { IndisiplinerModule } from './modules/indisipliner/indisipliner.module.js';
+import { PemesananBukuModule } from './modules/pemesanan-buku/pemesanan-buku.module.js';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { IndisiplinerModule } from './modules/indisipliner/indisipliner.module.j
     BankSoalModule,
     PpdbModule,
     IndisiplinerModule,
+    PemesananBukuModule,
     ScheduleModule.forRoot()
   ],
   controllers: [],

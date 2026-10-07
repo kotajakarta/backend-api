@@ -1,7 +1,16 @@
 import { Injectable, Inject, ForbiddenException, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import bcrypt from 'bcrypt';
-import { PrismaService } from '../../../common/prisma/prisma.service.js';
+import { PrismaService, STAFF_DOCUMENTS_OPT_IN, CABANG_PHOTOS_OPT_IN } from '../../../common/prisma/prisma.service.js';
 import { AuditLogService } from '../../audit-log/audit-log.service.js';
+import { MinioService } from '../../../common/minio/minio.service.js';
+import { applyImageFields } from '../../../common/media/image-field.js';
+import { randomUUID } from 'node:crypto';
+
+const STAFF_DOCUMENT_FIELDS = ['ifadahUrl', 'ktpUrl', 'ijazahUrl'] as const;
+const CABANG_PHOTO_FIELDS = [
+  'fotoPlang', 'fotoGedung', 'fotoHalaman', 'fotoDenah', 'fotoMushala',
+  'fotoKelas', 'fotoRuangTidur', 'fotoRuangMakan', 'fotoKamarMandi'
+] as const;
 
 function normalizeDaimiKey(str?: string | null): string {
   if (!str) return '';
@@ -73,8 +82,23 @@ function resolveDaimiGroupKey(st: any, masterJenisNormList: { original: string; 
 export class MasterDataService implements OnModuleInit {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(AuditLogService) private readonly auditLogService: AuditLogService
+    @Inject(AuditLogService) private readonly auditLogService: AuditLogService,
+    @Inject(MinioService) private readonly minio: MinioService
   ) {}
+
+  /**
+   * Ids (among `ids`) whose `field` holds a non-empty value — lets list
+   * endpoints report which documents/photos exist without loading the base64
+   * data itself.
+   */
+  private async idsWithValue(model: 'staff' | 'cabang', field: string, ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const rows: Array<{ id: string }> = await (this.prisma as any)[model].findMany({
+      where: { id: { in: ids }, AND: [{ [field]: { not: null } }, { [field]: { not: '' } }] },
+      select: { id: true }
+    });
+    return new Set(rows.map(r => r.id));
+  }
 
   async onModuleInit() {
     // Jalankan backfill kode cabang otomatis di background
@@ -180,7 +204,9 @@ export class MasterDataService implements OnModuleInit {
     } else {
       throw new ForbiddenException('Akses ditolak: Scope pengguna tidak memiliki izin akses data guru');
     }
-    return this.prisma.staff.findMany({
+    // Dokumen (KTP/ijazah/ifadah) berisi base64 ratusan KB per guru — daftar hanya
+    // mengirim penanda ada/tidaknya; isinya diambil lewat GET guru/:id saat dibuka.
+    const gurus = await this.prisma.staff.findMany({
       where: whereClause,
       select: {
         id: true,
@@ -201,9 +227,6 @@ export class MasterDataService implements OnModuleInit {
         cabangId: true,
         wilayahId: true,
         grupDaimiId: true,
-        ifadahUrl: true,
-        ktpUrl: true,
-        ijazahUrl: true,
         user: {
           select: {
             id: true,
@@ -248,6 +271,18 @@ export class MasterDataService implements OnModuleInit {
         { name: 'asc' }
       ]
     });
+    const ids = gurus.map(g => g.id);
+    const [withKtp, withIjazah, withIfadah] = await Promise.all([
+      this.idsWithValue('staff', 'ktpUrl', ids),
+      this.idsWithValue('staff', 'ijazahUrl', ids),
+      this.idsWithValue('staff', 'ifadahUrl', ids)
+    ]);
+    return gurus.map(g => ({
+      ...g,
+      hasKtp: withKtp.has(g.id),
+      hasIjazah: withIjazah.has(g.id),
+      hasIfadah: withIfadah.has(g.id)
+    }));
   }
 
   /**
@@ -256,6 +291,7 @@ export class MasterDataService implements OnModuleInit {
   async getGuruById(id: string, user?: any) {
     const guru = await this.prisma.staff.findUnique({
       where: { id },
+      omit: STAFF_DOCUMENTS_OPT_IN,
       include: {
         user: {
           select: {
@@ -789,16 +825,23 @@ export class MasterDataService implements OnModuleInit {
     }
     const isCabangActive = data.cabangId && data.cabangId !== '';
     const statusPool = isCabangActive ? 'AKTIF_CABANG' : 'TERSEDIA';
-    const result = await this.prisma.staff.create({
+    // Id dibuat di sini supaya dokumen bisa disimpan di MinIO di bawah staff/<id>/.
+    const id = randomUUID();
+    const result = await applyImageFields(this.minio, {
+      input: { ifadahUrl: data.ifadahUrl, ktpUrl: data.ktpUrl, ijazahUrl: data.ijazahUrl },
+      current: null,
+      keyPrefix: `staff/${id}`,
+      fields: STAFF_DOCUMENT_FIELDS,
+      emptyMeans: 'clear',
+      write: docs => this.prisma.staff.create({
       data: {
+        id,
         name: data.name,
         position: data.position,
         wilayahId: data.wilayahId || null,
         cabangId: isCabangActive ? data.cabangId : null,
         grupDaimiId: data.grupDaimiId || null,
-        ifadahUrl: data.ifadahUrl || null,
-        ktpUrl: data.ktpUrl || null,
-        ijazahUrl: data.ijazahUrl || null,
+        ...docs,
         jenisKelamin: data.jenisKelamin || null,
         pendidikanTerakhir: data.pendidikanTerakhir || null,
         perguruanTinggi: data.perguruanTinggi || null,
@@ -812,6 +855,7 @@ export class MasterDataService implements OnModuleInit {
         mapelUmum: data.mapelUmum || [],
         waliKelas: data.waliKelas || null
       }
+      })
     });
     if (user) {
       await this.auditLogService.log('CREATE', 'TEACHER', result.id, result.name, user, `Menambahkan guru baru "${result.name}"`);
@@ -824,9 +868,9 @@ export class MasterDataService implements OnModuleInit {
     position: string,
     wilayahId?: string,
     grupDaimiId?: string,
-    ifadahUrl?: string,
-    ktpUrl?: string,
-    ijazahUrl?: string,
+    ifadahUrl?: string | null,
+    ktpUrl?: string | null,
+    ijazahUrl?: string | null,
     jenisKelamin?: string,
     pendidikanTerakhir?: string,
     perguruanTinggi?: string,
@@ -840,7 +884,8 @@ export class MasterDataService implements OnModuleInit {
     mapelUmum?: string[],
     waliKelas?: string
   }, user?: any) {
-    const existing = await this.prisma.staff.findUnique({ where: { id } });
+    // Dokumen lama ikut dimuat agar objek MinIO yang diganti/dihapus bisa dibersihkan.
+    const existing = await this.prisma.staff.findUnique({ where: { id }, omit: STAFF_DOCUMENTS_OPT_IN });
     if (!existing) throw new NotFoundException('Guru tidak ditemukan');
     if (user) {
       this.checkStaffScope(user, existing);
@@ -859,7 +904,17 @@ export class MasterDataService implements OnModuleInit {
     }
     const isCabangActive = data.cabangId && data.cabangId !== '';
     const statusPool = isCabangActive ? 'AKTIF_CABANG' : 'TERSEDIA';
-    const result = await this.prisma.staff.update({
+    // Dokumen hanya dihapus bila klien mengirim null secara eksplisit. Nilai kosong/
+    // tidak dikirim = tidak diubah: tab lama (JS sebelum deploy) mengisi form dari
+    // daftar guru yang tidak lagi membawa dokumen dan akan mengirim '' saat simpan.
+    // Base64 baru diunggah ke MinIO; kolom hanya menyimpan path /uploads/staff/<id>/...
+    const result = await applyImageFields(this.minio, {
+      input: { ifadahUrl: data.ifadahUrl, ktpUrl: data.ktpUrl, ijazahUrl: data.ijazahUrl },
+      current: existing,
+      keyPrefix: `staff/${id}`,
+      fields: STAFF_DOCUMENT_FIELDS,
+      emptyMeans: 'unchanged',
+      write: docs => this.prisma.staff.update({
       where: { id },
       data: {
         name: data.name,
@@ -867,9 +922,7 @@ export class MasterDataService implements OnModuleInit {
         wilayahId: data.wilayahId || null,
         cabangId: isCabangActive ? data.cabangId : null,
         grupDaimiId: data.grupDaimiId || null,
-        ifadahUrl: data.ifadahUrl !== undefined ? (data.ifadahUrl || null) : existing.ifadahUrl,
-        ktpUrl: data.ktpUrl !== undefined ? (data.ktpUrl || null) : existing.ktpUrl,
-        ijazahUrl: data.ijazahUrl !== undefined ? (data.ijazahUrl || null) : existing.ijazahUrl,
+        ...docs,
         jenisKelamin: data.jenisKelamin || null,
         pendidikanTerakhir: data.pendidikanTerakhir || null,
         perguruanTinggi: data.perguruanTinggi || null,
@@ -883,6 +936,7 @@ export class MasterDataService implements OnModuleInit {
         mapelUmum: data.mapelUmum || [],
         waliKelas: data.waliKelas || null
       }
+      })
     });
     if (user) {
       const fieldLabels: Record<string, string> = {
@@ -1141,6 +1195,15 @@ export class MasterDataService implements OnModuleInit {
       }
     });
 
+    // Hanya penanda foto (bukan base64-nya) untuk kolom "N / 4 Foto" di Data Cabang.
+    const cabangIds = cabangs.map(c => c.id);
+    const [withPlang, withGedung, withKelas, withMushala] = await Promise.all([
+      this.idsWithValue('cabang', 'fotoPlang', cabangIds),
+      this.idsWithValue('cabang', 'fotoGedung', cabangIds),
+      this.idsWithValue('cabang', 'fotoKelas', cabangIds),
+      this.idsWithValue('cabang', 'fotoMushala', cabangIds)
+    ]);
+
     return cabangs.map(cabang => {
       const pimpinanCabang = cabang.staff.find(s => s.id === cabang.ketuaCabangId)?.name || '-';
       const pjMuadalah = cabang.staff.find(s => s.id === cabang.ketuaMuadalahId)?.name || '-';
@@ -1281,6 +1344,10 @@ export class MasterDataService implements OnModuleInit {
 
       return {
         ...cabangClean,
+        hasFotoPlang: withPlang.has(cabang.id),
+        hasFotoGedung: withGedung.has(cabang.id),
+        hasFotoKelas: withKelas.has(cabang.id),
+        hasFotoMushala: withMushala.has(cabang.id),
         pimpinanCabang,
         pjMuadalah,
         targetKuota: targetObj,
@@ -1534,7 +1601,8 @@ export class MasterDataService implements OnModuleInit {
   async getCabangProfile(id: string, user?: any) {
     if (user) await this.checkCabangAccess(id, user);
     const cabang = await this.prisma.cabang.findUnique({
-      where: { id }
+      where: { id },
+      omit: CABANG_PHOTOS_OPT_IN
     });
     if (!cabang) throw new Error('Cabang tidak ditemukan');
 
@@ -1590,7 +1658,17 @@ export class MasterDataService implements OnModuleInit {
 
   async updateCabangProfile(id: string, data: any, user?: any) {
     if (user) await this.checkCabangAccess(id, user);
-    const result = await this.prisma.cabang.update({
+    // Foto lama dimuat untuk perbandingan (objek MinIO yang diganti dibersihkan).
+    // Form Profil Cabang selalu mengirim semua foto yang dimuatnya, jadi foto yang
+    // kosong/tidak dikirim berarti dihapus (perilaku lama dipertahankan).
+    const current = await this.prisma.cabang.findUnique({ where: { id }, omit: CABANG_PHOTOS_OPT_IN });
+    const result = await applyImageFields(this.minio, {
+      input: Object.fromEntries(CABANG_PHOTO_FIELDS.map(f => [f, data[f]])),
+      current,
+      keyPrefix: `cabang/${id}`,
+      fields: CABANG_PHOTO_FIELDS,
+      emptyMeans: 'clear',
+      write: photos => this.prisma.cabang.update({
       where: { id },
       data: {
         nameGlodemy: data.nameGlodemy,
@@ -1614,16 +1692,9 @@ export class MasterDataService implements OnModuleInit {
         urlGoogleMaps: data.urlGoogleMaps || null,
         statusTanah: data.statusTanah || null,
         statusBangunan: data.statusBangunan || null,
-        fotoPlang: data.fotoPlang || null,
-        fotoGedung: data.fotoGedung || null,
-        fotoHalaman: data.fotoHalaman || null,
-        fotoDenah: data.fotoDenah || null,
-        fotoMushala: data.fotoMushala || null,
-        fotoKelas: data.fotoKelas || null,
-        fotoRuangTidur: data.fotoRuangTidur || null,
-        fotoRuangMakan: data.fotoRuangMakan || null,
-        fotoKamarMandi: data.fotoKamarMandi || null
+        ...photos
       }
+      })
     });
     if (user) {
       await this.auditLogService.log('UPDATE', 'CABANG', result.id, result.name, user, `Memperbarui profil cabang "${result.name}"`);

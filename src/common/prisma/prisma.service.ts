@@ -1,10 +1,51 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 
+/**
+ * Columns that hold base64 images (hundreds of KB per row) and are left out of
+ * every query by default. staff/cabang are included by dozens of queries —
+ * including the auth guard on every request and list endpoints polled by the
+ * UI — and each one was dragging these photos along. A query that really
+ * needs them opts back in with `omit: { <field>: false }`.
+ */
+export const HEAVY_COLUMNS_OMIT = {
+  staff: { ktpUrl: true, ijazahUrl: true, ifadahUrl: true },
+  cabang: {
+    fotoPlang: true,
+    fotoGedung: true,
+    fotoHalaman: true,
+    fotoDenah: true,
+    fotoMushala: true,
+    fotoKelas: true,
+    fotoRuangTidur: true,
+    fotoRuangMakan: true,
+    fotoKamarMandi: true,
+  },
+} as const;
+
+export const STAFF_DOCUMENTS_OPT_IN = { ktpUrl: false, ijazahUrl: false, ifadahUrl: false } as const;
+export const CABANG_PHOTOS_OPT_IN = {
+  fotoPlang: false,
+  fotoGedung: false,
+  fotoHalaman: false,
+  fotoDenah: false,
+  fotoMushala: false,
+  fotoKelas: false,
+  fotoRuangTidur: false,
+  fotoRuangMakan: false,
+  fotoKamarMandi: false,
+} as const;
+
+type ClientOptions = {
+  adapter: PrismaPg;
+  log: Prisma.LogLevel[];
+  omit: typeof HEAVY_COLUMNS_OMIT;
+};
+
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService extends PrismaClient<ClientOptions> implements OnModuleInit, OnModuleDestroy {
   constructor() {
     const connectionString = process.env.DATABASE_URL;
     // In cluster mode (see main.ts CLUSTER_WORKERS) each worker process gets its
@@ -23,7 +64,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       idleTimeoutMillis: 60_000,
     });
     const adapter = new PrismaPg(pool);
-    super({ adapter, log: process.env.NODE_ENV === 'production' ? [] : ['query'] });
+    const log: Prisma.LogLevel[] = process.env.NODE_ENV === 'production' ? [] : ['query'];
+    super({ adapter, log, omit: HEAVY_COLUMNS_OMIT });
   }
   async onModuleInit() {
     await this.$connect();

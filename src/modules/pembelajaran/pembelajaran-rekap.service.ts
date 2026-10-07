@@ -1,13 +1,100 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { RedisService } from '../../common/redis/redis.service.js';
 import { isCronLeader } from '../../common/utils/cluster-leader.util.js';
+import {
+  SyncCoalescer,
+  createMemorySyncLockStore,
+  createRedisSyncLockStore,
+} from '../../common/utils/sync-coalescer.js';
+
+type RekapMode = 'weekly' | 'monthly' | 'semester' | 'yearly';
+
+/**
+ * rekapPembelajaran.weeksJson stores every detail once in `details`; each week
+ * only records the date range it covers (`detailsFrom`/`detailsTo`) instead of
+ * a second copy of its details (that copy doubled the JSON — up to 13 MB for
+ * one GLOBAL semester row). This rebuilds the `week.details` arrays readers
+ * expect. Rows written before the change already carry `week.details` and are
+ * returned unchanged.
+ */
+export function expandWeeksJson(json: any): any {
+  if (!json || !Array.isArray(json.weeks) || !Array.isArray(json.details)) return json;
+  const detailTimes: number[] = json.details.map((d: any) => new Date(d.tanggal).getTime());
+  return {
+    ...json,
+    weeks: json.weeks.map((w: any) => {
+      if (w.details !== undefined || w.detailsFrom === undefined) return w;
+      const { detailsFrom, detailsTo, ...week } = w;
+      const from = new Date(detailsFrom).getTime();
+      const to = new Date(detailsTo).getTime();
+      return { ...week, details: json.details.filter((_: any, i: number) => detailTimes[i] >= from && detailTimes[i] <= to) };
+    })
+  };
+}
+
+/**
+ * Rekap rows are keyed by semester, so every spelling must map to one value.
+ * The UI sends 'GANJIL'/'GENAP' while pengaturan (and every save-triggered
+ * sync) uses 'Ganjil'/'Genap' — the two spellings produced two separate rekap
+ * sets, and the UI-facing one was never refreshed.
+ */
+export function normalizeSemester(semester: string): string {
+  const s = (semester || '').trim().toUpperCase();
+  if (s === 'GANJIL' || s === '1') return 'Ganjil';
+  if (s === 'GENAP' || s === '2') return 'Genap';
+  return (semester || '').trim();
+}
+
+export const PEMBELAJARAN_REKAP_SYNC_OPTIONS = 'PEMBELAJARAN_REKAP_SYNC_OPTIONS';
+
+export interface RekapSyncOptions {
+  debounceMs: number;
+  maxWaitMs: number;
+  retryMs: number;
+  lockTtlMs: number;
+}
+
+// Saves arrive in bursts at busy hours; wait for a quiet minute (at most 5)
+// before recomputing, and only ever run one rekap sync at a time cluster-wide.
+const DEFAULT_SYNC_OPTIONS: RekapSyncOptions = {
+  debounceMs: 60_000,
+  maxWaitMs: 5 * 60_000,
+  retryMs: 15_000,
+  lockTtlMs: 10 * 60_000,
+};
 
 @Injectable()
 export class PembelajaranRekapService {
   private readonly logger = new Logger(PembelajaranRekapService.name);
+  private readonly inFlight = new Map<string, Promise<{ count: number; periodeKey: string }>>();
+  private readonly coalescer: SyncCoalescer;
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional() @Inject(RedisService) redis?: RedisService,
+    @Optional() @Inject(PEMBELAJARAN_REKAP_SYNC_OPTIONS) syncOptions?: RekapSyncOptions,
+  ) {
+    this.coalescer = new SyncCoalescer({
+      ...(syncOptions || DEFAULT_SYNC_OPTIONS),
+      namespace: 'rekap:pembelajaran',
+      store: redis ? createRedisSyncLockStore(redis.getClient()) : createMemorySyncLockStore(),
+      run: async key => {
+        const [ta, sem, mode, periodeKey] = JSON.parse(key) as [string, string, RekapMode, string | null];
+        await this.syncPeriod(ta, sem, mode, periodeKey ?? undefined);
+      },
+      logger: this.logger,
+    });
+  }
+
+  /**
+   * Ask for a period's rekap to be recomputed soon. Cheap and non-blocking:
+   * bursts of requests are coalesced into one background sync (see SyncCoalescer).
+   */
+  requestSync(tahunAjaran: string, semester: string, mode: RekapMode, periodeKey?: string) {
+    this.coalescer.request(JSON.stringify([tahunAjaran, normalizeSemester(semester), mode, periodeKey ?? null]));
+  }
 
   // Helper: Count Saturdays between two dates (inclusive)
   public countSaturdays(startDate: Date, endDate: Date): number {
@@ -103,11 +190,30 @@ export class PembelajaranRekapService {
     return { startDate, endDate, periodeKey, periodeLabel };
   }
 
-  // Generate and persist pre-calculated aggregations for a given period
-  async syncPeriod(
+  // Generate and persist pre-calculated aggregations for a given period.
+  // Concurrent calls for the same period (e.g. several users opening Ringkasan
+  // on a cache miss) share one computation instead of each loading the period.
+  syncPeriod(
     tahunAjaran: string,
     semester: string,
-    mode: 'weekly' | 'monthly' | 'semester' | 'yearly',
+    mode: RekapMode,
+    periodeKeyParam?: string
+  ): Promise<{ count: number; periodeKey: string }> {
+    semester = normalizeSemester(semester);
+    const key = JSON.stringify([tahunAjaran, semester, mode, periodeKeyParam ?? null]);
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+    const job = this.computeAndPersist(tahunAjaran, semester, mode, periodeKeyParam).finally(() => {
+      this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, job);
+    return job;
+  }
+
+  private async computeAndPersist(
+    tahunAjaran: string,
+    semester: string,
+    mode: RekapMode,
     periodeKeyParam?: string
   ) {
     const { startDate, endDate, periodeKey } = this.resolvePeriodDates(mode, {
@@ -148,13 +254,14 @@ export class PembelajaranRekapService {
           }
         ]
       },
-      include: {
-        cabang: { include: { wilayah: true } },
-        ruang: true,
-        lembagaMuadalah: true,
-        siswaFormal: {
-          where: { student: { isActive: true } }
-        }
+      // Only the columns the aggregation reads; students are counted in SQL
+      // instead of loading every siswaFormal row just to take .length.
+      select: {
+        id: true,
+        name: true,
+        cabangId: true,
+        cabang: { select: { name: true, wilayahId: true, wilayah: { select: { name: true } } } },
+        _count: { select: { siswaFormal: { where: { student: { isActive: true } } } } }
       },
       orderBy: { name: 'asc' }
     });
@@ -167,7 +274,16 @@ export class PembelajaranRekapService {
         kelasId: { in: kelasIds },
         tanggalDiajar: { gte: startDate, lte: endDate }
       },
-      include: { silabus: { include: { mataPelajaran: true } }, mataPelajaran: true, guru: true }
+      select: {
+        kelasId: true,
+        mataPelajaranId: true,
+        tanggalDiajar: true,
+        status: true,
+        catatan: true,
+        guru: { select: { name: true } },
+        mataPelajaran: { select: { name: true } },
+        silabus: { select: { mataPelajaran: { select: { name: true } } } }
+      }
     }) : [];
 
     const absensiList = kelasIds.length > 0 ? await this.prisma.absensiMapel.findMany({
@@ -176,8 +292,18 @@ export class PembelajaranRekapService {
         tanggal: { gte: startDate, lte: endDate },
         mataPelajaran: { aktifPembelajaran: true }
       },
-      include: { mataPelajaran: true, silabus: true }
+      // ~190k rows per semester in production: plain columns only, no per-row
+      // relation objects (mapel names are looked up once below).
+      select: { kelasId: true, mataPelajaranId: true, tanggal: true, status: true }
     }) : [];
+
+    const absensiMapelIds = Array.from(new Set(absensiList.map(a => a.mataPelajaranId)));
+    const mapelNameById = new Map(
+      absensiMapelIds.length > 0
+        ? (await this.prisma.mataPelajaran.findMany({ where: { id: { in: absensiMapelIds } }, select: { id: true, name: true } }))
+            .map(m => [m.id, m.name] as [string, string])
+        : []
+    );
 
     // 3. Build Weeks Info
     const monthShortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -270,17 +396,29 @@ export class PembelajaranRekapService {
       getAcc('CABANG', c.id, c.name, c.wilayah?.name || '');
     });
 
+    const completedByKelas = new Map<string, number>();
+    for (const p of pelaksanaanList) {
+      if (p.status === 'COMPLETED') completedByKelas.set(p.kelasId, (completedByKelas.get(p.kelasId) || 0) + 1);
+    }
+
+    // First pelaksanaan per kelas+mapel+tanggal, for absensi rows whose detail
+    // entry doesn't exist yet (replaces a pelaksanaanList.find() per absensi row).
+    const pelByDetailKey = new Map<string, (typeof pelaksanaanList)[number]>();
+    for (const p of pelaksanaanList) {
+      if (!p.tanggalDiajar) continue;
+      const dKey = `${p.kelasId}__${p.mataPelajaranId}__${p.tanggalDiajar.toISOString().split('T')[0]}`;
+      if (!pelByDetailKey.has(dKey)) pelByDetailKey.set(dKey, p);
+    }
+
     // Populate Class data
     rawKelasList.forEach(k => {
-      const classStudents = k.siswaFormal ? k.siswaFormal.length : 0;
+      const classStudents = k._count.siswaFormal;
       const cabangId = k.cabangId || 'unknown';
       const cabangName = k.cabang?.name || 'Tanpa Cabang';
       const wilayahId = k.cabang?.wilayahId || 'unknown';
       const wilayahName = k.cabang?.wilayah?.name || 'Tanpa Wilayah';
 
-      const completedCount = pelaksanaanList.filter(
-        p => p.kelasId === k.id && p.status === 'COMPLETED'
-      ).length;
+      const completedCount = completedByKelas.get(k.id) || 0;
 
       // 1. KELAS Level
       const accKelas = getAcc('KELAS', k.id, k.name, cabangName);
@@ -352,7 +490,7 @@ export class PembelajaranRekapService {
             sakit: 0,
             izin: 0,
             alpa: 0,
-            totalSiswa: k.siswaFormal ? k.siswaFormal.length : 1,
+            totalSiswa: k._count.siswaFormal,
             persenHadirMapel: 0
           });
         } else {
@@ -380,19 +518,19 @@ export class PembelajaranRekapService {
         getAcc('GLOBAL', 'GLOBAL', 'PUSAT NASIONAL', '')
       ];
 
+      // Detail mapel (same for every level — computed once per row)
+      const mapelName = mapelNameById.get(a.mataPelajaranId) || 'Mata Pelajaran';
+      const tglStr = a.tanggal.toISOString().split('T')[0];
+      const dKey = `${a.kelasId}__${a.mataPelajaranId}__${tglStr}`;
+
       levels.forEach(acc => {
         if (a.status === 'HADIR') acc.absensiMap.hadir++;
         else if (a.status === 'SAKIT') acc.absensiMap.sakit++;
         else if (a.status === 'IZIN') acc.absensiMap.izin++;
         else if (a.status === 'ALPA') acc.absensiMap.alpa++;
 
-        // Detail mapel
-        const mapelName = a.mataPelajaran?.name || 'Mata Pelajaran';
-        const tglStr = a.tanggal.toISOString().split('T')[0];
-        const dKey = `${a.kelasId}__${a.mataPelajaranId}__${tglStr}`;
-
         if (!acc.detailsMap.has(dKey)) {
-          const pel = pelaksanaanList.find(p => p.kelasId === a.kelasId && p.mataPelajaranId === a.mataPelajaranId && p.tanggalDiajar && p.tanggalDiajar.toISOString().split('T')[0] === tglStr);
+          const pel = pelByDetailKey.get(dKey);
           acc.detailsMap.set(dKey, {
             id: dKey,
             kelasId: a.kelasId,
@@ -411,7 +549,7 @@ export class PembelajaranRekapService {
             sakit: 0,
             izin: 0,
             alpa: 0,
-            totalSiswa: k.siswaFormal ? k.siswaFormal.length : (acc.jumlahSiswa || 1),
+            totalSiswa: k._count.siswaFormal,
             persenHadirMapel: 0
           });
         }
@@ -431,16 +569,101 @@ export class PembelajaranRekapService {
     // semester) for every week x every one of the ~680 units. That O(weeks x
     // units x totalRows) blowup was the actual bottleneck: it blocked the
     // Node event loop for the whole server on a single cache-miss request.
-    const pelaksanaanByKelas = new Map<string, typeof pelaksanaanList>();
+    type PelRow = (typeof pelaksanaanList)[number];
+    type AbsRow = (typeof absensiList)[number];
+
+    // Week boundaries are the same for every unit — compute them once.
+    const weekBounds = weeksInfo.map(wInfo => {
+      const wStartDate = new Date(wInfo.startDateIso);
+      wStartDate.setHours(0, 0, 0, 0);
+      const wEndDate = new Date(wInfo.endDateIso);
+      wEndDate.setHours(23, 59, 59, 999);
+      return { start: wStartDate.getTime(), end: wEndDate.getTime(), isFuture: wStartDate.getTime() > now.getTime() };
+    });
+    const weeksOf = (t: number) => {
+      const idx: number[] = [];
+      for (let w = 0; w < weekBounds.length; w++) {
+        if (t >= weekBounds[w].start && t <= weekBounds[w].end) idx.push(w);
+      }
+      return idx;
+    };
+
+    // Bucket every row by kelas and week in a single pass (source order kept),
+    // so each unit's weekly breakdown just concatenates its own kelas' buckets
+    // instead of re-filtering whole row lists per unit x week x cabang — that
+    // re-filtering blocked a worker's event loop for tens of seconds per sync.
+    const pelByKelasWeek = new Map<string, PelRow[][]>();
     for (const p of pelaksanaanList) {
-      const arr = pelaksanaanByKelas.get(p.kelasId);
-      if (arr) arr.push(p); else pelaksanaanByKelas.set(p.kelasId, [p]);
+      if (!p.tanggalDiajar) continue;
+      let buckets = pelByKelasWeek.get(p.kelasId);
+      if (!buckets) pelByKelasWeek.set(p.kelasId, (buckets = weekBounds.map(() => [])));
+      for (const w of weeksOf(p.tanggalDiajar.getTime())) buckets[w].push(p);
     }
-    const absensiByKelas = new Map<string, typeof absensiList>();
+    const absByKelasWeek = new Map<string, AbsRow[][]>();
     for (const a of absensiList) {
-      const arr = absensiByKelas.get(a.kelasId);
-      if (arr) arr.push(a); else absensiByKelas.set(a.kelasId, [a]);
+      let buckets = absByKelasWeek.get(a.kelasId);
+      if (!buckets) absByKelasWeek.set(a.kelasId, (buckets = weekBounds.map(() => [])));
+      for (const w of weeksOf(a.tanggal.getTime())) buckets[w].push(a);
     }
+    const rowsInWeek = <T,>(byKelasWeek: Map<string, T[][]>, kelasIds: Iterable<string>, w: number) => {
+      const out: T[] = [];
+      for (const kId of kelasIds) {
+        const rows = byKelasWeek.get(kId)?.[w];
+        if (rows) for (const r of rows) out.push(r);
+      }
+      return out;
+    };
+
+    const kelasIdsByCabang = new Map<string, string[]>();
+    const cabangNameById = new Map<string, string | undefined>();
+    for (const k of rawKelasList) {
+      if (!k.cabangId) continue;
+      const arr = kelasIdsByCabang.get(k.cabangId);
+      if (arr) arr.push(k.id); else kelasIdsByCabang.set(k.cabangId, [k.id]);
+      if (!cabangNameById.has(k.cabangId)) cabangNameById.set(k.cabangId, k.cabang?.name);
+    }
+
+    // Per-cabang holiday status for one week: identical for every WILAYAH/GLOBAL
+    // unit that contains the cabang, so compute once and share.
+    const cabangHolidayCache = new Map<string, any>();
+    const cabangHolidayFor = (cId: string, w: number) => {
+      const cacheKey = `${cId}__${w}`;
+      if (cabangHolidayCache.has(cacheKey)) return cabangHolidayCache.get(cacheKey);
+      const cKelasIds = kelasIdsByCabang.get(cId) || [];
+      const cKelasCount = cKelasIds.length;
+      const cTarget = cKelasCount * 5;
+      const cPel = rowsInWeek(pelByKelasWeek, cKelasIds, w);
+      const cCompleted = cPel.filter(p => p.status === 'COMPLETED').length;
+      const cLibur = cPel.filter(p => p.status === 'LIBUR');
+      const cLiburCount = cLibur.length;
+      const cReasons = Array.from(new Set(cLibur.map(p => p.catatan?.trim()).filter((c): c is string => !!c)));
+
+      const cAbs = rowsInWeek(absByKelasWeek, cKelasIds, w);
+      const cHadir = cAbs.filter(a => a.status === 'HADIR').length;
+      const cTotalAbs = cAbs.length;
+
+      let cHolType: 'FULL_DAY' | 'PARTIAL' | 'NONE' = 'NONE';
+      if (cLiburCount > 0) {
+        cHolType = cCompleted === 0 ? 'FULL_DAY' : 'PARTIAL';
+      }
+
+      const cName = cabangNameById.get(cId) || allCabangs.find(c => c.id === cId)?.name || 'Cabang';
+
+      const result = {
+        cabangId: cId,
+        cabangName: cName,
+        holidayType: cHolType,
+        holidayReasons: cReasons,
+        mapelCompleted: cCompleted,
+        mapelLibur: cLiburCount,
+        mapelTarget: cTarget,
+        persenMapel: cTarget > 0 ? Math.min(100, Math.round((cCompleted / cTarget) * 100)) : 0,
+        persenKehadiran: cTotalAbs > 0 ? Math.min(100, Math.round((cHadir / cTotalAbs) * 100)) : 0,
+        totalKelas: cKelasCount
+      };
+      cabangHolidayCache.set(cacheKey, result);
+      return result;
+    };
 
     // Each unit's upsert is wrapped in a thunk (not fired immediately) so we can
     // run them in small bounded-concurrency batches below — with 324 units and
@@ -471,36 +694,16 @@ export class PembelajaranRekapService {
         };
       }).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
 
-      // Rows belonging to this unit's own classes only (gathered once, not
-      // once per week) — for CABANG/KELAS units (the vast majority) this is
-      // a tiny slice of the full pelaksanaanList/absensiList.
-      const unitPel: typeof pelaksanaanList = [];
-      const unitAbs: typeof absensiList = [];
-      acc.kelasSet.forEach(kId => {
-        const p = pelaksanaanByKelas.get(kId);
-        if (p) unitPel.push(...p);
-        const a = absensiByKelas.get(kId);
-        if (a) unitAbs.push(...a);
-      });
-
       // Build weekly structure
       const weeks = weeksInfo.map((wInfo, wIdx) => {
-        const wStartDate = new Date(wInfo.startDateIso);
-        wStartDate.setHours(0, 0, 0, 0);
-        const wEndDate = new Date(wInfo.endDateIso);
-        wEndDate.setHours(23, 59, 59, 999);
-        const isFuture = wStartDate.getTime() > now.getTime();
+        const { start: wStart, end: wEnd, isFuture } = weekBounds[wIdx];
 
-        const wPel = unitPel.filter(
-          p => p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'COMPLETED'
-        );
-        const wMapelCompleted = wPel.length;
+        const wPelAll = rowsInWeek(pelByKelasWeek, acc.kelasSet, wIdx);
+        const wMapelCompleted = wPelAll.filter(p => p.status === 'COMPLETED').length;
         const wMapelTarget = jumlahKelas * 5;
         const wPersenMapel = isFuture || wMapelTarget === 0 ? 0 : Math.min(100, Math.round((wMapelCompleted / wMapelTarget) * 100));
 
-        const wPelLibur = unitPel.filter(
-          p => p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate && p.status === 'LIBUR'
-        );
+        const wPelLibur = wPelAll.filter(p => p.status === 'LIBUR');
         const wMapelLibur = wPelLibur.length;
         const holidayReasons = Array.from(new Set(
           wPelLibur.map(p => p.catatan?.trim()).filter((c): c is string => !!c)
@@ -511,59 +714,17 @@ export class PembelajaranRekapService {
           holidayType = (wMapelCompleted === 0) ? 'FULL_DAY' : 'PARTIAL';
         }
 
-        const wAbsAll = unitAbs.filter(
-          a => a.tanggal >= wStartDate && a.tanggal <= wEndDate
-        );
+        const wAbsAll = rowsInWeek(absByKelasWeek, acc.kelasSet, wIdx);
         const wHadir = wAbsAll.filter(a => a.status === 'HADIR').length;
         const wTotalAbs = wAbsAll.length;
         const wPersenHadir = isFuture ? 0 : (wTotalAbs > 0 ? Math.min(100, Math.round((wHadir / wTotalAbs) * 100)) : 0);
 
-        const wDetails = details.filter(d => {
-          const dDate = new Date(d.tanggal);
-          return dDate >= wStartDate && dDate <= wEndDate;
-        });
-
         // Agregasi status libur per cabang jika unitLevel adalah WILAYAH atau GLOBAL
         let cabangHolidays: any[] = [];
         if (acc.unitLevel === 'WILAYAH' || acc.unitLevel === 'GLOBAL') {
-          cabangHolidays = Array.from(acc.cabangSet).map(cId => {
-            const cClasses = rawKelasList.filter(k => k.cabangId === cId);
-            const cKelasCount = cClasses.length;
-            const cTarget = cKelasCount * 5;
-            const cPel = unitPel.filter(
-              p => cClasses.some(k => k.id === p.kelasId) && p.tanggalDiajar && p.tanggalDiajar >= wStartDate && p.tanggalDiajar <= wEndDate
-            );
-            const cCompleted = cPel.filter(p => p.status === 'COMPLETED').length;
-            const cLibur = cPel.filter(p => p.status === 'LIBUR');
-            const cLiburCount = cLibur.length;
-            const cReasons = Array.from(new Set(cLibur.map(p => p.catatan?.trim()).filter((c): c is string => !!c)));
-
-            const cAbs = unitAbs.filter(
-              a => cClasses.some(k => k.id === a.kelasId) && a.tanggal >= wStartDate && a.tanggal <= wEndDate
-            );
-            const cHadir = cAbs.filter(a => a.status === 'HADIR').length;
-            const cTotalAbs = cAbs.length;
-
-            let cHolType: 'FULL_DAY' | 'PARTIAL' | 'NONE' = 'NONE';
-            if (cLiburCount > 0) {
-              cHolType = cCompleted === 0 ? 'FULL_DAY' : 'PARTIAL';
-            }
-
-            const cName = cClasses[0]?.cabang?.name || allCabangs.find(c => c.id === cId)?.name || 'Cabang';
-
-            return {
-              cabangId: cId,
-              cabangName: cName,
-              holidayType: cHolType,
-              holidayReasons: cReasons,
-              mapelCompleted: cCompleted,
-              mapelLibur: cLiburCount,
-              mapelTarget: cTarget,
-              persenMapel: cTarget > 0 ? Math.min(100, Math.round((cCompleted / cTarget) * 100)) : 0,
-              persenKehadiran: cTotalAbs > 0 ? Math.min(100, Math.round((cHadir / cTotalAbs) * 100)) : 0,
-              totalKelas: cKelasCount
-            };
-          }).filter(c => c.totalKelas > 0);
+          cabangHolidays = Array.from(acc.cabangSet)
+            .map(cId => cabangHolidayFor(cId, wIdx))
+            .filter(c => c.totalKelas > 0);
         }
 
         return {
@@ -580,7 +741,10 @@ export class PembelajaranRekapService {
           holidayReasons,
           mapelLibur: wMapelLibur,
           cabangHolidays,
-          details: wDetails
+          // Details live once in weeksJson.details; readers rebuild this week's
+          // slice from the range (see expandWeeksJson).
+          detailsFrom: new Date(wStart).toISOString(),
+          detailsTo: new Date(wEnd).toISOString()
         };
       });
 
@@ -659,6 +823,9 @@ export class PembelajaranRekapService {
       kelasId?: string;
       wilayahId?: string;
       cabangId?: string;
+      // false = leave the per-week detail rows out (they are the bulk of the
+      // payload, several MB); the UI fetches one week via getRingkasanWeekDetails.
+      withDetails?: boolean;
     } | string,
     kelasIdLegacy?: string,
     wilayahIdLegacy?: string,
@@ -672,6 +839,7 @@ export class PembelajaranRekapService {
     let kelasId: string | undefined;
     let wilayahId: string | undefined;
     let cabangId: string | undefined;
+    let withDetails = true;
 
     if (typeof queryParams === 'object' && queryParams !== null) {
       mode = queryParams.mode || 'monthly';
@@ -682,6 +850,7 @@ export class PembelajaranRekapService {
       kelasId = queryParams.kelasId;
       wilayahId = queryParams.wilayahId;
       cabangId = queryParams.cabangId;
+      withDetails = queryParams.withDetails !== false;
     } else {
       month = queryParams;
       kelasId = kelasIdLegacy;
@@ -691,7 +860,7 @@ export class PembelajaranRekapService {
 
     const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
     const tahunAjaran = reqTahunAjaran || pengaturan?.tahunAjaran || '';
-    const semester = reqSemester || pengaturan?.semesterAktif || '';
+    const semester = normalizeSemester(reqSemester || pengaturan?.semesterAktif || '');
 
     const scopeLevel: 'GLOBAL' | 'WILAYAH' | 'CABANG' =
       user?.scope === 'CABANG' ? 'CABANG' : user?.scope === 'WILAYAH' ? 'WILAYAH' : 'GLOBAL';
@@ -827,8 +996,10 @@ export class PembelajaranRekapService {
 
     // Map rows to unitBreakdown shape expected by frontend
     const unitBreakdown = filteredRekap.map(r => {
-      const json = (r.weeksJson as any) || {};
-      const weeks = json.weeks || [];
+      const json = (withDetails ? expandWeeksJson(r.weeksJson as any) : (r.weeksJson as any)) || {};
+      const weeks = withDetails
+        ? (json.weeks || [])
+        : (json.weeks || []).map(({ details: _d, detailsFrom: _f, detailsTo: _t, ...w }: any) => w);
       const details = json.details || [];
 
       return {
@@ -845,7 +1016,7 @@ export class PembelajaranRekapService {
         totalAbsensi: r.totalAbsensi,
         persenKehadiran: Math.round(r.persenKehadiran),
         status: this.statusForPercent(r.persenMapel),
-        details,
+        ...(withDetails ? { details } : {}),
         weeks
       };
     });
@@ -902,6 +1073,26 @@ export class PembelajaranRekapService {
       pemantauanMingguan: [],
       weeksInfo
     };
+  }
+
+  /**
+   * Detail rows of one week for the given units, as the full Ringkasan response
+   * would have carried them. Built on getRingkasanFromRekap so the caller's
+   * scope and filters apply identically — units outside them are never returned.
+   */
+  async getRingkasanWeekDetails(
+    user: any,
+    query: Parameters<PembelajaranRekapService['getRingkasanFromRekap']>[1],
+    unitIds: string[],
+    weekNumber: number
+  ): Promise<{ details: any[] }> {
+    const base = typeof query === 'object' && query !== null ? query : {};
+    const full = await this.getRingkasanFromRekap(user, { ...base, withDetails: true });
+    const wanted = new Set(unitIds);
+    const details = full.unitBreakdown
+      .filter((u: any) => wanted.has(u.id))
+      .flatMap((u: any) => u.weeks?.[weekNumber - 1]?.details || []);
+    return { details };
   }
 
   // Daily Cron Job to keep current active periods fresh

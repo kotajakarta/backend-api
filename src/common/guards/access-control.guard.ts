@@ -60,9 +60,21 @@ export class AccessControlGuard implements CanActivate {
         audience: JWT_AUDIENCE,
       }) as any;
       
-      const user = await this.prisma.user.findUnique({ 
+      // Runs on every authenticated request: select only what is used below.
+      // staff/cabang rows hold base64 KTP/ijazah/building photos, so including
+      // them whole pulled ~364 KB from Postgres per request.
+      const user = await this.prisma.user.findUnique({
         where: { id: payload.id },
-        include: { staff: true, cabang: true, wilayah: true }
+        select: {
+          id: true,
+          scope: true,
+          divisi: true,
+          staffId: true,
+          cabangId: true,
+          wilayahId: true,
+          operatorName: true,
+          staff: { select: { cabangId: true, wilayahId: true, name: true } }
+        }
       });
       if (!user) {
         throw new UnauthorizedException('Session invalid');

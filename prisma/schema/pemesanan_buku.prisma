@@ -1,0 +1,95 @@
+enum StatusPemesananCabang {
+  DRAFT_CABANG
+  SUBMITTED_CABANG
+
+  @@schema("formal")
+}
+
+enum StatusPemesananWilayah {
+  DRAFT_WILAYAH
+  SUBMITTED_WILAYAH
+
+  @@schema("formal")
+}
+
+model SesiPemesananBuku {
+  id             String                 @id @default(uuid())
+  tahunAjaran    String                 @map("tahun_ajaran")
+  semester       String
+  isActive       Boolean                @default(false) @map("is_active")
+  isOpen         Boolean                @default(true) @map("is_open")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  pesananCabang  PemesananBukuCabang[]
+  pesananWilayah PemesananBukuWilayah[]
+
+  @@unique([tahunAjaran, semester])
+  @@map("sesi_pemesanan_buku")
+  @@schema("formal")
+}
+
+model PemesananBukuCabang {
+  id              String                    @id @default(uuid())
+  sesiId          String                    @map("sesi_id")
+  cabangId        String                    @map("cabang_id")
+  wilayahId       String                    @map("wilayah_id")
+  status          StatusPemesananCabang
+  nomor           String                    @unique
+  draftAt         DateTime?                 @map("draft_at")
+  submittedAt     DateTime?                 @map("submitted_at")
+  submittedById   String?                   @map("submitted_by_id")
+  submittedByName String?                   @map("submitted_by_name")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+  sesi            SesiPemesananBuku         @relation(fields: [sesiId], references: [id])
+  cabang          Cabang                    @relation(fields: [cabangId], references: [id])
+  wilayah         Wilayah                   @relation(fields: [wilayahId], references: [id])
+  items           PemesananBukuCabangItem[]
+
+  @@unique([sesiId, cabangId])
+  @@index([sesiId, wilayahId])
+  @@map("pemesanan_buku_cabang")
+  @@schema("formal")
+}
+
+model PemesananBukuCabangItem {
+  id           String              @id @default(uuid())
+  pesananId    String              @map("pesanan_id")
+  tingkat      Int
+  jumlahSantri Int                 @map("jumlah_santri")
+  jumlahGuru   Int                 @map("jumlah_guru")
+  total        Int
+  pesanan      PemesananBukuCabang @relation(fields: [pesananId], references: [id], onDelete: Cascade)
+
+  @@unique([pesananId, tingkat])
+  @@map("pemesanan_buku_cabang_item")
+  @@schema("formal")
+}
+
+model PemesananBukuWilayah {
+  id              String                 @id @default(uuid())
+  sesiId          String                 @map("sesi_id")
+  wilayahId       String                 @map("wilayah_id")
+  status          StatusPemesananWilayah
+  nomor           String                 @unique
+  ttdFileKey      String?                @map("ttd_file_key")
+  ttdFileName     String?                @map("ttd_file_name")
+  ttdMime         String?                @map("ttd_mime")
+  ttdUploadedAt   DateTime?              @map("ttd_uploaded_at")
+  baFingerprint   String?                @map("ba_fingerprint")
+  baDicetakAt     DateTime?              @map("ba_dicetak_at")
+  resetAlasan     String?                @map("reset_alasan")
+  resetAt         DateTime?              @map("reset_at")
+  draftAt         DateTime?              @map("draft_at")
+  submittedAt     DateTime?              @map("submitted_at")
+  submittedById   String?                @map("submitted_by_id")
+  submittedByName String?                @map("submitted_by_name")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  sesi            SesiPemesananBuku      @relation(fields: [sesiId], references: [id])
+  wilayah         Wilayah                @relation(fields: [wilayahId], references: [id])
+
+  @@unique([sesiId, wilayahId])
+  @@map("pemesanan_buku_wilayah")
+  @@schema("formal")
+}

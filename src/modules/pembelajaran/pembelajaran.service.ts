@@ -30,7 +30,7 @@ export interface SilabusExportItem {
   tanggalTarget: Date | null;
 }
 
-import { PembelajaranRekapService } from './pembelajaran-rekap.service.js';
+import { PembelajaranRekapService, normalizeSemester } from './pembelajaran-rekap.service.js';
 
 @Injectable()
 export class PembelajaranService {
@@ -45,7 +45,10 @@ export class PembelajaranService {
     return dateStr.slice(0, 10) > todayStr;
   }
 
-  // Trigger background sync for the affected month(s) & semester so Ringkasan is automatically refreshed
+  // Queue a refresh of the affected month(s) & semester so Ringkasan is updated automatically.
+  // Goes through requestSync() (coalesced, one sync at a time cluster-wide) — calling
+  // syncPeriod() directly on every save ran dozens of full recomputes in parallel at busy
+  // hours and crashed workers with "JavaScript heap out of memory".
   private triggerRekapSync(dates: string[]) {
     try {
       const validDates = dates.filter(Boolean);
@@ -55,13 +58,9 @@ export class PembelajaranService {
         const ta = pengaturan?.tahunAjaran || '2026/2027';
         const sem = pengaturan?.semesterAktif || '1';
         for (const m of months) {
-          this.pembelajaranRekapService.syncPeriod(ta, sem, 'monthly', m).catch(err => {
-            console.error(`[PembelajaranService] Background monthly sync error (${m}):`, err?.message);
-          });
+          this.pembelajaranRekapService.requestSync(ta, sem, 'monthly', m);
         }
-        this.pembelajaranRekapService.syncPeriod(ta, sem, 'semester').catch(err => {
-          console.error('[PembelajaranService] Background semester sync error:', err?.message);
-        });
+        this.pembelajaranRekapService.requestSync(ta, sem, 'semester');
       }).catch(() => {});
     } catch (_) {}
   }
@@ -859,7 +858,7 @@ export class PembelajaranService {
   ): Promise<{ periode: { gte: Date; lte: Date }; rekap: any[] } | null> {
     const pengaturan = await this.prisma.pengaturanAkademik.findFirst();
     const tahunAjaran = filters.tahunAjaran || pengaturan?.tahunAjaran || '';
-    const semester = filters.semester || pengaturan?.semesterAktif || '';
+    const semester = normalizeSemester(filters.semester || pengaturan?.semesterAktif || '');
     if (!tahunAjaran || !semester) return null;
 
     const { startDate, endDate, periodeKey } = this.pembelajaranRekapService.resolvePeriodDates(filters.mode, {
@@ -1167,6 +1166,10 @@ export class PembelajaranService {
     } catch (err) {
       return this.getRingkasanLegacy(user, queryParams, kelasIdLegacy, wilayahIdLegacy, cabangIdLegacy);
     }
+  }
+
+  async getRingkasanWeekDetails(user: any, queryParams: any, unitIds: string[], weekNumber: number) {
+    return this.pembelajaranRekapService.getRingkasanWeekDetails(user, queryParams, unitIds, weekNumber);
   }
 
   async getRingkasanLegacy(

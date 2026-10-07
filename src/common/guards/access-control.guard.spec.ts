@@ -296,3 +296,53 @@ describe('AccessControlGuard — cookie-based token fallback (replaces query-str
     await assert.rejects(() => guard.canActivate(context), (err: unknown) => err instanceof UnauthorizedException);
   });
 });
+
+describe('AccessControlGuard — session lookup stays small', () => {
+  // staff and cabang rows carry base64 KTP/ijazah/building photos (~364 KB per
+  // request in production when included whole), so the guard must select only
+  // the columns it actually uses.
+  function makeRecordingPrisma(row: any) {
+    const calls: any[] = [];
+    return {
+      calls,
+      prisma: {
+        user: {
+          findUnique: async (args: any) => {
+            calls.push(args);
+            return row;
+          },
+        },
+      } as any,
+    };
+  }
+
+  it('selects only the session columns, never whole staff/cabang/wilayah rows', async () => {
+    const { prisma, calls } = makeRecordingPrisma({ id: 'user-1', scope: 'CABANG', divisi: 'ALL', staffId: null, cabangId: 'c1', wilayahId: 'w1', operatorName: 'Op', staff: null });
+    const guard = new AccessControlGuard(makeReflector(), prisma);
+    await guard.canActivate(makeContext(signToken({ scope: 'CABANG' })));
+
+    assert.equal(calls.length, 1);
+    const args = calls[0];
+    assert.equal(args.include, undefined, 'must not include relations wholesale');
+    assert.ok(args.select, 'must use select');
+    assert.equal(args.select.cabang, undefined, 'cabang row (photos) is not needed');
+    assert.equal(args.select.wilayah, undefined, 'wilayah row is not needed');
+    assert.deepEqual(Object.keys(args.select.staff.select).sort(), ['cabangId', 'name', 'wilayahId']);
+  });
+
+  it('still derives cabang/wilayah/operator from the linked staff record', async () => {
+    const { prisma } = makeRecordingPrisma({
+      id: 'user-1', scope: 'GURU', divisi: 'FORMAL', staffId: 's1', cabangId: null, wilayahId: null, operatorName: null,
+      staff: { cabangId: 'c9', wilayahId: 'w9', name: 'Ust. Ali' },
+    });
+    const guard = new AccessControlGuard(makeReflector(), prisma);
+    const ctx = makeContext(signToken({ scope: 'CABANG' }));
+    await guard.canActivate(ctx);
+    const user = ctx.switchToHttp().getRequest().user;
+    assert.equal(user.scope, 'GURU');
+    assert.equal(user.cabangId, 'c9');
+    assert.equal(user.wilayahId, 'w9');
+    assert.equal(user.operatorName, 'Ust. Ali');
+    assert.equal(user.staffId, 's1');
+  });
+});
